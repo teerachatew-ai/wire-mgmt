@@ -399,6 +399,94 @@ router.post('/billing-export', (req, res) => {
   });
 });
 
+// Export ใบแจ้งหนี้ (Invoice) — รวมยอดต่อสินค้าทั้งเดือน, ออกบิลให้ลูกค้า
+router.post('/invoice-export', (req, res) => {
+  const body = req.body || {};
+  const month: string = typeof body.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : '';
+  if (!month) return res.status(400).json({ error: 'month required' });
+  const [yy, mm] = month.split('-');
+
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+
+  // รวมยอดส่งออกต่อสินค้าในเดือนนั้น
+  const rows = prepare(`
+    SELECT p.project, p.name, p.description, p.factory_price as price, SUM(si.good_qty) as quantity
+    FROM shipment_items si
+    JOIN shipments s ON si.shipment_id = s.id
+    JOIN products p ON si.product_id = p.id
+    WHERE s.shipped_at LIKE ? AND si.good_qty > 0
+    GROUP BY p.id
+    ORDER BY p.project, p.name
+  `).all(`${month}%`) as any[];
+
+  const lines = rows.map((r: any) => ({
+    project: r.project || '',
+    part_number: (r.name || '').replace(/\s*[\(（].*$/, '').trim(),
+    description: r.description || (r.name || '').replace(/\s*[\(（].*$/, '').trim(),
+    quantity: r.quantity || 0,
+    price: r.price || 0,
+  }));
+  // ค่าขนส่ง (ถ้ากำหนดใน settings)
+  const transport = parseFloat(cfg.invoice_transport_fee || '0');
+  if (transport > 0) lines.push({ project: '', part_number: '', description: 'Transportation fee', quantity: 1, price: transport });
+
+  const payload = {
+    invoice_no: body.invoice_no || `${yy}${mm}01`,
+    date: body.date || new Date().toISOString().slice(0, 10),
+    customer: {
+      name: cfg.invoice_customer_name || 'บริษัท แอมฟีนอล ฟีนิกซ์ (ประเทศไทย) จำกัด (สำนักงานใหญ่)',
+      address: cfg.invoice_customer_address || '40/39-40,40/42-43 หมู่ที่ 5 ตำบลอุทัย อำเภออุทัย จังหวัดพระนครศรีอยุธยา 13210',
+      contact: cfg.invoice_customer_contact || '',
+      taxid: cfg.invoice_customer_taxid || '0145566000923',
+    },
+    lines,
+  };
+
+  const wantPdf = req.query.format === 'pdf';
+  const root = process.cwd();
+  const tpl = path.join(root, 'server', 'templates', 'invoice-template.xlsx');
+  const script = path.join(root, 'server', 'scripts', 'fill_invoice.py');
+  const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `invoice-${month}.xlsx`);
+  const pdfFile = path.join(tmpDir, `invoice-${month}.pdf`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(payload), 'utf-8');
+
+  const sendFile = (file: string, type: string, name: string) => {
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  };
+
+  const args = [script, tpl, dataFile, xlsxFile];
+  if (wantPdf) args.push('pdf');
+  const py = spawn('python', args, { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'fill failed', detail: errOut }); }
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `invoice-${month}.xlsx`);
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
+    let psErr = '';
+    const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 90000);
+    ps.stderr.on('data', (c) => { psErr += c.toString(); });
+    ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
+    ps.on('close', () => {
+      clearTimeout(killTimer);
+      if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
+      sendFile(pdfFile, 'application/pdf', `invoice-${month}.pdf`);
+    });
+  });
+});
+
 router.get('/stock-flow', (req, res) => {
   // filter เดือน (YYYY-MM) — ถ้าระบุจะคิดเฉพาะยอดเคลื่อนไหวในเดือนนั้น
   const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)) ? req.query.month : '';

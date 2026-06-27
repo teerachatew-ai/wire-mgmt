@@ -17,6 +17,8 @@ export default function Billing() {
   const [savedMsg, setSavedMsg] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [invXlsx, setInvXlsx] = useState(false);
+  const [invPdf, setInvPdf] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ['billing', month || 'none'], queryFn: () => reportApi.billing(month || undefined) });
   const { data: base } = useQuery({ queryKey: ['billing-base'], queryFn: () => reportApi.billing() });
@@ -81,6 +83,16 @@ export default function Billing() {
     } finally { setExportingPdf(false); }
   };
 
+  const exportInvoice = async (format?: 'pdf') => {
+    if (format === 'pdf') setInvPdf(true); else setInvXlsx(true);
+    try {
+      const blob = await reportApi.invoiceExport({ month }, format);
+      download(blob, `ใบแจ้งหนี้-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+    } catch (e) {
+      alert('สร้างใบแจ้งหนี้ไม่สำเร็จ');
+    } finally { if (format === 'pdf') setInvPdf(false); else setInvXlsx(false); }
+  };
+
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-6xl">
@@ -109,6 +121,18 @@ export default function Billing() {
             </>
           )}
         </div>
+
+        {month && (
+          <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100">
+            <span className="text-xs text-gray-500">ใบแจ้งหนี้ (Invoice) — รวมยอดต่อสินค้าทั้งเดือน ออกบิลให้ลูกค้า:</span>
+            <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportInvoice()} disabled={invXlsx}>
+              {invXlsx ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} ใบแจ้งหนี้ Excel
+            </button>
+            <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportInvoice('pdf')} disabled={invPdf}>
+              {invPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} ใบแจ้งหนี้ PDF
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div><label className="label">ชื่อซัพพลายเออร์ (Vendor)</label><input className="input" value={supplier.name} onChange={e => setSupplier({ ...supplier, name: e.target.value })} /></div>
