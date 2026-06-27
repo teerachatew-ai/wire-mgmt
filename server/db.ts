@@ -3,23 +3,68 @@ import path from 'path';
 import initSqlJs, { Database } from 'sql.js';
 import { computePayCycle, loadCutoffConfig } from './payCycle';
 
-// เก็บ DB ไว้นอกโฟลเดอร์ build (dist) เพื่อไม่ให้หายเวลา rebuild — ใช้ cwd ของโปรเซส (โฟลเดอร์โปรเจกต์)
+// โหมดเก็บข้อมูล:
+//  - มี DATABASE_URL (เช่นบน cloud/Render) -> เก็บฐานข้อมูลเป็น blob ใน Postgres (Neon) ให้ถาวร
+//  - ไม่มี (เครื่อง local) -> เก็บเป็นไฟล์เหมือนเดิม + สำรองรายวัน
+const DATABASE_URL = process.env.DATABASE_URL || '';
+const USE_PG = !!DATABASE_URL;
+
 const DB_PATH = path.join(process.cwd(), 'data', 'wire-mgmt.db');
 const dataDir = path.dirname(DB_PATH);
 const backupDir = path.join(dataDir, 'backups');
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+if (!USE_PG) {
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+}
 
 let db: Database;
 
-// Save DB to file after writes
+// ---- Postgres blob persistence (cloud) ----
+let pgPool: any = null;
+let flushTimer: NodeJS.Timeout | null = null;
+let flushing = false;
+let dirty = false;
+
+async function pgInit() {
+  const { Pool } = require('pg');
+  pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  await pgPool.query(`CREATE TABLE IF NOT EXISTS app_db (id INT PRIMARY KEY, data BYTEA NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`);
+}
+async function pgLoad(): Promise<Buffer | null> {
+  const r = await pgPool.query('SELECT data FROM app_db WHERE id = 1');
+  return r.rows[0]?.data ?? null;
+}
+async function pgFlush() {
+  if (!pgPool || flushing || !dirty) return;
+  flushing = true; dirty = false;
+  try {
+    const data = Buffer.from(db.export());
+    await pgPool.query(
+      `INSERT INTO app_db (id, data, updated_at) VALUES (1, $1, now())
+       ON CONFLICT (id) DO UPDATE SET data = $1, updated_at = now()`, [data]);
+  } catch (e) {
+    dirty = true; // ลองใหม่รอบถัดไป
+    console.error('pgFlush error:', (e as any)?.message);
+  } finally { flushing = false; }
+}
+function scheduleFlush() {
+  dirty = true;
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => { flushTimer = null; pgFlush(); }, 1500);
+}
+// flush ค้างก่อนปิดโปรเซส (Render ส่ง SIGTERM ตอน deploy/restart)
+export async function flushNow() { if (USE_PG) { dirty = true; await pgFlush(); } }
+
+// Save DB after writes
 function save() {
+  if (USE_PG) { scheduleFlush(); return; }
   const data = db.export();
   fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
 // สำรองข้อมูลรายวัน (เก็บย้อนหลัง 30 ไฟล์)
 function backupDaily() {
+  if (USE_PG) return; // cloud ใช้ Postgres เก็บถาวรอยู่แล้ว ไม่ต้องสำรองไฟล์
   try {
     if (!fs.existsSync(DB_PATH)) return;
     const today = new Date().toISOString().split('T')[0];
@@ -69,12 +114,15 @@ function exec(sql: string) {
 
 export async function initDb() {
   const SQL = await initSqlJs();
-  if (fs.existsSync(DB_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
+  let initial: Buffer | null = null;
+  if (USE_PG) {
+    await pgInit();
+    initial = await pgLoad();
+    console.log(initial ? '📦 โหลดฐานข้อมูลจาก Postgres (Neon)' : '📦 เริ่มฐานข้อมูลใหม่บน Postgres');
+  } else if (fs.existsSync(DB_PATH)) {
+    initial = fs.readFileSync(DB_PATH);
   }
+  db = initial ? new SQL.Database(initial) : new SQL.Database();
 
   db.exec(`PRAGMA foreign_keys = ON;`);
 

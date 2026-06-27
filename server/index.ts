@@ -4,10 +4,15 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { initDb } from './db';
+import { initDb, flushNow } from './db';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// เซฟฐานข้อมูลค้างก่อนปิดโปรเซส (cloud restart/deploy ส่ง SIGTERM)
+const shutdown = async () => { try { await flushNow(); } catch {} process.exit(0); };
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 app.use(cors());
 app.use(express.json());

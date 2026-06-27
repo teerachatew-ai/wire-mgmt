@@ -1,0 +1,10 @@
+node_modules
+client/node_modules
+dist
+client/dist
+data
+uploads
+*.log
+*.exe
+.git
+.env

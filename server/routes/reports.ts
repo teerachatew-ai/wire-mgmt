@@ -376,15 +376,21 @@ router.post('/billing-export', (req, res) => {
     if (!wantPdf) {
       return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `billing-${month}.xlsx`);
     }
-    // แปลง xlsx -> pdf ผ่าน Excel COM ให้หน้าตาเหมือน Excel เป๊ะ
-    const ps = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile]);
+    // แปลง xlsx -> pdf ให้หน้าตาเหมือน Excel เป๊ะ
+    //  - Windows: ใช้ MS Excel (COM) ผ่าน PowerShell
+    //  - Linux (cloud): ใช้ LibreOffice headless
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
     let psErr = '';
     const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 90000);
     ps.stderr.on('data', (c) => { psErr += c.toString(); });
     ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
     ps.on('close', (pc) => {
       clearTimeout(killTimer);
-      if (pc !== 0 || !fs.existsSync(pdfFile)) {
+      // LibreOffice ตั้งชื่อไฟล์เป็น <ชื่อเดียวกับ xlsx>.pdf ใน outdir -> ใช้ pdfFile ที่ตั้งไว้ตรงกันแล้ว
+      if (!fs.existsSync(pdfFile)) {
         cleanup();
         return res.status(500).json({ error: 'pdf convert failed', detail: psErr });
       }
