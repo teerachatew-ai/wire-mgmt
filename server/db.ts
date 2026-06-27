@@ -1,0 +1,262 @@
+import fs from 'fs';
+import path from 'path';
+import initSqlJs, { Database } from 'sql.js';
+import { computePayCycle, loadCutoffConfig } from './payCycle';
+
+// เก็บ DB ไว้นอกโฟลเดอร์ build (dist) เพื่อไม่ให้หายเวลา rebuild — ใช้ cwd ของโปรเซส (โฟลเดอร์โปรเจกต์)
+const DB_PATH = path.join(process.cwd(), 'data', 'wire-mgmt.db');
+const dataDir = path.dirname(DB_PATH);
+const backupDir = path.join(dataDir, 'backups');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+let db: Database;
+
+// Save DB to file after writes
+function save() {
+  const data = db.export();
+  fs.writeFileSync(DB_PATH, Buffer.from(data));
+}
+
+// สำรองข้อมูลรายวัน (เก็บย้อนหลัง 30 ไฟล์)
+function backupDaily() {
+  try {
+    if (!fs.existsSync(DB_PATH)) return;
+    const today = new Date().toISOString().split('T')[0];
+    const dest = path.join(backupDir, `wire-mgmt-${today}.db`);
+    if (!fs.existsSync(dest)) {
+      fs.copyFileSync(DB_PATH, dest);
+      // prune: เก็บ 30 ไฟล์ล่าสุด
+      const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.db')).sort();
+      while (files.length > 30) {
+        const old = files.shift();
+        if (old) try { fs.unlinkSync(path.join(backupDir, old)); } catch {}
+      }
+    }
+  } catch (e) { /* เงียบไว้ ไม่ให้กระทบระบบหลัก */ }
+}
+
+// Wrapper that mimics better-sqlite3 sync API
+function prepare(sql: string) {
+  return {
+    run(...params: any[]) {
+      db.run(sql, params);
+      save();
+      // get last insert rowid
+      const [[lastId]] = db.exec('SELECT last_insert_rowid()')[0]?.values || [[0]];
+      return { lastInsertRowid: lastId as number };
+    },
+    get(...params: any[]) {
+      const res = db.exec(sql, params);
+      if (!res[0]) return undefined;
+      const { columns, values } = res[0];
+      if (!values[0]) return undefined;
+      return Object.fromEntries(columns.map((c, i) => [c, values[0][i]]));
+    },
+    all(...params: any[]) {
+      const res = db.exec(sql, params);
+      if (!res[0]) return [];
+      const { columns, values } = res[0];
+      return values.map(row => Object.fromEntries(columns.map((c, i) => [c, row[i]])));
+    }
+  };
+}
+
+function exec(sql: string) {
+  db.exec(sql);
+  save();
+}
+
+export async function initDb() {
+  const SQL = await initSqlJs();
+  if (fs.existsSync(DB_PATH)) {
+    const fileBuffer = fs.readFileSync(DB_PATH);
+    db = new SQL.Database(fileBuffer);
+  } else {
+    db = new SQL.Database();
+  }
+
+  db.exec(`PRAGMA foreign_keys = ON;`);
+
+  db.exec(`
+CREATE TABLE IF NOT EXISTS members (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  id_card TEXT,
+  phone TEXT,
+  address TEXT,
+  bank_account TEXT,
+  bank_name TEXT,
+  registered_at TEXT DEFAULT (date('now')),
+  status TEXT DEFAULT 'active'
+);
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  wage_per_unit REAL NOT NULL DEFAULT 0,
+  defect_tolerance REAL NOT NULL DEFAULT 5.0,
+  active INTEGER DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS receives (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  received_at TEXT NOT NULL,
+  product_id INTEGER NOT NULL,
+  quantity REAL NOT NULL,
+  factory_ref TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS issues (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  issued_at TEXT NOT NULL,
+  member_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  quantity REAL NOT NULL,
+  due_date TEXT,
+  status TEXT DEFAULT 'pending',
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS returns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  issue_id INTEGER NOT NULL,
+  returned_at TEXT NOT NULL,
+  good_qty REAL NOT NULL DEFAULT 0,
+  defect_qty REAL NOT NULL DEFAULT 0,
+  waste_qty REAL NOT NULL DEFAULT 0,
+  inspector TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS shipments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  shipped_at TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS shipment_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shipment_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  good_qty REAL NOT NULL DEFAULT 0,
+  defect_qty REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  month TEXT NOT NULL,
+  description TEXT,
+  amount REAL NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS managers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  role TEXT DEFAULT '',
+  compensation_type TEXT NOT NULL DEFAULT 'fixed',
+  amount REAL NOT NULL DEFAULT 0,
+  active INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0
+);
+`);
+  save();
+
+  // ── migrations (add columns to existing tables) ──
+  const memberCols = db.exec(`PRAGMA table_info(members)`)[0]?.values.map(r => r[1]) ?? [];
+  if (!memberCols.includes('nickname')) {
+    db.exec(`ALTER TABLE members ADD COLUMN nickname TEXT`);
+  }
+  if (!memberCols.includes('pdpa_consent')) {
+    db.exec(`ALTER TABLE members ADD COLUMN pdpa_consent INTEGER DEFAULT 0`);
+  }
+  if (!memberCols.includes('pdpa_consent_at')) {
+    db.exec(`ALTER TABLE members ADD COLUMN pdpa_consent_at TEXT`);
+  }
+  const productCols = db.exec(`PRAGMA table_info(products)`)[0]?.values.map(r => r[1]) ?? [];
+  if (!productCols.includes('factory_price')) {
+    db.exec(`ALTER TABLE products ADD COLUMN factory_price REAL NOT NULL DEFAULT 0`);
+  }
+  if (!productCols.includes('project')) {
+    db.exec(`ALTER TABLE products ADD COLUMN project TEXT`);
+  }
+  if (!productCols.includes('color')) {
+    db.exec(`ALTER TABLE products ADD COLUMN color TEXT`);
+  }
+  if (!productCols.includes('description')) {
+    db.exec(`ALTER TABLE products ADD COLUMN description TEXT`);
+  }
+  const returnCols = db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
+  if (!returnCols.includes('pay_cycle')) {
+    db.exec(`ALTER TABLE returns ADD COLUMN pay_cycle TEXT`);
+  }
+  // แยกงานเสีย: ng_cut = เสียจากการตัด (หักเงิน), ng_factory = เสียจากโรงงาน (จ่ายปกติ)
+  // defect_qty = ng_cut + ng_factory (คงไว้เป็นยอดรวมให้ระบบสต็อก/คุณภาพใช้ต่อ)
+  if (!returnCols.includes('ng_cut')) {
+    db.exec(`ALTER TABLE returns ADD COLUMN ng_cut REAL NOT NULL DEFAULT 0`);
+    // ของเดิม: ถือว่างานเสียทั้งหมดเป็น "เสียจากการตัด" (รักษาการคิดเงินเดิม)
+    db.exec(`UPDATE returns SET ng_cut = defect_qty WHERE ng_cut = 0`);
+  }
+  if (!returnCols.includes('ng_factory')) {
+    db.exec(`ALTER TABLE returns ADD COLUMN ng_factory REAL NOT NULL DEFAULT 0`);
+  }
+  save();
+
+  // Backfill pay_cycle for existing returns (compute from returned_at)
+  {
+    const cfgRows = (db.exec(`SELECT key, value FROM settings`)[0]?.values ?? []).map(r => ({ key: r[0] as string, value: r[1] as string }));
+    const { holidays, overrides } = loadCutoffConfig(cfgRows);
+    const rows = db.exec(`SELECT id, returned_at FROM returns WHERE pay_cycle IS NULL OR pay_cycle = ''`)[0];
+    if (rows) {
+      for (const v of rows.values) {
+        const id = v[0]; const returnedAt = v[1] as string;
+        if (!returnedAt) continue;
+        const pc = computePayCycle(returnedAt, holidays, overrides);
+        db.run(`UPDATE returns SET pay_cycle = ? WHERE id = ?`, [pc, id]);
+      }
+      save();
+    }
+  }
+
+  // default settings
+  const defaults = [
+    ['max_pending_units', '500'],
+    ['overdue_days_limit', '30'],
+    ['defect_wage_percent', '0'],
+    ['admin_name', 'แอดมิน'],
+    ['group_deduction_percent', '0'],
+    ['admin_cost_percent', '0'],
+    ['withholding_tax_percent', '3'],
+    ['ng_penalty_per_unit', '20'],  // ค่าปรับ (บาท) ต่อเส้น NG-ตัด ที่เกินเกณฑ์ % ยอมรับได้
+  ];
+  for (const [k, v] of defaults) {
+    db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, [k, v]);
+  }
+  save();
+
+  // สำรองข้อมูลทันทีตอนเปิด + ทุกวัน
+  backupDaily();
+  setInterval(backupDaily, 6 * 60 * 60 * 1000); // เช็คทุก 6 ชม. (สร้างไฟล์วันละ 1 ครั้ง)
+
+  return { prepare, exec };
+}
+
+export function nextCode(prefix: string, table: string, field: string = 'code'): string {
+  const res = db.exec(`SELECT ${field} FROM ${table} WHERE ${field} LIKE '${prefix}%' ORDER BY id DESC LIMIT 1`);
+  if (!res[0]?.values[0]) return `${prefix}001`;
+  const last = res[0].values[0][0] as string;
+  const num = parseInt(last.replace(prefix, '')) + 1;
+  return `${prefix}${String(num).padStart(3, '0')}`;
+}
+
+export { prepare, exec };
+export default { prepare, exec };

@@ -1,0 +1,185 @@
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { reportApi } from '../api';
+import { FileText, Download, Loader2, Plus, Trash2, Save } from 'lucide-react';
+
+const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const monthLabel = (m: string) => { if (!m) return ''; const [y, mo] = m.split('-'); return `${TH[+mo - 1]} ${y}`; };
+
+interface Line { part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
+
+export default function Billing() {
+  const [month, setMonth] = useState('');
+  const [lines, setLines] = useState<Line[]>([]);
+  const [supplier, setSupplier] = useState({ name: '', code: 'TM013', address: '', contact: '', tel: '' });
+  const [whtRate, setWhtRate] = useState(0.03);
+  const [savedMsg, setSavedMsg] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const { data, isLoading } = useQuery({ queryKey: ['billing', month || 'none'], queryFn: () => reportApi.billing(month || undefined) });
+  const { data: base } = useQuery({ queryKey: ['billing-base'], queryFn: () => reportApi.billing() });
+
+  useEffect(() => {
+    if (data) {
+      setWhtRate(data.wht_rate ?? 0.03);
+      if (data.supplier) setSupplier(s => ({ ...s, ...data.supplier }));
+      setLines((data.lines || []).map((l: any) => ({
+        part_number: l.part_number || '', description: l.description || '',
+        quantity: l.quantity || 0, unit: l.unit || 'EA', price: l.price || 0,
+        deliveryDate: (l.shipped_at || '').slice(0, 10),
+      })));
+    }
+  }, [data]);
+
+  const months: string[] = base?.months || data?.months || [];
+
+  const updLine = (i: number, f: keyof Line, v: any) => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
+  const addLine = () => setLines(ls => [...ls, { part_number: '', description: '', quantity: 0, unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
+  const delLine = (i: number) => setLines(ls => ls.filter((_, idx) => idx !== i));
+
+  const calc = lines.map(l => { const amount = l.quantity * l.price; const wht = amount * whtRate; return { ...l, amount, wht, net: amount - wht }; });
+  const totQty = calc.reduce((s, l) => s + l.quantity, 0);
+  const totAmount = calc.reduce((s, l) => s + l.amount, 0);
+  const totWht = calc.reduce((s, l) => s + l.wht, 0);
+  const totNet = totAmount - totWht;
+
+  const saveSupplier = async () => {
+    await reportApi.saveSettings({
+      bill_vender_name: supplier.name, bill_vender_code: supplier.code,
+      bill_vender_address: supplier.address, bill_contact: supplier.contact, bill_tel: supplier.tel,
+    });
+    setSavedMsg('บันทึกข้อมูลผู้วางบิลแล้ว'); setTimeout(() => setSavedMsg(''), 2000);
+  };
+
+  const download = (blob: Blob, name: string) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+
+  const exportXLSX = async () => {
+    setExporting(true);
+    try {
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines });
+      download(blob, `ใบวางบิล-${monthLabel(month)}.xlsx`);
+    } catch (e) {
+      alert('สร้างไฟล์ Excel ไม่สำเร็จ');
+    } finally { setExporting(false); }
+  };
+
+  const exportPDF = async () => {
+    setExportingPdf(true);
+    try {
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines }, 'pdf');
+      download(blob, `ใบวางบิล-${monthLabel(month)}.pdf`);
+    } catch (e) {
+      alert('สร้างไฟล์ PDF ไม่สำเร็จ');
+    } finally { setExportingPdf(false); }
+  };
+
+
+  return (
+    <div className="p-4 md:p-6 space-y-4 max-w-6xl">
+      <div className="flex items-center gap-2">
+        <FileText size={20} className="text-blue-600" />
+        <h1 className="text-xl font-bold text-gray-800">ใบแจ้งหนี้ / วางบิล</h1>
+      </div>
+
+      <div className="card space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="label">เดือนที่วางบิล</label>
+            <select className="input w-48" value={month} onChange={e => setMonth(e.target.value)}>
+              <option value="">— เลือกเดือน —</option>
+              {months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            </select>
+          </div>
+          {month && (
+            <>
+              <button className="btn-secondary flex items-center gap-2" onClick={exportXLSX} disabled={exporting}>
+                {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Excel (.xlsx)
+              </button>
+              <button className="btn-primary flex items-center gap-2" onClick={exportPDF} disabled={exportingPdf}>
+                {exportingPdf ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />} PDF
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><label className="label">ชื่อซัพพลายเออร์ (Vendor)</label><input className="input" value={supplier.name} onChange={e => setSupplier({ ...supplier, name: e.target.value })} /></div>
+          <div><label className="label">รหัสซัพพลายเออร์ (Code)</label><input className="input" value={supplier.code} onChange={e => setSupplier({ ...supplier, code: e.target.value })} /></div>
+          <div className="md:col-span-2"><label className="label">ที่อยู่ (Address)</label><input className="input" value={supplier.address} onChange={e => setSupplier({ ...supplier, address: e.target.value })} /></div>
+          <div><label className="label">ผู้ติดต่อ (Contact)</label><input className="input" value={supplier.contact} onChange={e => setSupplier({ ...supplier, contact: e.target.value })} /></div>
+          <div><label className="label">เบอร์โทร (Tel)</label><input className="input" value={supplier.tel} onChange={e => setSupplier({ ...supplier, tel: e.target.value })} /></div>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="btn-secondary btn-sm flex items-center gap-2" onClick={saveSupplier}><Save size={14} /> บันทึกข้อมูลผู้วางบิล</button>
+          {savedMsg && <span className="text-green-600 text-sm">{savedMsg}</span>}
+        </div>
+      </div>
+
+      {isLoading && month && <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>}
+
+      {month && !isLoading && (
+        <div className="card p-0 overflow-x-auto">
+          <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
+            <span className="font-semibold text-gray-700 text-sm">รายการวางบิล — {monthLabel(month)}</span>
+            <button className="ml-auto btn-secondary btn-sm flex items-center gap-1" onClick={addLine}><Plus size={14} /> เพิ่มแถว</button>
+          </div>
+          <table className="w-full text-sm min-w-[1000px]">
+            <thead className="bg-gray-50 border-b text-xs text-gray-500">
+              <tr>
+                <th className="px-2 py-2 font-medium">No.</th>
+                <th className="px-2 py-2 font-medium text-left">Part No.</th>
+                <th className="px-2 py-2 font-medium text-left">ชื่อสินค้า</th>
+                <th className="px-2 py-2 font-medium text-right">จำนวน</th>
+                <th className="px-2 py-2 font-medium text-center">วันที่จัดส่ง</th>
+                <th className="px-2 py-2 font-medium text-right">ราคา/หน่วย</th>
+                <th className="px-2 py-2 font-medium text-right">จำนวนเงิน</th>
+                <th className="px-2 py-2 font-medium text-right">หัก ณ ที่จ่าย</th>
+                <th className="px-2 py-2 font-medium text-right">สุทธิ</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {calc.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">ไม่มีงานส่งออกในเดือนนี้ — กด "เพิ่มแถว" เพื่อกรอกเอง</td></tr>}
+              {calc.map((l, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="px-2 py-1 text-center text-gray-400">{i + 1}</td>
+                  <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs w-28" value={l.part_number} onChange={e => updLine(i, 'part_number', e.target.value)} /></td>
+                  <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs min-w-[140px]" value={l.description} onChange={e => updLine(i, 'description', e.target.value)} /></td>
+                  <td className="px-2 py-1"><input type="number" className="input !min-h-[36px] !py-1 !px-2 text-xs w-20 text-right" value={l.quantity} onChange={e => updLine(i, 'quantity', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="px-2 py-1"><input type="date" className="input !min-h-[36px] !py-1 !px-2 text-xs w-36" value={l.deliveryDate} onChange={e => updLine(i, 'deliveryDate', e.target.value)} /></td>
+                  <td className="px-2 py-1"><input type="number" step="0.0001" className="input !min-h-[36px] !py-1 !px-2 text-xs w-24 text-right" value={l.price} onChange={e => updLine(i, 'price', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="px-2 py-1 text-right tabular-nums">{fmt(l.amount)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-rose-500">{fmt(l.wht)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums font-medium text-green-700">{fmt(l.net)}</td>
+                  <td className="px-2 py-1"><button className="text-gray-300 hover:text-red-500" onClick={() => delLine(i)}><Trash2 size={14} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-gray-50 font-semibold">
+                <td colSpan={3} className="px-2 py-2 text-right">รวม / Total</td>
+                <td className="px-2 py-2 text-right tabular-nums">{totQty.toLocaleString()}</td>
+                <td></td><td></td>
+                <td className="px-2 py-2 text-right tabular-nums">{fmt(totAmount)}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-rose-600">{fmt(totWht)}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-green-800">{fmt(totNet)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+          <div className="px-4 py-3 text-right text-sm font-bold text-gray-800 border-t">
+            ยอดเงินสุทธิ: <span className="text-green-700">{fmt(totNet)}</span> บาท
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

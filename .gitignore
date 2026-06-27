@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+client/node_modules/
+
+# build output
+dist/
+client/dist/
+
+# secrets & local config
+.env
+*.log
+server.err
+server.log
+tunnel.log
+ngrok-test.log
+
+# binaries (เครื่องมือเฉพาะเครื่อง — ไม่ขึ้น cloud)
+ngrok.exe
+cloudflared.exe
+
+# runtime data (มีระบบ backup/persistence แยก — ไม่ push ขึ้น repo)
+data/
+uploads/
+current-link.txt
+lt-url.txt

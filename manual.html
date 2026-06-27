@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root{ --ink:#1f2937; --muted:#6b7280; --line:#e3e6ea; --soft:#f6f7f9; }
+  body { font-family:'IBM Plex Sans Thai',sans-serif; color:var(--ink); line-height:1.5; font-size:13px; }
+  @page { size:A4; margin:13mm; }
+  .page { width:184mm; min-height:265mm; page-break-after:always; }
+  .page:last-child { page-break-after:auto; }
+  h1 { font-size:21px; font-weight:600; }
+  .sub { color:var(--muted); font-size:12px; margin-top:3px; }
+  hr { height:1px; background:var(--line); border:0; margin:9px 0 14px; }
+  h3 { font-size:14px; font-weight:600; margin-bottom:8px; }
+
+  /* page 1 */
+  .cols2 { display:grid; grid-template-columns:1.05fr 1fr; gap:18px; }
+  .step { display:flex; gap:10px; align-items:flex-start; }
+  .num { flex:none; width:25px; height:25px; border-radius:50%; color:#fff; font-size:12px; font-weight:500;
+    display:flex; align-items:center; justify-content:center; }
+  .step .t { font-size:13px; font-weight:500; }
+  .step .d { font-size:11px; color:var(--muted); }
+  .conn { width:2px; height:11px; background:var(--line); margin:2px 0 2px 12px; }
+  .card { border:1px solid var(--line); border-radius:12px; padding:13px 15px; background:var(--soft); }
+  .cal { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px dashed var(--line); }
+  .cal:last-child { border-bottom:0; }
+  .chip { flex:none; font-size:11px; font-weight:500; padding:2px 9px; border-radius:999px; min-width:54px; text-align:center; }
+  .cal .ct { font-size:12px; }
+  ol.rules { padding-left:17px; }
+  ol.rules li { font-size:12px; margin-bottom:7px; }
+  .key { font-weight:600; }
+  .legend { display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--muted); margin-top:10px; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:5px; vertical-align:middle; }
+
+  /* page 2 */
+  .cols3 { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .ph { border:1px solid var(--line); border-radius:12px; padding:13px; background:var(--soft); }
+  .ph .head { display:flex; align-items:center; gap:8px; margin-bottom:11px; }
+  .bar { width:4px; height:18px; border-radius:3px; }
+  .ph h3 { margin:0; font-size:14px; }
+  .when { font-size:10.5px; color:var(--muted); }
+  .menu { display:inline-block; font-size:10.5px; font-weight:500; padding:1px 7px; border-radius:6px; background:#eceef1; margin-bottom:2px; }
+  .act { font-size:12px; font-weight:500; }
+  .fld { font-size:11px; color:var(--muted); }
+  .tips { margin-top:15px; border:1px dashed var(--line); border-radius:12px; padding:11px 14px; }
+  .tips ul { padding-left:17px; }
+  .tips li { font-size:12px; margin-bottom:4px; }
+  .foot { margin-top:14px; font-size:10.5px; color:var(--muted); text-align:center; }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1: WORK FLOW ============ -->
+<div class="page">
+  <h1>คู่มือการทำงาน — วิสาหกิจชุมชนตัดสายไฟ</h1>
+  <p class="sub">งานรับเหมาตัดสายไฟส่งโรงงาน Amphenol · สรุปขั้นตอน รอบเงิน และกฎสำคัญ</p>
+  <hr/>
+  <div class="cols2">
+    <div>
+      <h3>ขั้นตอนการทำงาน (ตามลำดับ)</h3>
+      <div class="step"><span class="num" style="background:#0d9488">1</span><div><div class="t">รับสายไฟดิบจากโรงงาน</div><div class="d">บันทึก “รับของ” → เก็บเข้าคลัง</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#0d9488">2</span><div><div class="t">เบิกงานให้สมาชิก</div><div class="d">ออกใบเบิก ระบุชนิด/จำนวน</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#0d9488">3</span><div><div class="t">สมาชิกตัดสายไฟ</div><div class="d">งานอยู่กับสมาชิก (WIP)</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#7c3aed">4</span><div><div class="t">ส่งคืนงาน — ก่อน 17:00 วันทำการก่อนวันสุดท้าย</div><div class="d">บันทึก “รับคืน”</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#7c3aed">5</span><div><div class="t">ตรวจงาน ดี / เสีย / เศษ</div><div class="d">งานดีเท่านั้นที่ได้ค่าแรงเต็ม</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#059669">6</span><div><div class="t">งานดีเข้าสต็อกพร้อมส่ง</div><div class="d">รอโรงงานมารับ</div></div></div>
+      <div class="conn"></div>
+      <div class="step"><span class="num" style="background:#d97706">7</span><div><div class="t">ส่งออกโรงงาน + เซ็นยืนยันยอด</div><div class="d">โรงงานรับวันที่ 28–30 ให้หมด</div></div></div>
+      <div class="legend">
+        <span><span class="dot" style="background:#0d9488"></span>เตรียม-ผลิต</span>
+        <span><span class="dot" style="background:#7c3aed"></span>รับคืน-ตรวจ</span>
+        <span><span class="dot" style="background:#059669"></span>สต็อก</span>
+        <span><span class="dot" style="background:#d97706"></span>ส่งออก-เงิน</span>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:15px">
+        <h3>ปฏิทินรอบเงิน</h3>
+        <div class="cal"><span class="chip" style="background:#efe7fd;color:#6d28d9">เส้นตาย</span><span class="ct">ส่งงานก่อน 17:00 วันทำการ “ก่อน” วันสุดท้าย</span></div>
+        <div class="cal"><span class="chip" style="background:#fdebd3;color:#b45309">วันสุดท้าย</span><span class="ct">โรงงานมารับสต็อกพร้อมส่งให้หมด</span></div>
+        <div class="cal"><span class="chip" style="background:#d8f0e6;color:#047857">15 ▸</span><span class="ct">Amphenol จ่ายกลุ่ม (เดือนถัดไป)</span></div>
+        <div class="cal"><span class="chip" style="background:#d8f0e6;color:#047857">25 ▸</span><span class="ct">กลุ่มจ่ายค่าแรง (เฉพาะงานที่ส่งทันเส้นตาย)</span></div>
+      </div>
+      <div class="card">
+        <h3>กฎสำคัญ</h3>
+        <ol class="rules">
+          <li><span class="key">เส้นตายส่งงาน:</span> ภายใน 17:00 ของวันทำการ “ก่อน” วันทำการสุดท้าย (เช่น วันสุดท้าย=ศุกร์ → ส่งได้ถึงพฤหัส 17:00)</li>
+          <li><span class="key">ส่งทันเส้นตาย</span> → ได้ค่าแรงรอบวันที่ 25 เดือนถัดไป · <span class="key">ส่งวันสุดท้าย (เลยเส้นตาย)</span> → เลื่อนไปได้รอบวันที่ 25 ของ <span class="key">อีก 2 เดือนถัดไป</span></li>
+          <li>คิดค่าแรงตามงานที่ส่งออกจริง ไม่ใช่ตามงานที่ส่งคืน → กลุ่มไม่ต้องสำรองจ่าย</li>
+          <li>ของเสีย/ตีกลับ ไม่นับรายรับ และไม่จ่ายค่าแรงเต็ม</li>
+          <li>เบิกงานล็อตใหม่ได้ทันที แม้วันสิ้นเดือน (เบิกงานไม่กระทบเงิน)</li>
+          <li>สิ้นเดือนตรวจสมดุล: รับเข้า = คลัง + อยู่กับสมาชิก + พร้อมส่ง + ส่งออก + เสีย</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+  <div class="foot">หน้า 1/2 — ผังงานและรอบบัญชี</div>
+</div>
+
+<!-- ============ PAGE 2: ADMIN DATA ENTRY ============ -->
+<div class="page">
+  <h1>คู่มือแอดมิน — กรอกข้อมูลลงระบบ</h1>
+  <p class="sub">ทำตามลำดับซ้าย → ขวา · ตัวอักษรในกรอบเทาคือ “ชื่อเมนู” ที่ต้องกดเข้าไป</p>
+  <hr/>
+  <div class="cols3">
+    <div class="ph">
+      <div class="head"><span class="bar" style="background:#0d9488"></span><div><h3>ตั้งค่าครั้งเดียว</h3><div class="when">ทำตอนเริ่มใช้ระบบ</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#0d9488">1</span><div><span class="menu">ประเภทสินค้า</span><div class="act">กด “เพิ่มรุ่นสายไฟ”</div><div class="fld">ชื่อรุ่น · หน่วย · ค่าแรง/หน่วย · ราคาโรงงาน</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#0d9488">2</span><div><span class="menu">สมาชิก</span><div class="act">กด “เพิ่มสมาชิก”</div><div class="fld">กด “อ่านจากบัตร” (เสียบบัตร ปชช.) → ใส่ชื่อเล่น เบอร์ บัญชี → ติ๊กยินยอม PDPA</div></div></div>
+      <div class="step"><span class="num" style="background:#0d9488">3</span><div><span class="menu">ตั้งค่าระบบ</span><div class="act">ตั้งค่าพื้นฐาน</div><div class="fld">ผู้บริหาร · % ภาษี · % หักกองกลาง · เพดานเบิก</div></div></div>
+    </div>
+    <div class="ph">
+      <div class="head"><span class="bar" style="background:#7c3aed"></span><div><h3>งานประจำ (ทุกรอบ)</h3><div class="when">ทำต่อเนื่องทั้งเดือน</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#7c3aed">1</span><div><span class="menu">รับของจากโรงงาน</span><div class="act">กด “บันทึกรับของ”</div><div class="fld">วันที่ · รุ่นสายไฟ · จำนวนที่รับเข้า</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#7c3aed">2</span><div><span class="menu">เบิกงานให้สมาชิก</span><div class="act">กด “สร้างใบเบิก”</div><div class="fld">เลือกสมาชิก (ค้นชื่อ/ชื่อเล่น) · สินค้า · จำนวน · กำหนดคืน</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#7c3aed">3</span><div><span class="menu">รับคืนงาน</span><div class="act">เลือกใบเบิก → กรอกผลตรวจ</div><div class="fld">งานดี · งานเสีย · เศษ · ผู้ตรวจ</div></div></div>
+      <div class="step"><span class="num" style="background:#7c3aed">4</span><div><span class="menu">ส่งงานออกโรงงาน</span><div class="act">กด “บันทึกส่งออก”</div><div class="fld">จำนวนที่โรงงานรับจริง (ดี/เสีย) ตามใบเซ็นรับ</div></div></div>
+    </div>
+    <div class="ph">
+      <div class="head"><span class="bar" style="background:#d97706"></span><div><h3>สรุปสิ้นเดือน</h3><div class="when">ปิดยอด + จ่ายเงิน</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#059669">1</span><div><span class="menu">สต็อค &amp; ตรวจสอบ</span><div class="act">ดูแถบ Check &amp; Balance</div><div class="fld">ต้องขึ้น “ยอดตรงกัน” ก่อนปิดเดือน</div></div></div>
+      <div class="step" style="margin-bottom:11px"><span class="num" style="background:#059669">2</span><div><span class="menu">สรุปค่าแรง</span><div class="act">เลือกเดือน → คำนวณ → Export</div><div class="fld">ได้ยอดจ่ายรายคน ใช้โอนวันที่ 25</div></div></div>
+      <div class="step"><span class="num" style="background:#d97706">3</span><div><span class="menu">ภาพรวม</span><div class="act">ดูผลประกอบการ</div><div class="fld">รายรับ Amphenol · ค่าแรง · กำไรกลุ่ม</div></div></div>
+    </div>
+  </div>
+  <div class="tips">
+    <h3>เคล็ดลับการใช้งาน</h3>
+    <ul>
+      <li>ทุกหน้าที่มีสมาชิก ค้นหาได้ด้วย ชื่อ-สกุล หรือ ชื่อเล่น</li>
+      <li>แก้ไข/ลบ ใบเบิกและรายการรับคืนได้ที่ปุ่มท้ายแต่ละแถว — ระบบคำนวณสถานะใหม่ให้เอง</li>
+      <li>ดูประวัติงานรายคนที่เมนู สมาชิก → ปุ่ม “ประวัติ”</li>
+      <li>เปิดใช้ออนไลน์จากมือถือผ่านลิงก์ ngrok (ถ้าเจอหน้าเทา กด Visit Site ครั้งเดียว)</li>
+    </ul>
+  </div>
+  <div class="foot">หน้า 2/2 — ขั้นตอนกรอกข้อมูลสำหรับแอดมิน</div>
+</div>
+
+</body>
+</html>

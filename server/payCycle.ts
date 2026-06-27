@@ -1,0 +1,55 @@
+// คำนวณ "รอบจ่าย" (pay_cycle) จากวันที่รับคืน
+// กฎ: เส้นตาย = วันทำการ "ก่อน" วันทำการสุดท้ายของเดือน (เว้นเสาร์-อาทิตย์ + วันหยุดที่ตั้งไว้)
+//  - รับคืน <= เส้นตาย  -> pay_cycle = เดือนนั้น        (จ่าย 25 เดือนถัดไป)
+//  - รับคืน >  เส้นตาย  -> pay_cycle = เดือนถัดไป       (จ่าย 25 อีก 2 เดือน)
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const fmt = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
+const lastDayOfMonth = (y: number, m: number) => new Date(y, m, 0).getDate(); // m = 1-12
+const dow = (y: number, m: number, d: number) => new Date(y, m - 1, d).getDay(); // 0=Sun..6=Sat
+
+function isNonWorking(y: number, m: number, d: number, holidays: Set<string>): boolean {
+  const w = dow(y, m, d);
+  return w === 0 || w === 6 || holidays.has(fmt(y, m, d));
+}
+
+// เส้นตายของเดือน ym ("YYYY-MM")
+export function computeCutoff(ym: string, holidays: Set<string>, overrides: Record<string, string>): string {
+  if (overrides[ym]) return overrides[ym];
+  const [y, m] = ym.split('-').map(Number);
+  let d = lastDayOfMonth(y, m);
+  while (d >= 1 && isNonWorking(y, m, d, holidays)) d--;   // วันทำการสุดท้าย
+  d--;                                                      // ถอยอีก 1 วัน
+  while (d >= 1 && isNonWorking(y, m, d, holidays)) d--;   // วันทำการก่อนวันสุดท้าย
+  if (d < 1) return fmt(y, m, 1);
+  return fmt(y, m, d);
+}
+
+export function nextMonth(ym: string): string {
+  let [y, m] = ym.split('-').map(Number);
+  m++; if (m > 12) { m = 1; y++; }
+  return `${y}-${pad(m)}`;
+}
+
+// รอบจ่ายของรายการรับคืน
+export function computePayCycle(returnedAt: string, holidays: Set<string>, overrides: Record<string, string>): string {
+  const ym = returnedAt.slice(0, 7);
+  const cutoff = computeCutoff(ym, holidays, overrides);
+  return returnedAt.slice(0, 10) <= cutoff ? ym : nextMonth(ym);
+}
+
+// อ่านวันหยุด + วันเส้นตายที่ override จากตาราง settings
+//  - holidays      = "2026-04-13,2026-04-14,..."  (comma)
+//  - cutoff_YYYY-MM = "YYYY-MM-DD"                 (กำหนดเส้นตายเองรายเดือน)
+export function loadCutoffConfig(settingsRows: { key: string; value: string }[]) {
+  const holidays = new Set<string>();
+  const overrides: Record<string, string> = {};
+  for (const s of settingsRows) {
+    if (s.key === 'holidays' && s.value) {
+      s.value.split(',').map(x => x.trim()).filter(Boolean).forEach(d => holidays.add(d));
+    } else if (s.key.startsWith('cutoff_') && s.value) {
+      overrides[s.key.replace('cutoff_', '')] = s.value.trim();
+    }
+  }
+  return { holidays, overrides };
+}
