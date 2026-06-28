@@ -7,6 +7,9 @@ import * as path from 'path';
 
 const router = Router();
 
+// Windows ใช้ "python", Linux (cloud) ใช้ "python3"
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
+
 router.get('/dashboard', (_req, res) => {
   const stock = prepare(`
     SELECT p.id, p.name, p.unit, p.code,
@@ -362,7 +365,7 @@ router.post('/billing-export', (req, res) => {
     stream.on('close', cleanup);
   };
 
-  const py = spawn('python', [script, tpl, dataFile, xlsxFile], {
+  const py = spawn(PYTHON, [script, tpl, dataFile, xlsxFile], {
     env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
   });
   let errOut = '';
@@ -464,7 +467,7 @@ router.post('/invoice-export', (req, res) => {
 
   const args = [script, tpl, dataFile, xlsxFile];
   if (wantPdf) args.push('pdf');
-  const py = spawn('python', args, { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  const py = spawn(PYTHON, args, { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
   let errOut = '';
   py.stderr.on('data', (c) => { errOut += c.toString(); });
   py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
