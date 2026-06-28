@@ -91,7 +91,19 @@ export const ocrApi = {
 };
 
 export const smartcardApi = {
-  read: () => api.get('/smartcard/read', { timeout: 16000 }).then(r => r.data),
+  // อ่านบัตร: ลอง "ตัวช่วยอ่านบัตร" ในเครื่องผู้ใช้ก่อน (localhost) -> ถ้าไม่มีค่อยใช้เครื่องอ่านบนเซิร์ฟเวอร์
+  read: async () => {
+    try {
+      const r = await axios.get('http://127.0.0.1:47011/read', { timeout: 18000 });
+      return r.data;
+    } catch (e: any) {
+      // ตัวช่วยตอบกลับมาพร้อม error (เช่นไม่พบบัตร) -> แสดง error นั้นเลย
+      if (e?.response) throw e;
+      // ตัวช่วยไม่ได้เปิด/ติดต่อไม่ได้ -> ใช้เครื่องอ่านบนเครื่องเซิร์ฟเวอร์แทน
+      const r = await api.get('/smartcard/read', { timeout: 16000 });
+      return r.data;
+    }
+  },
 };
 
 export const expenseApi = {

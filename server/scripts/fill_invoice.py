@@ -21,6 +21,12 @@ if dt:
     try:    ws["J6"] = datetime.datetime.strptime(dt[:10], "%Y-%m-%d")
     except: ws["J6"] = dt
 
+# ป้าย "วันครบกำหนด / Due Date" (I9,I10) ตั้ง wrap ไว้แล้วถูกตัด -> หดให้พอดีช่อง เห็นครบ
+from openpyxl.styles import Alignment as _Al
+for _c in ("I9", "I10"):
+    _a = ws[_c].alignment
+    ws[_c].alignment = _Al(horizontal=_a.horizontal, vertical=_a.vertical, wrap_text=False, shrink_to_fit=True)
+
 cust = d.get("customer", {})
 if cust.get("name"):    ws["D11"] = cust["name"]
 if cust.get("address"): ws["D12"] = cust["address"]
