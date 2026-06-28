@@ -18,7 +18,7 @@ router.get('/', (req, res) => {
   const result = rows.map(s => ({
     ...s,
     items: prepare(`
-      SELECT si.good_qty, si.defect_qty, p.id as product_id, p.code as product_code, p.name as product_name, p.unit, p.color
+      SELECT si.good_qty, si.defect_qty, si.received_qty, p.id as product_id, p.code as product_code, p.name as product_name, p.unit, p.color
       FROM shipment_items si JOIN products p ON si.product_id = p.id
       WHERE si.shipment_id = ?
     `).all(s.id)
@@ -41,8 +41,9 @@ router.post('/', (req, res) => {
   const shipment = prepare(`SELECT * FROM shipments ORDER BY id DESC LIMIT 1`).get() as any;
 
   for (const it of validItems) {
-    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty) VALUES (?, ?, ?, ?)`)
-      .run(shipment.id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0);
+    const recv = (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty);
+    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
+      .run(shipment.id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0, recv);
   }
 
   res.json({ ok: true, code, id: shipment.id });
@@ -62,8 +63,9 @@ router.put('/:id', (req, res) => {
   // แทนที่รายการสินค้าทั้งหมด
   prepare(`DELETE FROM shipment_items WHERE shipment_id = ?`).run(id);
   for (const it of validItems) {
-    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty) VALUES (?, ?, ?, ?)`)
-      .run(id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0);
+    const recv = (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty);
+    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
+      .run(id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0, recv);
   }
   res.json({ ok: true, id, code: ship.code });
 });

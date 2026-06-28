@@ -295,11 +295,11 @@ router.get('/billing', (req, res) => {
 
   const raw = m ? prepare(`
     SELECT s.shipped_at, s.notes as po, p.name as part_number, p.description as descr, p.color,
-      si.good_qty as quantity, p.unit, p.factory_price as price
+      COALESCE(si.received_qty, si.good_qty) as quantity, p.unit, p.factory_price as price
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id
     JOIN products p ON si.product_id = p.id
-    WHERE s.shipped_at LIKE ? AND si.good_qty > 0
+    WHERE s.shipped_at LIKE ? AND COALESCE(si.received_qty, si.good_qty) > 0
     ORDER BY s.shipped_at, p.project, p.name
   `).all(`${m}%`) as any[] : [];
 
@@ -410,11 +410,11 @@ router.post('/invoice-export', (req, res) => {
 
   // รวมยอดส่งออกต่อสินค้าในเดือนนั้น
   const rows = prepare(`
-    SELECT p.project, p.name, p.description, p.factory_price as price, SUM(si.good_qty) as quantity
+    SELECT p.project, p.name, p.description, p.factory_price as price, SUM(COALESCE(si.received_qty, si.good_qty)) as quantity
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id
     JOIN products p ON si.product_id = p.id
-    WHERE s.shipped_at LIKE ? AND si.good_qty > 0
+    WHERE s.shipped_at LIKE ? AND COALESCE(si.received_qty, si.good_qty) > 0
     GROUP BY p.id
     ORDER BY p.project, p.name
   `).all(`${month}%`) as any[];

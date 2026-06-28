@@ -500,7 +500,12 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
     try {
       await shipmentApi.update(shipment.id, {
         shipped_at: shippedAt, notes,
-        items: items.map(it => ({ product_id: it.product_id, good_qty: Number(it.good_qty) || 0, defect_qty: Number(it.defect_qty) || 0 })),
+        items: items.map(it => ({
+          product_id: it.product_id,
+          good_qty: Number(it.good_qty) || 0,
+          defect_qty: Number(it.defect_qty) || 0,
+          received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
+        })),
       });
       qc.invalidateQueries({ queryKey: ['shipments'] });
       qc.invalidateQueries({ queryKey: ['stock-flow'] });
@@ -529,19 +534,35 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
           <div className="space-y-2">
             <p className="label mb-0">รายการสินค้า</p>
             {items.map((it, i) => (
-              <div key={i} className="border rounded-lg p-3 bg-gray-50">
-                <p className="font-medium text-gray-800 text-sm mb-2">{it.product_name} <span className="text-xs text-gray-400">({it.unit})</span></p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label text-xs">งานดี</label>
-                    <input type="number" min="0" step="1" className="input text-sm" value={it.good_qty} onChange={e => upd(i, 'good_qty', e.target.value)} />
+              {(() => {
+                const recv = it.received_qty === '' || it.received_qty == null ? null : Number(it.received_qty);
+                const diff = recv == null ? null : recv - (Number(it.good_qty) || 0);
+                return (
+                  <div key={i} className="border rounded-lg p-3 bg-gray-50">
+                    <p className="font-medium text-gray-800 text-sm mb-2">{it.product_name} <span className="text-xs text-gray-400">({it.unit})</span></p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="label text-xs">งานดี (ส่งไป)</label>
+                        <input type="number" min="0" step="1" className="input text-sm" value={it.good_qty} onChange={e => upd(i, 'good_qty', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="label text-xs">งานเสีย</label>
+                        <input type="number" min="0" step="1" className="input text-sm" value={it.defect_qty} onChange={e => upd(i, 'defect_qty', e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <label className="label text-xs flex items-center gap-1">ยอดโรงงานรับจริง <span className="text-gray-400">(จากใบเซ็นรับ — ใช้คิดเงิน)</span></label>
+                      <input type="number" min="0" step="1" placeholder="ยังไม่ยืนยัน — ปล่อยว่างไว้ได้"
+                        className={`input text-sm ${diff != null && diff !== 0 ? 'border-rose-400 bg-rose-50' : ''}`}
+                        value={it.received_qty ?? ''} onChange={e => upd(i, 'received_qty', e.target.value)} />
+                      {diff != null && diff !== 0 && (
+                        <p className="text-xs text-rose-600 mt-1">⚠️ ต่างจากที่ส่ง {diff > 0 ? '+' : ''}{diff} {it.unit} — ระบบจะคิดเงินจากยอดรับจริง</p>
+                      )}
+                      {diff === 0 && <p className="text-xs text-green-600 mt-1">✓ ตรงกับที่ส่ง</p>}
+                    </div>
                   </div>
-                  <div>
-                    <label className="label text-xs">งานเสีย</label>
-                    <input type="number" min="0" step="1" className="input text-sm" value={it.defect_qty} onChange={e => upd(i, 'defect_qty', e.target.value)} />
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
             ))}
           </div>
           {err && <p className="text-red-500 text-sm">{err}</p>}
@@ -648,7 +669,8 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                   <th className="px-4 py-3 text-left font-medium">วันที่ส่ง</th>
                   <th className="px-4 py-3 text-left font-medium">เลขที่</th>
                   <th className="px-4 py-3 text-left font-medium">สินค้า</th>
-                  <th className="px-4 py-3 text-right font-medium text-green-600">งานดี</th>
+                  <th className="px-4 py-3 text-right font-medium text-green-600">งานดี (ส่งไป)</th>
+                  <th className="px-4 py-3 text-right font-medium text-blue-600">รับจริง</th>
                   <th className="px-4 py-3 text-right font-medium text-orange-500">งานเสีย</th>
                   <th className="px-4 py-3 text-right font-medium">รวม</th>
                   <th className="px-4 py-3 text-left font-medium">หมายเหตุ</th>
@@ -670,6 +692,11 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                         ) : '-'}
                       </td>
                       <td className="px-4 py-2.5 text-right text-green-700 font-medium">{it.good_qty != null ? fmt(it.good_qty) : '-'}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        {!it.product_name ? '-' : it.received_qty == null
+                          ? <span className="text-amber-500 text-xs">รอยืนยัน</span>
+                          : <span className={Number(it.received_qty) !== Number(it.good_qty) ? 'text-rose-600 font-semibold' : 'text-blue-700'}>{fmt(it.received_qty)}</span>}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-orange-500">{it.defect_qty ? fmt(it.defect_qty) : '-'}</td>
                       <td className="px-4 py-2.5 text-right text-gray-600">{it.product_name ? `${fmt((it.good_qty || 0) + (it.defect_qty || 0))} ${it.unit || ''}` : '-'}</td>
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{i === 0 ? (sh.notes || '') : ''}</td>

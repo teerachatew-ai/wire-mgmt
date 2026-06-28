@@ -243,6 +243,12 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!productCols.includes('description')) {
     db.exec(`ALTER TABLE products ADD COLUMN description TEXT`);
   }
+  const shipItemCols = db.exec(`PRAGMA table_info(shipment_items)`)[0]?.values.map(r => r[1]) ?? [];
+  if (!shipItemCols.includes('received_qty')) {
+    // ยอดที่โรงงานรับจริง (NULL = ยังไม่ยืนยัน) — ใช้คิดเงินแทน good_qty เมื่อกรอกแล้ว
+    db.exec(`ALTER TABLE shipment_items ADD COLUMN received_qty REAL`);
+  }
+
   const returnCols = db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
   if (!returnCols.includes('pay_cycle')) {
     db.exec(`ALTER TABLE returns ADD COLUMN pay_cycle TEXT`);
