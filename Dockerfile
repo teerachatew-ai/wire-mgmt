@@ -5,7 +5,7 @@ FROM node:20-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-openpyxl \
       libreoffice-calc \
-      fonts-thai-tlwg fonts-tlwg-sarabun \
+      fonts-thai-tlwg \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
