@@ -64,6 +64,7 @@ export const reportApi = {
   billing: (month?: string) => api.get('/reports/billing', { params: month ? { month } : {} }).then(r => r.data),
   billingExport: (data: any, format?: 'pdf') => api.post('/reports/billing-export', data, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
   invoiceExport: (data: any, format?: 'pdf') => api.post('/reports/invoice-export', data, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
+  receiptExport: (data: any, format?: 'pdf') => api.post('/reports/invoice-export', data, { params: { doc: 'receipt', ...(format ? { format } : {}) }, responseType: 'blob', timeout: 60000 }).then(r => r.data),
   incomeChart: (months?: number) => api.get('/reports/income-chart', { params: { months } }).then(r => r.data),
   memberHistory: (memberId: number) => api.get(`/reports/member-history/${memberId}`).then(r => r.data),
   stockReconcile: () => api.get('/reports/stock-reconcile').then(r => r.data),

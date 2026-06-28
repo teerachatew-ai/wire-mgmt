@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api';
-import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, X } from 'lucide-react';
+import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, BadgeCheck, X } from 'lucide-react';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -19,6 +19,7 @@ export default function Billing() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [invXlsx, setInvXlsx] = useState(false);
   const [invPdf, setInvPdf] = useState(false);
+  const [rcptPdf, setRcptPdf] = useState(false);
   const [showSupplier, setShowSupplier] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ['billing', month || 'none'], queryFn: () => reportApi.billing(month || undefined) });
@@ -94,6 +95,16 @@ export default function Billing() {
     } finally { if (format === 'pdf') setInvPdf(false); else setInvXlsx(false); }
   };
 
+  const exportReceipt = async () => {
+    setRcptPdf(true);
+    try {
+      const blob = await reportApi.receiptExport({ month }, 'pdf');
+      download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.pdf`);
+    } catch (e) {
+      alert('สร้างใบเสร็จรับเงินไม่สำเร็จ');
+    } finally { setRcptPdf(false); }
+  };
+
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-6xl">
@@ -146,6 +157,19 @@ export default function Billing() {
                 </button>
                 <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => exportInvoice('pdf')} disabled={invPdf}>
                   {invPdf ? <Loader2 size={14} className="animate-spin" /> : <Receipt size={14} />} PDF
+                </button>
+              </div>
+            </div>
+
+            {/* ── ใบเสร็จรับเงิน ── */}
+            <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-4 space-y-2">
+              <div className="font-semibold text-gray-800 flex items-center gap-2"><BadgeCheck size={16} className="text-amber-600" /> ใบเสร็จรับเงิน (Receipt)</div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                ใบเสร็จรับเงินถึงลูกค้า — <b>ยอดเดียวกับใบแจ้งหนี้</b> (รวมทั้งเดือนต่อสินค้า) ออกเมื่อได้รับเงินแล้ว
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button className="btn-primary btn-sm flex items-center gap-2" onClick={exportReceipt} disabled={rcptPdf}>
+                  {rcptPdf ? <Loader2 size={14} className="animate-spin" /> : <BadgeCheck size={14} />} PDF
                 </button>
               </div>
             </div>

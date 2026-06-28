@@ -448,14 +448,16 @@ router.post('/invoice-export', (req, res) => {
   };
 
   const wantPdf = req.query.format === 'pdf';
+  const isReceipt = req.query.doc === 'receipt';
+  const docName = isReceipt ? 'receipt' : 'invoice';   // ใบเสร็จรับเงิน vs ใบแจ้งหนี้
   const root = process.cwd();
-  const tpl = path.join(root, 'server', 'templates', 'invoice-template.xlsx');
+  const tpl = path.join(root, 'server', 'templates', `${docName}-template.xlsx`);
   const script = path.join(root, 'server', 'scripts', 'fill_invoice.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inv-'));
   const dataFile = path.join(tmpDir, 'data.json');
-  const xlsxFile = path.join(tmpDir, `invoice-${month}.xlsx`);
-  const pdfFile = path.join(tmpDir, `invoice-${month}.pdf`);
+  const xlsxFile = path.join(tmpDir, `${docName}-${month}.xlsx`);
+  const pdfFile = path.join(tmpDir, `${docName}-${month}.pdf`);
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
   fs.writeFileSync(dataFile, JSON.stringify(payload), 'utf-8');
 
@@ -475,7 +477,7 @@ router.post('/invoice-export', (req, res) => {
   py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
   py.on('close', (code) => {
     if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'fill failed', detail: errOut }); }
-    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `invoice-${month}.xlsx`);
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `${docName}-${month}.xlsx`);
     const isWin = process.platform === 'win32';
     const ps = isWin
       ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
@@ -487,7 +489,7 @@ router.post('/invoice-export', (req, res) => {
     ps.on('close', () => {
       clearTimeout(killTimer);
       if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
-      sendFile(pdfFile, 'application/pdf', `invoice-${month}.pdf`);
+      sendFile(pdfFile, 'application/pdf', `${docName}-${month}.pdf`);
     });
   });
 });
