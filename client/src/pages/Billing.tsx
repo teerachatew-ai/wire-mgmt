@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api';
-import { FileText, Download, Loader2, Plus, Trash2, Save } from 'lucide-react';
+import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, X } from 'lucide-react';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -19,6 +19,7 @@ export default function Billing() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [invXlsx, setInvXlsx] = useState(false);
   const [invPdf, setInvPdf] = useState(false);
+  const [showSupplier, setShowSupplier] = useState(false);
 
   const { data, isLoading } = useQuery({ queryKey: ['billing', month || 'none'], queryFn: () => reportApi.billing(month || undefined) });
   const { data: base } = useQuery({ queryKey: ['billing-base'], queryFn: () => reportApi.billing() });
@@ -104,47 +105,52 @@ export default function Billing() {
       <div className="card space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="label">เดือนที่วางบิล</label>
+            <label className="label">เดือน</label>
             <select className="input w-48" value={month} onChange={e => setMonth(e.target.value)}>
               <option value="">— เลือกเดือน —</option>
               {months.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
             </select>
           </div>
-          {month && (
-            <>
-              <button className="btn-secondary flex items-center gap-2" onClick={exportXLSX} disabled={exporting}>
-                {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Excel (.xlsx)
-              </button>
-              <button className="btn-primary flex items-center gap-2" onClick={exportPDF} disabled={exportingPdf}>
-                {exportingPdf ? <Loader2 size={15} className="animate-spin" /> : <FileText size={15} />} PDF
-              </button>
-            </>
-          )}
+          <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => setShowSupplier(true)}>
+            <Pencil size={14} /> ข้อมูลผู้วางบิล / ซัพพลายเออร์
+          </button>
         </div>
 
         {month && (
-          <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-gray-100">
-            <span className="text-xs text-gray-500">ใบแจ้งหนี้ (Invoice) — รวมยอดต่อสินค้าทั้งเดือน ออกบิลให้ลูกค้า:</span>
-            <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportInvoice()} disabled={invXlsx}>
-              {invXlsx ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} ใบแจ้งหนี้ Excel
-            </button>
-            <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportInvoice('pdf')} disabled={invPdf}>
-              {invPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} ใบแจ้งหนี้ PDF
-            </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* ── ใบวางบิล ── */}
+            <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-4 space-y-2">
+              <div className="font-semibold text-gray-800 flex items-center gap-2"><FileText size={16} className="text-blue-600" /> ใบวางบิล (Billing Note)</div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                เอกสาร<b>วางบิลเรียกเก็บเงิน</b> — แสดง<b>ทุกครั้งที่ส่งของ</b>ในเดือน (1 บรรทัดต่อการส่ง 1 ครั้ง) พร้อมวันที่จัดส่งแต่ละครั้ง ใช้ยื่นวางบิลกับโรงงาน
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button className="btn-secondary btn-sm flex items-center gap-2" onClick={exportXLSX} disabled={exporting}>
+                  {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Excel
+                </button>
+                <button className="btn-primary btn-sm flex items-center gap-2" onClick={exportPDF} disabled={exportingPdf}>
+                  {exportingPdf ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} PDF
+                </button>
+              </div>
+            </div>
+
+            {/* ── ใบแจ้งหนี้ ── */}
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 space-y-2">
+              <div className="font-semibold text-gray-800 flex items-center gap-2"><Receipt size={16} className="text-emerald-600" /> ใบแจ้งหนี้ (Invoice)</div>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                ใบแจ้งหนี้/ใบส่งสินค้าถึงลูกค้า — <b>รวมยอดทั้งเดือนต่อสินค้า</b> (1 บรรทัดต่อรุ่น) คิดยอดรวม หัก ณ ที่จ่าย 3% และยอดสุทธิ
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportInvoice()} disabled={invXlsx}>
+                  {invXlsx ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Excel
+                </button>
+                <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => exportInvoice('pdf')} disabled={invPdf}>
+                  {invPdf ? <Loader2 size={14} className="animate-spin" /> : <Receipt size={14} />} PDF
+                </button>
+              </div>
+            </div>
           </div>
         )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div><label className="label">ชื่อซัพพลายเออร์ (Vendor)</label><input className="input" value={supplier.name} onChange={e => setSupplier({ ...supplier, name: e.target.value })} /></div>
-          <div><label className="label">รหัสซัพพลายเออร์ (Code)</label><input className="input" value={supplier.code} onChange={e => setSupplier({ ...supplier, code: e.target.value })} /></div>
-          <div className="md:col-span-2"><label className="label">ที่อยู่ (Address)</label><input className="input" value={supplier.address} onChange={e => setSupplier({ ...supplier, address: e.target.value })} /></div>
-          <div><label className="label">ผู้ติดต่อ (Contact)</label><input className="input" value={supplier.contact} onChange={e => setSupplier({ ...supplier, contact: e.target.value })} /></div>
-          <div><label className="label">เบอร์โทร (Tel)</label><input className="input" value={supplier.tel} onChange={e => setSupplier({ ...supplier, tel: e.target.value })} /></div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="btn-secondary btn-sm flex items-center gap-2" onClick={saveSupplier}><Save size={14} /> บันทึกข้อมูลผู้วางบิล</button>
-          {savedMsg && <span className="text-green-600 text-sm">{savedMsg}</span>}
-        </div>
       </div>
 
       {isLoading && month && <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>}
@@ -201,6 +207,30 @@ export default function Billing() {
           </table>
           <div className="px-4 py-3 text-right text-sm font-bold text-gray-800 border-t">
             ยอดเงินสุทธิ: <span className="text-green-700">{fmt(totNet)}</span> บาท
+          </div>
+        </div>
+      )}
+
+      {/* Modal: ข้อมูลผู้วางบิล / ซัพพลายเออร์ */}
+      {showSupplier && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowSupplier(false)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b shrink-0">
+              <h3 className="font-semibold text-gray-800">ข้อมูลผู้วางบิล / ซัพพลายเออร์</h3>
+              <button onClick={() => setShowSupplier(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <p className="text-xs text-gray-500">ข้อมูลนี้จะแสดงบนหัวใบวางบิล (บันทึกไว้ใช้ซ้ำทุกเดือน)</p>
+              <div><label className="label">ชื่อซัพพลายเออร์ (Vendor)</label><input className="input" value={supplier.name} onChange={e => setSupplier({ ...supplier, name: e.target.value })} /></div>
+              <div><label className="label">รหัสซัพพลายเออร์ (Code)</label><input className="input" value={supplier.code} onChange={e => setSupplier({ ...supplier, code: e.target.value })} /></div>
+              <div><label className="label">ที่อยู่ (Address)</label><input className="input" value={supplier.address} onChange={e => setSupplier({ ...supplier, address: e.target.value })} /></div>
+              <div><label className="label">ผู้ติดต่อ (Contact)</label><input className="input" value={supplier.contact} onChange={e => setSupplier({ ...supplier, contact: e.target.value })} /></div>
+              <div><label className="label">เบอร์โทร (Tel)</label><input className="input" value={supplier.tel} onChange={e => setSupplier({ ...supplier, tel: e.target.value })} /></div>
+            </div>
+            <div className="flex items-center justify-end gap-3 p-4 border-t shrink-0">
+              {savedMsg && <span className="text-green-600 text-sm">{savedMsg}</span>}
+              <button className="btn-primary btn-sm flex items-center gap-2" onClick={saveSupplier}><Save size={14} /> บันทึก</button>
+            </div>
           </div>
         </div>
       )}
