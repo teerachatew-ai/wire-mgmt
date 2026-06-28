@@ -47,8 +47,16 @@ initDb().then(() => {
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {
-    app.use(express.static(clientDist));
-    app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+    // ไฟล์ asset (มี hash ในชื่อ) แคชยาวได้; ส่วน index.html ห้ามแคช เพื่อให้ทุกเครื่อง/มือถือได้เวอร์ชันล่าสุดเสมอ
+    app.use(express.static(clientDist, {
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      },
+    }));
+    app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
   }
 
   app.listen(PORT, () => {
