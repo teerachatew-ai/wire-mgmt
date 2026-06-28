@@ -308,7 +308,7 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
     defaultValues: {
       shipped_at: new Date().toISOString().split('T')[0],
       notes: '',
-      items: products.filter(p => p.stock_ready > 0).map(p => ({
+      items: products.map(p => ({
         product_id: p.id,
         product_name: p.name,
         unit: p.unit,
@@ -363,6 +363,22 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
 
   const onSubmit = (vals: any) => {
     setErr('');
+    // ตรวจสอบรายการที่ส่งเกินสต็อกพร้อมส่ง (หรือไม่มีของในสต็อกพร้อมส่ง)
+    const over = (vals.items || []).filter((it: any) => {
+      const q = (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0);
+      return q > 0 && q > (Number(it.max_total) || 0);
+    });
+    if (over.length) {
+      const lines = over.map((it: any) => {
+        const q = (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0);
+        const ready = Number(it.max_total) || 0;
+        return `• ${it.product_name}: ส่ง ${fmt(q)} ${it.unit || ''} (สต็อกพร้อมส่งมี ${fmt(ready)})`;
+      }).join('\n');
+      const ok = window.confirm(
+        `⚠️ ไม่มีของในสต็อกพร้อมส่ง / จำนวนส่งเกินสต็อกพร้อมส่ง:\n\n${lines}\n\nยืนยันจะทำรายการส่งออกหรือไม่?`
+      );
+      if (!ok) return;
+    }
     createMut.mutate(vals);
   };
 
@@ -432,15 +448,15 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
                   <div key={f.id} className="border rounded-lg p-3 bg-gray-50">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-medium text-gray-800 text-sm">{f.product_name}</span>
-                      <span className="text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${f.max_total > 0 ? 'text-green-700 bg-green-100' : 'text-amber-700 bg-amber-100'}`}>
                         สต้อคพร้อมส่ง {fmt(f.max_total)} {f.unit}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="label text-xs">งานดี (หน่วย)</label>
-                        <input type="number" min="0" max={f.max_good} step="1" className="input text-sm"
-                          {...register(`items.${i}.good_qty`, { valueAsNumber: true, min: 0, max: f.max_good })} />
+                        <input type="number" min="0" step="1" className="input text-sm"
+                          {...register(`items.${i}.good_qty`, { valueAsNumber: true, min: 0 })} />
                       </div>
                       <div>
                         <label className="label text-xs">งานเสีย (หน่วย)</label>
