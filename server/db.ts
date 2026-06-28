@@ -53,7 +53,8 @@ function scheduleFlush() {
   flushTimer = setTimeout(() => { flushTimer = null; pgFlush(); }, 1500);
 }
 // flush ค้างก่อนปิดโปรเซส (Render ส่ง SIGTERM ตอน deploy/restart)
-export async function flushNow() { if (USE_PG) { dirty = true; await pgFlush(); } }
+// flush เฉพาะเมื่อมีการแก้ข้อมูลจริง (dirty) — กันไม่ให้เขียนทับฐานข้อมูลด้วยข้อมูลเปล่าตอน restart
+export async function flushNow() { if (USE_PG) await pgFlush(); }
 
 // Save DB after writes
 function save() {

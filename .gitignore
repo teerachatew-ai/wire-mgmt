@@ -23,3 +23,6 @@ data/
 uploads/
 current-link.txt
 lt-url.txt
+
+# cloud DB url (secret, local only)
+cloud-db-url.txt
