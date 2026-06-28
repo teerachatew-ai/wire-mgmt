@@ -533,11 +533,10 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
           </div>
           <div className="space-y-2">
             <p className="label mb-0">รายการสินค้า</p>
-            {items.map((it, i) => (
-              {(() => {
-                const recv = it.received_qty === '' || it.received_qty == null ? null : Number(it.received_qty);
-                const diff = recv == null ? null : recv - (Number(it.good_qty) || 0);
-                return (
+            {items.map((it, i) => {
+              const recv = it.received_qty === '' || it.received_qty == null ? null : Number(it.received_qty);
+              const diff = recv == null ? null : recv - (Number(it.good_qty) || 0);
+              return (
                   <div key={i} className="border rounded-lg p-3 bg-gray-50">
                     <p className="font-medium text-gray-800 text-sm mb-2">{it.product_name} <span className="text-xs text-gray-400">({it.unit})</span></p>
                     <div className="grid grid-cols-2 gap-3">
@@ -561,9 +560,8 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
                       {diff === 0 && <p className="text-xs text-green-600 mt-1">✓ ตรงกับที่ส่ง</p>}
                     </div>
                   </div>
-                );
-              })()}
-            ))}
+              );
+            })}
           </div>
           {err && <p className="text-red-500 text-sm">{err}</p>}
         </div>
