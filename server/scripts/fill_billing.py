@@ -7,10 +7,12 @@ warnings.simplefilter("ignore")
 from openpyxl import load_workbook
 
 tpl, dataf, out = sys.argv[1], sys.argv[2], sys.argv[3]
+mode = sys.argv[4] if len(sys.argv) > 4 else ""   # "pdf" = เหลือเฉพาะชีตฟอร์ม
 d = json.load(open(dataf, encoding="utf-8-sig"))
 
 wb = load_workbook(tpl)
-ws = wb["สำหรับกรอกข้อมูล Form "]
+FORM_SHEET = "สำหรับกรอกข้อมูล Form "
+ws = wb[FORM_SHEET]
 
 TH = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -139,6 +141,12 @@ ws.page_setup.fitToHeight = 1
 ws.page_setup.scale = None
 ws.print_area = f"A1:L{footer_last}"
 ws.print_title_rows = None
+
+# โหมด PDF: ลบชีตอื่น (วิธีการกรอก/ตัวอย่าง) ออก เหลือเฉพาะชีตฟอร์ม กัน PDF ติดหน้าตัวอย่าง
+if mode == "pdf":
+    for sn in list(wb.sheetnames):
+        if sn != FORM_SHEET:
+            del wb[sn]
 
 wb.save(out)
 print(out)

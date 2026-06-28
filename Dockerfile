@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# ติดตั้งฟอนต์ Cordia New / Angsana New (เหมือนใน Excel) ให้ LibreOffice ใช้แปลง PDF ตรงกับต้นฉบับ
+COPY fonts /usr/share/fonts/truetype/msthai
+RUN fc-cache -f
+
 # ติดตั้ง dependencies ของ backend (รวม devDeps สำหรับ build, ข้าม optional=pcsclite ที่ build ไม่ได้บน Linux)
 COPY package*.json ./
 RUN npm install --omit=optional

@@ -52,11 +52,19 @@ for i in range(CAP):
         for col in (3, 4, 5, 8, 9):
             ws.cell(row=r, column=col).value = None
 
-# โหมด PDF: ลบชีตข้อมูลช่วยออก เหลือเฉพาะใบแจ้งหนี้ (กันไม่ให้ชีตอื่นติดไปใน PDF)
+# โหมด PDF: ลบชีตข้อมูลช่วยออก เหลือเฉพาะใบแจ้งหนี้ + บีบให้พอดี 1 หน้าเสมอ
 if mode == "pdf":
     for sn in list(wb.sheetnames):
         if sn != "ใบแจ้งหนี้":
             del wb[sn]
+    from openpyxl.worksheet.properties import PageSetupProperties
+    if ws.sheet_properties.pageSetUpPr is None:
+        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    else:
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.page_setup.scale = None
 
 wb.save(out)
 print(out)

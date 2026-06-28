@@ -365,7 +365,9 @@ router.post('/billing-export', (req, res) => {
     stream.on('close', cleanup);
   };
 
-  const py = spawn(PYTHON, [script, tpl, dataFile, xlsxFile], {
+  const fillArgs = [script, tpl, dataFile, xlsxFile];
+  if (wantPdf) fillArgs.push('pdf'); // PDF: เหลือเฉพาะชีตฟอร์ม (ตัดหน้าตัวอย่างออก)
+  const py = spawn(PYTHON, fillArgs, {
     env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
   });
   let errOut = '';
