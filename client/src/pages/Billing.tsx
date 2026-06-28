@@ -7,7 +7,7 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFract
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const monthLabel = (m: string) => { if (!m) return ''; const [y, mo] = m.split('-'); return `${TH[+mo - 1]} ${y}`; };
 
-interface Line { part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
+interface Line { project: string; part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
 
 export default function Billing() {
   const [month, setMonth] = useState('');
@@ -29,7 +29,7 @@ export default function Billing() {
       setWhtRate(data.wht_rate ?? 0.03);
       if (data.supplier) setSupplier(s => ({ ...s, ...data.supplier }));
       setLines((data.lines || []).map((l: any) => ({
-        part_number: l.part_number || '', description: l.description || '',
+        project: l.project || '', part_number: l.part_number || '', description: l.description || '',
         quantity: l.quantity || 0, unit: l.unit || 'EA', price: l.price || 0,
         deliveryDate: (l.shipped_at || '').slice(0, 10),
       })));
@@ -39,7 +39,7 @@ export default function Billing() {
   const months: string[] = base?.months || data?.months || [];
 
   const updLine = (i: number, f: keyof Line, v: any) => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
-  const addLine = () => setLines(ls => [...ls, { part_number: '', description: '', quantity: 0, unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
+  const addLine = () => setLines(ls => [...ls, { project: '', part_number: '', description: '', quantity: 0, unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
   const delLine = (i: number) => setLines(ls => ls.filter((_, idx) => idx !== i));
 
   const calc = lines.map(l => { const amount = l.quantity * l.price; const wht = amount * whtRate; return { ...l, amount, wht, net: amount - wht }; });

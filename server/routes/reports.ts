@@ -297,7 +297,7 @@ router.get('/billing', (req, res) => {
   const whtRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
 
   const raw = m ? prepare(`
-    SELECT s.shipped_at, s.notes as po, p.name as part_number, p.description as descr, p.color,
+    SELECT s.shipped_at, s.notes as po, p.project as project, p.name as part_number, p.description as descr, p.color,
       COALESCE(si.received_qty, si.good_qty) as quantity, p.unit, p.factory_price as price
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id

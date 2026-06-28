@@ -14,6 +14,10 @@ wb = load_workbook(tpl)
 FORM_SHEET = "สำหรับกรอกข้อมูล Form "
 ws = wb[FORM_SHEET]
 
+# เปลี่ยนหัวคอลัมน์ C จาก "หมายเลข PO" เป็น "ชื่อโครงการ"
+ws["C15"] = "ชื่อโครงการ"
+ws["C16"] = "Project"
+
 TH = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 EN = ["January", "February", "March", "April", "May", "June",
@@ -99,7 +103,7 @@ for idx in range(BASE, last + 1):
     ws.cell(row=idx, column=10).value = f'=IF(I{idx}="","",I{idx}*K{idx})'        # J WHT
     if li < n:
         l = lines[li]
-        ws.cell(row=idx, column=3).value = None                         # C PO No. (ไม่ใส่)
+        ws.cell(row=idx, column=3).value = l.get("project") or None     # C ชื่อโครงการ
         ws.cell(row=idx, column=4).value = l.get("part_number") or None # D Part Number
         ws.cell(row=idx, column=5).value = l.get("description") or None # E Description
         ws.cell(row=idx, column=6).value = l.get("quantity") or None    # F Qty
