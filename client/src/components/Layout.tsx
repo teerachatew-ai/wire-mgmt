@@ -3,8 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, ArrowDownToLine,
   ArrowUpFromLine, RotateCcw, DollarSign,
-  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText
+  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut
 } from 'lucide-react';
+import { useAuth, canAccess } from '../auth';
 
 const nav = [
   { to: '/stock',    icon: Layers,          label: 'สต็อค & ตรวจสอบ',    short: 'สต็อค' },
@@ -28,8 +29,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sideOpen, setSideOpen] = useState(false);
   const loc = useLocation();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
-  const bottomItems = nav.filter(n => bottomNav.includes(n.to));
+  // กรองเมนูตามสิทธิ์ผู้ใช้
+  const visibleNav = nav.filter(n => !user || canAccess(user.role, n.to));
+  const bottomItems = visibleNav.filter(n => bottomNav.includes(n.to));
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -40,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <p className="text-base font-bold text-white">จ้างเหมาตัดสายไฟ</p>
         </div>
         <nav className="flex-1 py-2 overflow-y-auto">
-          {nav.map(({ to, icon: Icon, label }) => {
+          {visibleNav.map(({ to, icon: Icon, label }) => {
             const active = loc.pathname === to;
             return (
               <Link key={to} to={to}
@@ -53,8 +57,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="px-5 py-3 border-t border-slate-700 text-sm text-slate-500">
-          วิสาหกิจชุมชน v1.0
+        <div className="px-4 py-3 border-t border-slate-700">
+          {user && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-slate-400">เข้าสู่ระบบ</p>
+                <p className="text-sm font-semibold text-white truncate">{user.name}</p>
+              </div>
+              <button onClick={() => { logout(); navigate('/'); }}
+                className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg shrink-0">
+                <LogOut size={14} /> ออก
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -73,7 +88,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <nav className="flex-1 py-2 overflow-y-auto">
-              {nav.map(({ to, icon: Icon, label }) => {
+              {visibleNav.map(({ to, icon: Icon, label }) => {
                 const active = loc.pathname === to;
                 return (
                   <Link key={to} to={to} onClick={() => setSideOpen(false)}
@@ -85,6 +100,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 );
               })}
             </nav>
+            {user && (
+              <div className="px-4 py-3 border-t border-slate-700 flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-400">เข้าสู่ระบบ</p>
+                  <p className="text-sm font-semibold text-white truncate">{user.name}</p>
+                </div>
+                <button onClick={() => { setSideOpen(false); logout(); navigate('/'); }}
+                  className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-800 px-2.5 py-1.5 rounded-lg shrink-0">
+                  <LogOut size={14} /> ออก
+                </button>
+              </div>
+            )}
           </aside>
         </div>
       )}
