@@ -84,7 +84,7 @@ if target > CAP:
     for i in range(extra):
         r = 42 + 1 + i                       # newly inserted rows 43..
         copy_row_style(17, r)
-        ws.cell(row=r, column=2).value = "=ROW()-15"               # B No.
+        ws.cell(row=r, column=2).value = "=ROW()-16"               # B No.
         ws.cell(row=r, column=9).value  = f'=IF(F{r}*H{r}=0,"",F{r}*H{r})'   # I Amount
         ws.cell(row=r, column=10).value = f'=IF(I{r}="","",I{r}*K{r})'        # J WHT
         ws.cell(row=r, column=11).value = 0.03                                 # K rate
@@ -98,7 +98,7 @@ for idx in range(BASE, last + 1):
     # normalize ทุกแถวให้สไตล์/เส้นขอบ/ฟอร์แมต/ความสูง เหมือนแถวแรก (กันตารางเละ)
     copy_row_style(BASE, idx)
     ws.row_dimensions[idx].height = DATA_H
-    ws.cell(row=idx, column=2).value  = "=ROW()-15"                       # B No.
+    ws.cell(row=idx, column=2).value  = "=ROW()-16"                       # B No.
     ws.cell(row=idx, column=9).value  = f'=IF(F{idx}*H{idx}=0,"",F{idx}*H{idx})'  # I Amount
     ws.cell(row=idx, column=10).value = f'=IF(I{idx}="","",I{idx}*K{idx})'        # J WHT
     if li < n:
