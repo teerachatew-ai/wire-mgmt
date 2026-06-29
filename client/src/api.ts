@@ -107,6 +107,16 @@ export const smartcardApi = {
   },
 };
 
+export const assetApi = {
+  list: () => api.get('/assets').then(r => r.data),
+  create: (data: any) => api.post('/assets', data).then(r => r.data),
+  update: (id: number, data: any) => api.put(`/assets/${id}`, data).then(r => r.data),
+  delete: (id: number) => api.delete(`/assets/${id}`).then(r => r.data),
+  repayments: (id: number) => api.get(`/assets/${id}/repayments`).then(r => r.data),
+  addRepayment: (id: number, data: any) => api.post(`/assets/${id}/repayments`, data).then(r => r.data),
+  deleteRepayment: (rid: number) => api.delete(`/assets/repayments/${rid}`).then(r => r.data),
+};
+
 export const expenseApi = {
   list: (month?: string) => api.get('/expenses', { params: month ? { month } : {} }).then(r => r.data),
   create: (data: any) => api.post('/expenses', data).then(r => r.data),

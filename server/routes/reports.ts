@@ -109,8 +109,9 @@ router.get('/performance', (req, res) => {
   const wageAllVal = sum('wage_all');
   const revMonthVal = sum('revenue_month');
   const revAllVal = sum('revenue_all');
-  const managerCompMonth = fixedComp + pctComp * wageMonthVal;
-  const managerCompAll = fixedComp * monthsActive + pctComp * wageAllVal;
+  // ค่าตอบแทนผู้บริหาร (แบบ %) คิดจาก "รายได้จาก Amphenol" ไม่ใช่ค่าแรงสมาชิก
+  const managerCompMonth = fixedComp + pctComp * revMonthVal;
+  const managerCompAll = fixedComp * monthsActive + pctComp * revAllVal;
   const taxRate = withholdingTaxPct / 100;
   const taxMonth = revMonthVal * taxRate;
   const taxAll = revAllVal * taxRate;
@@ -590,20 +591,32 @@ router.get('/payroll-monthly', (req, res) => {
   const total_ng_deduction = members.reduce((s: number, m: any) => s + m.ng_deduction, 0);
   const group_deduction = total_wage * groupDeductPct;
 
+  // รายได้ที่ได้รับจาก Amphenol ในเดือนนั้น (จากยอดส่งออก/รับจริง × ราคาที่โรงงานจ่าย)
+  const monthRevenue = (prepare(`
+    SELECT COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) * p.factory_price), 0) as revenue
+    FROM shipment_items si
+    JOIN shipments s ON si.shipment_id = s.id
+    JOIN products p ON si.product_id = p.id
+    WHERE s.shipped_at LIKE ?
+  `).get(`${month}%`) as any).revenue || 0;
+
   const managers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
   const managersWithComp = managers.map((mg: any) => {
+    // % คิดจากรายได้จาก Amphenol เดือนนั้น (ไม่ใช่ค่าแรงสมาชิก)
     const computed = mg.compensation_type === 'percent'
-      ? total_wage * (mg.amount / 100)
+      ? monthRevenue * (mg.amount / 100)
       : mg.amount;
     return { ...mg, computed };
   });
   const total_manager_comp = managersWithComp.reduce((s: number, m: any) => s + m.computed, 0);
-  const net_payout = total_wage - group_deduction - total_manager_comp;
+  // เงินที่จ่ายสมาชิก = ค่าแรง − หักกองกลาง (ค่าตอบแทนผู้บริหารมาจากรายได้กลุ่ม ไม่หักจากค่าแรงสมาชิก)
+  const net_payout = total_wage - group_deduction;
 
   res.json({
     month,
     members,
     total_wage,
+    month_revenue: monthRevenue,
     total_ng_deduction,
     group_deduction_pct: groupDeductPct * 100,
     group_deduction,

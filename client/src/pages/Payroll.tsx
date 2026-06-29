@@ -93,10 +93,10 @@ function openPayrollSignSheet(data: any, monthName: string) {
 /* ─── Summary cards ───────────────────────────────────────── */
 function SummaryCards({ data }: { data: any }) {
   const cards = [
-    { label: 'รายได้รวมทั้งหมด', value: data.total_wage, color: 'blue', icon: DollarSign, note: `${data.members?.length || 0} คน` },
-    { label: `หักเข้ากองกลาง (${fmt(data.group_deduction_pct)}%)`, value: data.group_deduction, color: 'orange', icon: Building2, note: 'กองทุนกลุ่ม' },
-    { label: 'ค่าตอบแทนผู้บริหาร', value: data.total_manager_comp, color: 'purple', icon: Users, note: `${data.managers?.length || 0} คน` },
-    { label: 'จ่ายสุทธิให้สมาชิก', value: data.net_payout, color: 'green', icon: Wallet, note: 'หลังหักทุกรายการ' },
+    { label: 'รายได้จาก Amphenol', value: data.month_revenue ?? 0, color: 'blue', icon: DollarSign, note: 'เดือนนี้ (ฐานคิดค่าตอบแทน)' },
+    { label: 'ค่าแรงสมาชิกรวม', value: data.total_wage, color: 'orange', icon: Building2, note: `${data.members?.length || 0} คน` },
+    { label: 'ค่าตอบแทนผู้บริหาร', value: data.total_manager_comp, color: 'purple', icon: Users, note: `% ของรายได้ · ${data.managers?.length || 0} คน` },
+    { label: 'จ่ายสุทธิให้สมาชิก', value: data.net_payout, color: 'green', icon: Wallet, note: 'ค่าแรง − กองกลาง' },
   ];
   const colorMap: any = {
     blue: 'bg-blue-50 border-blue-200 text-blue-800 text-blue-600',

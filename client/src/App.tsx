@@ -15,6 +15,7 @@ import Shipments from './pages/Shipments';
 import FormPrint from './pages/FormPrint';
 import PdpaConsent from './pages/PdpaConsent';
 import Login from './pages/Login';
+import Assets from './pages/Assets';
 import { AuthProvider, useAuth, canAccess, homePath } from './auth';
 
 // จำกัดสิทธิ์ตาม role — ถ้าเข้าไม่ได้ ส่งกลับหน้าแรกของ role นั้น
@@ -40,6 +41,7 @@ function AppRoutes() {
         <Route path="/stock" element={<Guard path="/stock"><StockFlow /></Guard>} />
         <Route path="/shipments" element={<Guard path="/shipments"><Shipments /></Guard>} />
         <Route path="/payroll" element={<Guard path="/payroll"><Payroll /></Guard>} />
+        <Route path="/assets" element={<Guard path="/assets"><Assets /></Guard>} />
         <Route path="/billing" element={<Guard path="/billing"><Billing /></Guard>} />
         <Route path="/ocr" element={<Guard path="/ocr"><OCR /></Guard>} />
         <Route path="/settings" element={<Guard path="/settings"><SettingsPage /></Guard>} />

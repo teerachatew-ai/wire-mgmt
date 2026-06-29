@@ -32,6 +32,7 @@ initDb().then(() => {
   const shipmentsRouter = require('./routes/shipments').default;
   const smartcardRouter = require('./routes/smartcard').default;
   const expensesRouter = require('./routes/expenses').default;
+  const assetsRouter = require('./routes/assets').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -44,6 +45,7 @@ initDb().then(() => {
   app.use('/api/shipments', shipmentsRouter);
   app.use('/api/smartcard', smartcardRouter);
   app.use('/api/expenses', expensesRouter);
+  app.use('/api/assets', assetsRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {

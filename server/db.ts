@@ -250,6 +250,25 @@ CREATE TABLE IF NOT EXISTS managers (
     db.exec(`ALTER TABLE shipment_items ADD COLUMN received_qty REAL`);
   }
 
+  // สินทรัพย์/การลงทุนของกลุ่ม + การทยอยคืนเงินเจ้าของ
+  db.exec(`CREATE TABLE IF NOT EXISTS assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    price REAL NOT NULL DEFAULT 0,
+    purchase_date TEXT,
+    owner_advanced INTEGER DEFAULT 0,
+    note TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS asset_repayments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    paid_at TEXT,
+    note TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   const returnCols = db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
   if (!returnCols.includes('pay_cycle')) {
     db.exec(`ALTER TABLE returns ADD COLUMN pay_cycle TEXT`);
