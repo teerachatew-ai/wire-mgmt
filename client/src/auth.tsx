@@ -6,7 +6,7 @@ export interface AppUser { key: string; name: string; role: Role; }
 // ── ผู้ใช้ระบบ (แก้ชื่อ/รหัสผ่านได้ที่นี่) ─────────────────────────
 const USERS: { key: string; name: string; password: string; role: Role }[] = [
   { key: 'noona',     name: 'หนูนา',   password: 'noona3425',   role: 'admin' }, // เห็นทุกเมนู
-  { key: 'soonthree', name: 'สุนทรี',  password: 'soonthree123', role: 'admin' }, // เห็นทุกเมนู
+  { key: 'soonthree', name: 'สุนทรี',  password: 'Pla23261222', role: 'admin' }, // เห็นทุกเมนู
   { key: 'dao',       name: 'ดาว',     password: 'dao123',       role: 'dao' },   // เห็นทุกเมนู ยกเว้นที่ซ่อน
 ];
 

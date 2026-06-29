@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<title>คู่มือใช้งานระบบบริหารงานจ้างเหมาตัดสายไฟ</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Sarabun','Leelawadee UI','Tahoma',sans-serif; color: #1f2937; font-size: 15px; line-height: 1.65; }
+  @page { size: A4; margin: 16mm 14mm; }
+
+  h1 { font-size: 30px; color: #1d4ed8; }
+  h2 { font-size: 22px; color: #1d4ed8; border-bottom: 3px solid #bfdbfe; padding-bottom: 6px; margin: 0 0 14px; }
+  h3 { font-size: 17px; color: #111827; margin: 18px 0 8px; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 6px 22px; }
+  li { margin: 3px 0; }
+  b, strong { color: #111827; }
+  .muted { color: #6b7280; }
+
+  .section { page-break-before: always; padding-top: 4px; }
+  .cover { text-align: center; padding-top: 120px; page-break-after: always; }
+  .cover .logo { width: 92px; height: 92px; border-radius: 24px; background: #2563eb; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 46px; margin-bottom: 22px; }
+  .cover h1 { font-size: 34px; }
+  .cover .sub { font-size: 18px; color: #6b7280; margin-top: 8px; }
+  .cover .ver { margin-top: 60px; color: #9ca3af; font-size: 14px; }
+
+  .step { display: flex; gap: 14px; margin: 16px 0; page-break-inside: avoid; }
+  .step .num { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: #2563eb; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .step .body { flex: 1; }
+  .step .body .fig { margin-top: 8px; }
+
+  .note { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 10px 14px; border-radius: 6px; margin: 12px 0; page-break-inside: avoid; }
+  .warn { background: #fef2f2; border-left: 4px solid #ef4444; padding: 10px 14px; border-radius: 6px; margin: 12px 0; page-break-inside: avoid; }
+  .tip  { background: #f0fdf4; border-left: 4px solid #22c55e; padding: 10px 14px; border-radius: 6px; margin: 12px 0; page-break-inside: avoid; }
+
+  .toc li { margin: 8px 0; font-size: 16px; }
+  .toc .n { display:inline-block; width: 26px; color:#2563eb; font-weight:700; }
+
+  figure { margin: 0; }
+  figcaption { font-size: 12px; color: #6b7280; text-align: center; margin-top: 4px; }
+  svg { display:block; max-width: 100%; border: 1px solid #e5e7eb; border-radius: 8px; background:#fff; }
+  .flow { width: 100%; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="cover">
+  <div class="logo">⚡</div>
+  <h1>คู่มือใช้งานระบบ</h1>
+  <h1 style="font-size:26px;color:#111827">บริหารงานจ้างเหมาตัดสายไฟ</h1>
+  <div class="sub">วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง</div>
+  <div class="sub" style="font-size:15px;margin-top:24px;color:#374151">สำหรับผู้ใช้งานทั่วไป — อ่านแล้วทำตามได้ทันที ไม่ต้องมีพื้นฐานคอมพิวเตอร์</div>
+  <div class="ver">ฉบับปรับปรุง พ.ศ. 2569</div>
+</div>
+
+<!-- ============ TOC ============ -->
+<div class="section">
+  <h2>สารบัญ</h2>
+  <ul class="toc" style="list-style:none;margin-left:0">
+    <li><span class="n">1.</span> ภาพรวม &amp; การเข้าสู่ระบบ (Login)</li>
+    <li><span class="n">2.</span> รู้จักหน้าจอและเมนูต่าง ๆ</li>
+    <li><span class="n">3.</span> รับของจากโรงงาน</li>
+    <li><span class="n">4.</span> เบิกงานให้สมาชิก</li>
+    <li><span class="n">5.</span> รับคืนงานจากสมาชิก (แยกงานดี / งานเสีย)</li>
+    <li><span class="n">6.</span> ส่งงานออกโรงงาน + บันทึกยอดโรงงานรับจริง</li>
+    <li><span class="n">7.</span> ออกใบวางบิล / ใบแจ้งหนี้ / ใบเสร็จรับเงิน</li>
+    <li><span class="n">8.</span> สมาชิก &amp; การอ่านบัตรประชาชน</li>
+    <li><span class="n">9.</span> ภาพรวมการเงิน &amp; สรุปค่าแรง</li>
+    <li><span class="n">10.</span> ลำดับงานประจำเดือน (สรุปย่อ)</li>
+    <li><span class="n">11.</span> ปัญหาที่พบบ่อย &amp; วิธีแก้</li>
+  </ul>
+  <div class="note"><b>หลักการอ่านคู่มือ:</b> แต่ละหัวข้อมี "ขั้นตอนเป็นข้อ ๆ" พร้อม <b>ภาพประกอบ</b> ของหน้าจอ ให้ทำตามทีละข้อจากบนลงล่าง ปุ่มหรือช่องที่ต้องกด/กรอก จะถูก <span style="color:#dc2626;font-weight:700">ทำกรอบสีแดง</span> หรือมีลูกศรชี้ไว้ในภาพ</div>
+</div>
+
+<!-- ============ 1. LOGIN ============ -->
+<div class="section">
+  <h2>1. ภาพรวม &amp; การเข้าสู่ระบบ (Login)</h2>
+  <p>ระบบนี้ใช้สำหรับจัดการงานตัดสายไฟทั้งหมด ตั้งแต่รับของจากโรงงาน แจกจ่ายให้สมาชิก รับงานคืน ส่งกลับโรงงาน จนถึงออกเอกสารวางบิล/ใบแจ้งหนี้ <b>เปิดใช้งานผ่านเว็บเบราว์เซอร์</b> (เช่น Chrome, Edge, Safari) ได้ทั้งคอมพิวเตอร์และมือถือ</p>
+
+  <div class="step"><div class="num">1</div><div class="body">
+    เปิดเบราว์เซอร์ แล้วพิมพ์ที่อยู่เว็บของระบบในช่องด้านบน จากนั้นกด Enter
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 70" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="14" width="676" height="42" rx="21" fill="#f3f4f6" stroke="#d1d5db"/>
+        <circle cx="34" cy="35" r="7" fill="#9ca3af"/>
+        <text x="58" y="41" font-size="16" fill="#374151">https://wire-mgmt.onrender.com</text>
+        <rect x="20" y="20" width="430" height="30" rx="15" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+      </svg>
+      <figcaption>พิมพ์ที่อยู่เว็บในช่องด้านบนของเบราว์เซอร์</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    จะพบหน้าเข้าสู่ระบบ ให้กรอก <b>ชื่อผู้ใช้</b> และ <b>รหัสผ่าน</b> ที่ได้รับ แล้วกดปุ่ม <b>เข้าสู่ระบบ</b>
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg">
+        <rect x="220" y="10" width="240" height="240" rx="14" fill="#fff" stroke="#e5e7eb"/>
+        <circle cx="340" cy="48" r="20" fill="#2563eb"/><text x="340" y="55" font-size="18" fill="#fff" text-anchor="middle">↪</text>
+        <text x="340" y="92" font-size="14" fill="#111827" text-anchor="middle" font-weight="700">เข้าสู่ระบบ</text>
+        <text x="244" y="120" font-size="12" fill="#6b7280">ชื่อผู้ใช้</text>
+        <rect x="244" y="126" width="192" height="30" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="254" y="146" font-size="13" fill="#374151">หนูนา</text>
+        <text x="244" y="178" font-size="12" fill="#6b7280">รหัสผ่าน</text>
+        <rect x="244" y="184" width="192" height="30" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="254" y="204" font-size="13" fill="#374151">••••••••</text>
+        <rect x="244" y="224" width="192" height="16" rx="0" fill="none"/>
+        <rect x="244" y="222" width="192" height="20" rx="6" fill="#2563eb"/><text x="340" y="236" font-size="12" fill="#fff" text-anchor="middle">เข้าสู่ระบบ</text>
+        <rect x="240" y="218" width="200" height="28" rx="8" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+      </svg>
+      <figcaption>กรอกชื่อผู้ใช้/รหัสผ่าน แล้วกดปุ่มสีน้ำเงิน "เข้าสู่ระบบ"</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="note"><b>สิทธิ์ผู้ใช้:</b> ผู้ใช้บางคนจะเห็นทุกเมนู บางคนเห็นเฉพาะเมนูที่เกี่ยวกับงานของตน เป็นเรื่องปกติ — เมนูที่ไม่เห็นคือเมนูที่ไม่ได้รับสิทธิ์</div>
+  <div class="tip"><b>เคล็ดลับ:</b> เมื่อเลิกใช้งานบนเครื่องที่ใช้ร่วมกับผู้อื่น ให้กดปุ่ม <b>ออกจากระบบ</b> ที่มุมล่างซ้ายของแถบเมนูทุกครั้ง</div>
+</div>
+
+<!-- ============ 2. MENU OVERVIEW ============ -->
+<div class="section">
+  <h2>2. รู้จักหน้าจอและเมนูต่าง ๆ</h2>
+  <p>หลังเข้าสู่ระบบ จะเห็น <b>แถบเมนูด้านซ้าย</b> (บนมือถือคือปุ่ม ☰ มุมซ้ายบน) ใช้สำหรับสลับไปยังหน้างานต่าง ๆ</p>
+  <figure class="fig">
+    <svg class="flow" viewBox="0 0 680 360" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="2" width="676" height="356" rx="10" fill="#fff" stroke="#e5e7eb"/>
+      <rect x="2" y="2" width="190" height="356" rx="10" fill="#0f172a"/>
+      <text x="20" y="34" font-size="13" fill="#cbd5e1">ระบบบริหารงานกลุ่ม</text>
+      <text x="20" y="52" font-size="14" fill="#fff" font-weight="700">จ้างเหมาตัดสายไฟ</text>
+      <g font-size="13" fill="#cbd5e1">
+        <text x="24" y="86">📦 สต็อค &amp; ตรวจสอบ</text>
+        <text x="24" y="112">📊 ภาพรวม</text>
+        <text x="24" y="138">👥 สมาชิก</text>
+        <text x="24" y="164">🏷️ ประเภทสินค้า</text>
+        <text x="24" y="190">⬇️ รับของจากโรงงาน</text>
+        <text x="24" y="216">⬆️ เบิกงานให้สมาชิก</text>
+        <text x="24" y="242">↩️ รับคืนงาน</text>
+        <text x="24" y="268">🚚 ส่งงานออกโรงงาน</text>
+        <text x="24" y="294">💰 สรุปค่าแรง</text>
+        <text x="24" y="320">🧾 ใบแจ้งหนี้/วางบิล</text>
+      </g>
+      <text x="420" y="150" font-size="16" fill="#9ca3af" text-anchor="middle">พื้นที่แสดงเนื้อหา</text>
+      <text x="420" y="174" font-size="13" fill="#cbd5e1" text-anchor="middle">ของเมนูที่เลือก</text>
+    </svg>
+    <figcaption>แถบเมนูด้านซ้าย — กดเพื่อเข้าแต่ละหน้างาน</figcaption>
+  </figure>
+  <div class="note"><b>ลำดับงานหลักเรียงตามจริง:</b> รับของจากโรงงาน → เบิกงานให้สมาชิก → รับคืนงาน → ส่งงานออกโรงงาน → ออกใบวางบิล/ใบแจ้งหนี้</div>
+</div>
+
+<!-- ============ 3. RECEIVE ============ -->
+<div class="section">
+  <h2>3. รับของจากโรงงาน</h2>
+  <p>ใช้เมื่อโรงงานส่งสายไฟ (วัตถุดิบ) มาให้กลุ่ม เพื่อบันทึกว่ามีของเข้ามากี่หน่วย</p>
+
+  <div class="step"><div class="num">1</div><div class="body">
+    กดเมนู <b>รับของจากโรงงาน</b> ทางซ้าย จากนั้นกดปุ่ม <b>+ บันทึกรับของ</b> ด้านขวาบน
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 80" xmlns="http://www.w3.org/2000/svg">
+        <text x="14" y="46" font-size="18" fill="#111827" font-weight="700">รับของจากโรงงาน</text>
+        <rect x="520" y="26" width="150" height="34" rx="8" fill="#2563eb"/>
+        <text x="595" y="48" font-size="14" fill="#fff" text-anchor="middle">+ บันทึกรับของ</text>
+        <rect x="515" y="21" width="160" height="44" rx="10" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+      </svg>
+      <figcaption>กดปุ่มสีน้ำเงิน "+ บันทึกรับของ" มุมขวาบน</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    กรอก <b>วันที่รับ</b> และเลือก <b>สินค้า</b> พร้อมใส่ <b>จำนวน</b> ที่รับเข้ามา (เพิ่มได้หลายชนิดในใบเดียวด้วยปุ่ม "+ เพิ่มสินค้า")
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+        <rect x="120" y="8" width="440" height="214" rx="12" fill="#fff" stroke="#e5e7eb"/>
+        <text x="140" y="36" font-size="15" fill="#111827" font-weight="700">บันทึกรับของ</text>
+        <text x="140" y="64" font-size="12" fill="#6b7280">วันที่รับ</text>
+        <rect x="140" y="70" width="180" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="150" y="89" font-size="13">01/06/2026</text>
+        <text x="140" y="122" font-size="12" fill="#6b7280">สินค้า</text>
+        <rect x="140" y="128" width="270" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="150" y="147" font-size="13">MA020-676_A (9 Core)</text>
+        <text x="430" y="122" font-size="12" fill="#6b7280">จำนวน</text>
+        <rect x="430" y="128" width="110" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="440" y="147" font-size="13">2000</text>
+        <rect x="135" y="123" width="410" height="38" rx="8" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+        <rect x="430" y="180" width="110" height="30" rx="8" fill="#2563eb"/><text x="485" y="200" font-size="13" fill="#fff" text-anchor="middle">บันทึก</text>
+      </svg>
+      <figcaption>กรอกวันที่ เลือกสินค้า ใส่จำนวน แล้วกด "บันทึก"</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div class="body">
+    กด <b>บันทึก</b> รายการจะไปปรากฏในตารางด้านล่าง และจำนวนของจะถูกบวกเข้าสต็อกอัตโนมัติ
+  </div></div>
+
+  <div class="tip"><b>มีใบส่งของจากโรงงาน?</b> สามารถถ่ายรูปหรือแนบไฟล์ใบส่งของ แล้วกดปุ่ม <b>สแกน (OCR)</b> ระบบจะอ่านจำนวนให้อัตโนมัติ (ตรวจทานตัวเลขก่อนกดบันทึกทุกครั้ง)</div>
+  <div class="warn"><b>ข้อควรระวัง:</b> ระบบอ่าน "จำนวน" จากช่อง <b>จำนวนการจัดส่ง</b> เท่านั้น หากตัวเลขในระบบไม่ตรงกับเอกสาร ให้แก้ให้ถูกก่อนบันทึก</div>
+</div>
+
+<!-- ============ 4. ISSUE ============ -->
+<div class="section">
+  <h2>4. เบิกงานให้สมาชิก</h2>
+  <p>ใช้เมื่อแจกจ่ายสายไฟให้สมาชิกนำไปตัดที่บ้าน</p>
+
+  <div class="step"><div class="num">1</div><div class="body">
+    กดเมนู <b>เบิกงานให้สมาชิก</b> แล้วกดปุ่ม <b>+ เบิกงาน</b>
+  </div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    เลือก <b>สมาชิก</b> (พิมพ์ชื่อหรือชื่อเล่นเพื่อค้นหาได้) เลือก <b>สินค้า</b> และใส่ <b>จำนวนที่เบิก</b>
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+        <rect x="120" y="8" width="440" height="214" rx="12" fill="#fff" stroke="#e5e7eb"/>
+        <text x="140" y="36" font-size="15" fill="#111827" font-weight="700">เบิกงานให้สมาชิก</text>
+        <text x="140" y="64" font-size="12" fill="#6b7280">สมาชิก</text>
+        <rect x="140" y="70" width="260" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="150" y="89" font-size="13">นางสมศรี (ป้าศรี)</text>
+        <text x="140" y="122" font-size="12" fill="#6b7280">สินค้า</text>
+        <rect x="140" y="128" width="270" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="150" y="147" font-size="13">MA020-676_A (9 Core)</text>
+        <text x="430" y="122" font-size="12" fill="#6b7280">จำนวนเบิก</text>
+        <rect x="430" y="128" width="110" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="440" y="147" font-size="13">500</text>
+        <text x="140" y="180" font-size="11" fill="#16a34a">เบิกได้สูงสุด: 2000 หน่วย</text>
+        <rect x="430" y="180" width="110" height="30" rx="8" fill="#2563eb"/><text x="485" y="200" font-size="13" fill="#fff" text-anchor="middle">บันทึก</text>
+      </svg>
+      <figcaption>เลือกสมาชิก-สินค้า ใส่จำนวน (ระบบบอกยอดที่เบิกได้สูงสุด)</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div class="body">กด <b>บันทึก</b> — จำนวนจะถูกตัดออกจากสต็อกคลัง และไปอยู่ในสถานะ "อยู่กับสมาชิก"</div></div>
+  <div class="note"><b>ใต้ช่องจำนวน</b> ระบบจะบอก "เบิกได้สูงสุด" ของสินค้านั้น เพื่อกันการเบิกเกินของที่มี</div>
+</div>
+
+<!-- ============ 5. RETURN ============ -->
+<div class="section">
+  <h2>5. รับคืนงานจากสมาชิก</h2>
+  <p>ใช้เมื่อสมาชิกตัดเสร็จแล้วนำงานมาคืน ขั้นตอนนี้สำคัญเพราะเป็นการ <b>แยกงานดี / งานเสีย</b> ซึ่งมีผลต่อการคิดค่าแรง</p>
+
+  <div class="step"><div class="num">1</div><div class="body">กดเมนู <b>รับคืนงาน</b> → ปุ่ม <b>+ รับคืนงาน</b> แล้วเลือกรายการที่สมาชิกเบิกไป</div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    กรอกจำนวนแยกเป็น 3 ช่อง:
+    <ul>
+      <li><b>งานดี</b> — งานที่ใช้ได้ ส่งโรงงานได้</li>
+      <li><b>งานเสียจากการตัด</b> — สมาชิกตัดเสีย (จะถูกหักค่าแรงตามเกณฑ์)</li>
+      <li><b>งานเสียจากโรงงาน</b> — วัตถุดิบเสียมาแต่แรก (จ่ายค่าแรงปกติ)</li>
+    </ul>
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+        <rect x="90" y="8" width="500" height="194" rx="12" fill="#fff" stroke="#e5e7eb"/>
+        <text x="110" y="34" font-size="15" fill="#111827" font-weight="700">รับคืนงาน — ป้าศรี / 9 Core</text>
+        <text x="110" y="70" font-size="12" fill="#16a34a">งานดี</text>
+        <rect x="110" y="76" width="130" height="30" rx="6" fill="#f0fdf4" stroke="#86efac"/><text x="120" y="96" font-size="13">480</text>
+        <text x="260" y="70" font-size="12" fill="#dc2626">เสียจากการตัด</text>
+        <rect x="260" y="76" width="130" height="30" rx="6" fill="#fef2f2" stroke="#fca5a5"/><text x="270" y="96" font-size="13">15</text>
+        <text x="410" y="70" font-size="12" fill="#f59e0b">เสียจากโรงงาน</text>
+        <rect x="410" y="76" width="130" height="30" rx="6" fill="#fffbeb" stroke="#fcd34d"/><text x="420" y="96" font-size="13">5</text>
+        <text x="110" y="140" font-size="12" fill="#6b7280">รวมคืน 500 หน่วย (ตรงกับที่เบิกไป)</text>
+        <rect x="430" y="160" width="110" height="30" rx="8" fill="#2563eb"/><text x="485" y="180" font-size="13" fill="#fff" text-anchor="middle">บันทึก</text>
+      </svg>
+      <figcaption>แยกจำนวน งานดี / เสียจากการตัด / เสียจากโรงงาน ให้ถูกต้อง</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div class="body">กด <b>บันทึก</b> — งานดีจะเข้าสต็อก "พร้อมส่ง" ระบบจะคำนวณค่าแรงและการหักงานเสียให้อัตโนมัติ</div></div>
+  <div class="warn"><b>สำคัญมาก:</b> แยกประเภทงานเสียให้ถูก เพราะ "เสียจากการตัด" จะหักค่าแรงสมาชิก ส่วน "เสียจากโรงงาน" จ่ายค่าแรงปกติ</div>
+</div>
+
+<!-- ============ 6. SHIPMENT ============ -->
+<div class="section">
+  <h2>6. ส่งงานออกโรงงาน</h2>
+  <p>ใช้เมื่อนำงานดี (ที่สมาชิกคืนแล้ว) ส่งกลับให้โรงงาน</p>
+
+  <div class="step"><div class="num">1</div><div class="body">กดเมนู <b>ส่งงานออกโรงงาน</b> → ปุ่ม <b>+ บันทึกการส่งออก</b></div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    กรอก <b>วันที่ส่ง</b> และใส่จำนวนที่ส่งในแต่ละสินค้า (ระบบบอก "สต้อคพร้อมส่ง" ของแต่ละรุ่นให้)
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+        <rect x="100" y="8" width="480" height="184" rx="12" fill="#fff" stroke="#e5e7eb"/>
+        <text x="120" y="34" font-size="15" fill="#111827" font-weight="700">บันทึกส่งของคืนโรงงาน</text>
+        <text x="120" y="64" font-size="12" fill="#6b7280">วันที่ส่ง</text>
+        <rect x="120" y="70" width="160" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="130" y="89" font-size="13">30/06/2026</text>
+        <rect x="120" y="112" width="440" height="56" rx="8" fill="#f9fafb" stroke="#e5e7eb"/>
+        <text x="132" y="132" font-size="13" fill="#111827">MA020-676_A</text>
+        <rect x="132" y="138" width="60" height="20" rx="10" fill="#dcfce7"/><text x="162" y="152" font-size="10" fill="#16a34a" text-anchor="middle">พร้อมส่ง 480</text>
+        <text x="330" y="132" font-size="11" fill="#6b7280">งานดี (ส่ง)</text>
+        <rect x="330" y="138" width="90" height="22" rx="5" fill="#fff" stroke="#d1d5db"/><text x="338" y="154" font-size="12">480</text>
+      </svg>
+      <figcaption>ใส่จำนวนที่ส่ง — ป้ายเขียวบอกยอดที่พร้อมส่ง</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div class="body">กด <b>บันทึกการส่งออก</b> — หากใส่จำนวนเกินของที่พร้อมส่ง ระบบจะ <b>เตือนให้ยืนยัน</b> ก่อน (กดตกลงเพื่อทำต่อได้)</div></div>
+
+  <div class="step"><div class="num">4</div><div class="body">
+    <b>เมื่อใบส่งที่โรงงานเซ็นรับกลับมา</b> ให้กดปุ่มแก้ไข (รูปดินสอ) ที่รายการนั้น แล้วกรอกช่อง <b>ยอดโรงงานรับจริง</b>
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 150" xmlns="http://www.w3.org/2000/svg">
+        <rect x="120" y="8" width="440" height="134" rx="12" fill="#fff" stroke="#e5e7eb"/>
+        <text x="140" y="34" font-size="14" fill="#111827" font-weight="700">แก้ไขการส่งออก — MA020-676_A</text>
+        <text x="140" y="64" font-size="12" fill="#6b7280">งานดี (ส่งไป)</text>
+        <rect x="140" y="70" width="120" height="28" rx="6" fill="#f9fafb" stroke="#d1d5db"/><text x="150" y="89" font-size="13">480</text>
+        <text x="290" y="64" font-size="12" fill="#2563eb">ยอดโรงงานรับจริง</text>
+        <rect x="290" y="70" width="120" height="28" rx="6" fill="#eff6ff" stroke="#93c5fd"/><text x="300" y="89" font-size="13">478</text>
+        <rect x="285" y="65" width="130" height="38" rx="8" fill="none" stroke="#dc2626" stroke-width="2.5"/>
+        <text x="140" y="124" font-size="11" fill="#dc2626">⚠️ ต่างจากที่ส่ง −2 — ระบบจะคิดเงินจากยอดรับจริง</text>
+      </svg>
+      <figcaption>กรอกยอดที่โรงงานรับจริง เพื่อให้การคิดเงินตรงกับความจริง</figcaption>
+    </figure>
+  </div></div>
+  <div class="tip"><b>ทำไมต้องกรอกยอดรับจริง?</b> เพราะใบวางบิล/ใบแจ้งหนี้จะ <b>คิดเงินจากยอดที่โรงงานรับจริง</b> ทำให้เงินที่เรียกเก็บตรงกับที่โรงงานยอมรับเสมอ (ถ้ายังไม่กรอก ระบบใช้ยอดที่ส่งไปก่อน)</div>
+</div>
+
+<!-- ============ 7. BILLING/INVOICE/RECEIPT ============ -->
+<div class="section">
+  <h2>7. ออกใบวางบิล / ใบแจ้งหนี้ / ใบเสร็จรับเงิน</h2>
+  <p>เมื่อสิ้นเดือน ใช้เมนูนี้ออกเอกสารเรียกเก็บเงินจากโรงงาน — มี 3 เอกสารต่างกัน</p>
+  <ul>
+    <li><b>ใบวางบิล (Billing Note)</b> — แสดงทุกครั้งที่ส่งของในเดือน (1 บรรทัด/การส่ง) พร้อมวันที่จัดส่ง ใช้ยื่นวางบิล</li>
+    <li><b>ใบแจ้งหนี้ (Invoice)</b> — รวมยอดทั้งเดือนต่อสินค้า (1 บรรทัด/รุ่น) คิด หัก ณ ที่จ่าย 3% และยอดสุทธิ</li>
+    <li><b>ใบเสร็จรับเงิน (Receipt)</b> — ยอดเดียวกับใบแจ้งหนี้ ออกเมื่อได้รับเงินแล้ว</li>
+  </ul>
+
+  <div class="step"><div class="num">1</div><div class="body">กดเมนู <b>ใบแจ้งหนี้/วางบิล</b> แล้วเลือก <b>เดือน</b> ที่ต้องการออกเอกสาร</div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    เลือกกล่องเอกสารที่ต้องการ แล้วกดปุ่ม <b>Excel</b> หรือ <b>PDF</b> ระบบจะสร้างไฟล์ให้ดาวน์โหลด
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 180" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="20" width="200" height="140" rx="12" fill="#eff6ff" stroke="#bfdbfe"/>
+        <text x="36" y="46" font-size="13" font-weight="700" fill="#111827">📄 ใบวางบิล</text>
+        <text x="36" y="66" font-size="10" fill="#6b7280">ทุกครั้งที่ส่งของ</text>
+        <rect x="36" y="120" width="76" height="26" rx="6" fill="#e5e7eb"/><text x="74" y="137" font-size="11" text-anchor="middle">Excel</text>
+        <rect x="120" y="120" width="76" height="26" rx="6" fill="#2563eb"/><text x="158" y="137" font-size="11" fill="#fff" text-anchor="middle">PDF</text>
+
+        <rect x="240" y="20" width="200" height="140" rx="12" fill="#ecfdf5" stroke="#a7f3d0"/>
+        <text x="256" y="46" font-size="13" font-weight="700" fill="#111827">🧾 ใบแจ้งหนี้</text>
+        <text x="256" y="66" font-size="10" fill="#6b7280">รวมยอด/สินค้า, WHT 3%</text>
+        <rect x="256" y="120" width="76" height="26" rx="6" fill="#e5e7eb"/><text x="294" y="137" font-size="11" text-anchor="middle">Excel</text>
+        <rect x="340" y="120" width="76" height="26" rx="6" fill="#2563eb"/><text x="378" y="137" font-size="11" fill="#fff" text-anchor="middle">PDF</text>
+
+        <rect x="460" y="20" width="200" height="140" rx="12" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="476" y="46" font-size="13" font-weight="700" fill="#111827">✅ ใบเสร็จรับเงิน</text>
+        <text x="476" y="66" font-size="10" fill="#6b7280">ยอดเดียวกับใบแจ้งหนี้</text>
+        <rect x="476" y="120" width="120" height="26" rx="6" fill="#2563eb"/><text x="536" y="137" font-size="11" fill="#fff" text-anchor="middle">PDF</text>
+      </svg>
+      <figcaption>เลือกเอกสารที่ต้องการ แล้วกด Excel หรือ PDF</figcaption>
+    </figure>
+  </div></div>
+
+  <div class="step"><div class="num">3</div><div class="body">ไฟล์จะถูกดาวน์โหลดลงเครื่อง เปิดดู/พิมพ์/ส่งให้โรงงานได้เลย</div></div>
+  <div class="note"><b>ข้อมูลผู้วางบิล/ซัพพลายเออร์</b> แก้ไขได้โดยกดปุ่ม "✏️ ข้อมูลผู้วางบิล / ซัพพลายเออร์" ด้านบน (กรอกครั้งเดียว ใช้ซ้ำทุกเดือน)</div>
+</div>
+
+<!-- ============ 8. MEMBERS + CARD ============ -->
+<div class="section">
+  <h2>8. สมาชิก &amp; การอ่านบัตรประชาชน</h2>
+  <p>เมนู <b>สมาชิก</b> ใช้เพิ่ม/แก้ไขข้อมูลสมาชิก ดูประวัติงาน และเกรดคุณภาพ (A/B/C ตามอัตรางานเสีย)</p>
+
+  <div class="step"><div class="num">1</div><div class="body">กดเมนู <b>สมาชิก</b> → ปุ่ม <b>+ เพิ่มสมาชิก</b> กรอกชื่อ ชื่อเล่น เบอร์โทร และข้อมูลอื่น ๆ แล้วกดบันทึก</div></div>
+
+  <div class="step"><div class="num">2</div><div class="body">
+    <b>อ่านบัตรประชาชนอัตโนมัติ:</b> เสียบเครื่องอ่านบัตร → เปิดโปรแกรม "ตัวช่วยอ่านบัตร" → ในหน้าเพิ่มสมาชิกกดปุ่ม <b>อ่านบัตร</b> → เสียบบัตร ข้อมูลจะกรอกให้เอง
+    <figure class="fig">
+      <svg class="flow" viewBox="0 0 680 90" xmlns="http://www.w3.org/2000/svg">
+        <rect x="30" y="24" width="150" height="40" rx="8" fill="#fff" stroke="#d1d5db"/><text x="105" y="49" font-size="12" text-anchor="middle">💳 เครื่องอ่านบัตร</text>
+        <text x="195" y="49" font-size="18" fill="#9ca3af">→</text>
+        <rect x="220" y="24" width="170" height="40" rx="8" fill="#0f172a"/><text x="305" y="49" font-size="11" fill="#fff" text-anchor="middle">เปิดตัวช่วยอ่านบัตร.bat</text>
+        <text x="405" y="49" font-size="18" fill="#9ca3af">→</text>
+        <rect x="430" y="24" width="140" height="40" rx="8" fill="#2563eb"/><text x="500" y="49" font-size="12" fill="#fff" text-anchor="middle">กดปุ่ม "อ่านบัตร"</text>
+      </svg>
+      <figcaption>ขั้นตอนการอ่านบัตรประชาชน</figcaption>
+    </figure>
+  </div></div>
+  <div class="note"><b>ตัวช่วยอ่านบัตร</b> ต้องติดตั้ง+เปิดบนเครื่องที่เสียบเครื่องอ่านบัตร (ดูคู่มือในโฟลเดอร์ card-reader-helper) — เครื่องอ่านบัตร 1 ตัวย้ายไปเสียบเครื่องไหนก็ได้ที่ติดตั้งตัวช่วยไว้</div>
+</div>
+
+<!-- ============ 9. FINANCE ============ -->
+<div class="section">
+  <h2>9. ภาพรวมการเงิน &amp; สรุปค่าแรง</h2>
+  <p><b>เมนูภาพรวม</b> แสดงรายรับ ค่าแรง กำไร และประมาณการของแต่ละเดือน (กดที่กราฟแต่ละเดือนเพื่อดูรายละเอียด) สามารถเพิ่มค่าใช้จ่ายบริหารจัดการรายเดือนได้</p>
+  <p><b>เมนูสรุปค่าแรง</b> แสดงค่าแรงที่ต้องจ่ายสมาชิกแต่ละคนในแต่ละรอบ พร้อมการหักงานเสีย — ใช้พิมพ์ใบเซ็นรับเงินได้</p>
+  <div class="tip">ตัวเลขทั้งหมดคำนวณอัตโนมัติจากข้อมูลที่บันทึกในเมนูรับ/เบิก/คืน/ส่ง — ยิ่งบันทึกข้อมูลครบและถูกต้อง ตัวเลขสรุปยิ่งแม่นยำ</div>
+</div>
+
+<!-- ============ 10. MONTHLY FLOW ============ -->
+<div class="section">
+  <h2>10. ลำดับงานประจำเดือน (สรุปย่อ)</h2>
+  <figure class="fig">
+    <svg class="flow" viewBox="0 0 680 120" xmlns="http://www.w3.org/2000/svg">
+      <g font-size="12" text-anchor="middle">
+        <rect x="10" y="40" width="110" height="44" rx="10" fill="#dbeafe"/><text x="65" y="60">รับของ</text><text x="65" y="76" font-size="10" fill="#6b7280">จากโรงงาน</text>
+        <text x="128" y="66" font-size="16" fill="#9ca3af">→</text>
+        <rect x="146" y="40" width="110" height="44" rx="10" fill="#dbeafe"/><text x="201" y="60">เบิกงาน</text><text x="201" y="76" font-size="10" fill="#6b7280">ให้สมาชิก</text>
+        <text x="264" y="66" font-size="16" fill="#9ca3af">→</text>
+        <rect x="282" y="40" width="110" height="44" rx="10" fill="#dbeafe"/><text x="337" y="60">รับคืนงาน</text><text x="337" y="76" font-size="10" fill="#6b7280">แยกดี/เสีย</text>
+        <text x="400" y="66" font-size="16" fill="#9ca3af">→</text>
+        <rect x="418" y="40" width="110" height="44" rx="10" fill="#dbeafe"/><text x="473" y="60">ส่งงานออก</text><text x="473" y="76" font-size="10" fill="#6b7280">+ ยอดรับจริง</text>
+        <text x="536" y="66" font-size="16" fill="#9ca3af">→</text>
+        <rect x="554" y="40" width="116" height="44" rx="10" fill="#bbf7d0"/><text x="612" y="60">ออกบิล</text><text x="612" y="76" font-size="10" fill="#6b7280">/ใบแจ้งหนี้</text>
+      </g>
+    </svg>
+    <figcaption>วงจรงานหนึ่งเดือนของกลุ่ม</figcaption>
+  </figure>
+</div>
+
+<!-- ============ 11. TROUBLESHOOT ============ -->
+<div class="section">
+  <h2>11. ปัญหาที่พบบ่อย &amp; วิธีแก้</h2>
+  <h3>เปิดเว็บไม่ได้ / หน้าโหลดช้า</h3>
+  <p>หากไม่ได้ใช้งานนาน หน้าแรกอาจโหลดช้า ~30–50 วินาที (ระบบกำลัง "ตื่น") — รอสักครู่แล้วลองใหม่ ข้อมูลไม่หาย</p>
+  <h3>อ่านบัตรประชาชนไม่ได้</h3>
+  <p>ตรวจว่า (1) เสียบเครื่องอ่านบัตรแล้ว (2) เปิดโปรแกรม "ตัวช่วยอ่านบัตร" ค้างไว้ (3) เสียบบัตรให้แน่น แล้วกดอ่านใหม่</p>
+  <h3>ตัวเลขสต็อก/เงินไม่ตรง</h3>
+  <p>มักเกิดจากบันทึกขั้นตอนใดขั้นตอนหนึ่งไม่ครบ — ตรวจย้อนในเมนู <b>สต็อค &amp; ตรวจสอบ</b> ว่ารับ/เบิก/คืน/ส่ง ครบถูกต้องไหม</p>
+  <h3>มือถือเห็นข้อมูลเก่า</h3>
+  <p>ลากหน้าจอลงเพื่อรีเฟรช หรือปิดแท็บแล้วเปิดใหม่</p>
+
+  <div class="note" style="margin-top:30px"><b>ต้องการความช่วยเหลือเพิ่มเติม</b> ติดต่อผู้ดูแลระบบของกลุ่ม พร้อมแคปหน้าจอจุดที่มีปัญหา จะช่วยให้แก้ไขได้รวดเร็วขึ้น</div>
+  <p style="text-align:center;color:#9ca3af;margin-top:40px;font-size:13px">— จบคู่มือ —</p>
+</div>
+
+</body>
+</html>
