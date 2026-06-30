@@ -66,7 +66,18 @@ function CheckBalance() {
   const totalShip = sum('shipped');
   const totalWaste = sum('ret_waste');
   const totalWH = sum('in_warehouse');
+  const totalRecvDiff = sum('recv_diff');
   const allOk = products.every(p => p.ok);
+
+  const recvDiffNote = totalRecvDiff !== 0 ? (
+    <div className="card !py-2.5 flex items-start gap-2 text-sm bg-amber-50 border border-amber-200">
+      <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+      <span>ปรับยอด "ส่งออกโรงงาน" ตาม <b>ยอดที่โรงงานรับจริง</b>แล้ว — ส่วนต่างรวม{' '}
+        <b className={totalRecvDiff < 0 ? 'text-rose-600' : 'text-green-600'}>{totalRecvDiff > 0 ? '+' : ''}{fmt(totalRecvDiff)}</b>{' '}
+        {totalRecvDiff < 0 ? '(โรงงานรับน้อยกว่าที่ส่ง → ส่วนต่างคืนกลับเป็นสต็อกพร้อมส่ง)' : '(โรงงานรับมากกว่าที่ส่ง)'}
+      </span>
+    </div>
+  ) : null;
 
   const availMonths = monthOptions().filter(o => (data?.months || []).includes(o.v));
   const filterBar = (
@@ -89,6 +100,7 @@ function CheckBalance() {
     return (
       <div className="space-y-4">
         {filterBar}
+        {recvDiffNote}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <FlowCard label="ยกมา (คงค้างในระบบ)" value={sum('carry_ready')} color="purple" icon={Package} sub="คลัง+กับสมาชิก+พร้อมส่ง" unit="" />
           <FlowCard label="รับเข้าเดือนนี้" value={totalRecv} color="blue" icon={ArrowDownToLine} sub="จากโรงงาน" unit="" />
@@ -160,6 +172,7 @@ function CheckBalance() {
   return (
     <div className="space-y-4">
       {filterBar}
+      {recvDiffNote}
       {/* Status banner */}
       <div className={`rounded-xl border p-3 flex items-center gap-3 ${allOk ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
         {allOk

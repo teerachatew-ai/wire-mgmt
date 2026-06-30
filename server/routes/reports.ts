@@ -504,9 +504,10 @@ router.get('/stock-flow', (req, res) => {
   const fShip = m ? ` AND s.shipped_at LIKE '${m}%'` : '';
   const monthStart = m ? `${m}-01` : '';
   // ยอดงานคงค้างในระบบ ก่อนเริ่มเดือน (ยกมา) = รับเข้าสะสม − ส่งออกสะสม − สูญเสียสะสม
+  // "ส่งออก" ใช้ยอดที่โรงงานรับจริง (received_qty) ถ้ายืนยันแล้ว มิฉะนั้นใช้ยอดที่บันทึกส่ง (good_qty) + defect_qty
   const carrySel = m ? `,
       COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id AND received_at < '${monthStart}'), 0) as carry_recv,
-      COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND s.shipped_at < '${monthStart}'), 0) as carry_ship,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND s.shipped_at < '${monthStart}'), 0) as carry_ship,
       COALESCE((SELECT SUM(r.waste_qty) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id AND r.returned_at < '${monthStart}'), 0) as carry_waste` : '';
 
   const products = prepare(`
@@ -516,7 +517,9 @@ router.get('/stock-flow', (req, res) => {
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${fRet}), 0) as ret_good,
       COALESCE((SELECT SUM(r.defect_qty) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${fRet}), 0) as ret_defect,
       COALESCE((SELECT SUM(r.waste_qty)  FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${fRet}), 0) as ret_waste,
-      COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped${carrySel}
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped,
+      COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped_recorded,
+      COALESCE((SELECT SUM(si.received_qty - si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND si.received_qty IS NOT NULL${fShip}), 0) as recv_diff${carrySel}
     FROM products p WHERE p.active = 1
   `).all() as any[];
 
