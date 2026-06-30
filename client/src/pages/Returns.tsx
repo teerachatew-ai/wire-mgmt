@@ -169,10 +169,16 @@ export default function Returns() {
   });
 
   const remainOf = (i: any) => i.quantity - (i.returned_good + i.returned_defect + i.returned_waste);
-  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: '', ng_cut: 0, ng_factory: 0, waste_qty: 0 }]); setSearchIssue(''); };
+  // ค่าเริ่มต้น = คืนครบ ไม่มีงานเสีย (งานดี = คงเหลือ) — hasDefect=false จะซ่อนช่องกรอกตัวเลข
+  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, hasDefect: false }]); setSearchIssue(''); };
   const removeIssue = (id: number) => setLines(l => l.filter(x => x.issue.id !== id));
-  const updateLine = (id: number, field: string, val: string) =>
+  const updateLine = (id: number, field: string, val: any) =>
     setLines(l => l.map(x => x.issue.id === id ? { ...x, [field]: val } : x));
+  // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ=0)
+  const toggleDefect = (i: any, on: boolean) =>
+    setLines(l => l.map(x => x.issue.id === i.id
+      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0 })
+      : x));
   const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0);
 
   const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); reset(); };
@@ -324,29 +330,44 @@ export default function Returns() {
                       </div>
                       <button type="button" onClick={() => removeIssue(l.issue.id)} className="shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-xs text-gray-500">งานดี *</label>
-                        <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.good_qty} onChange={e => updateLine(l.issue.id, 'good_qty', e.target.value)} />
+                    {!l.hasDefect ? (
+                      <div className="flex items-center justify-between gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
+                        <span className="text-sm text-green-700">✅ คืนครบ <strong>{rem}</strong> {l.issue.unit} (ไม่มีงานเสีย)</span>
+                        <button type="button" onClick={() => toggleDefect(l.issue, true)}
+                          className="shrink-0 text-xs font-medium text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg">
+                          + มีงานเสีย/เศษ
+                        </button>
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-500">เศษคืน</label>
-                        <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.waste_qty} onChange={e => updateLine(l.issue.id, 'waste_qty', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="text-xs text-rose-600">เสีย — จากการตัด (หักเงิน)</label>
-                        <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="text-xs text-amber-600">เสีย — จากโรงงาน (จ่ายปกติ)</label>
-                        <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
-                      </div>
-                    </div>
-                    <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
-                      รวม {total} / คงเหลือ {rem} {l.issue.unit}
-                      {total > rem + 0.001 && ' ⚠️ เกินจำนวนคงเหลือ'}
-                      {total > 0 && total >= rem && total <= rem + 0.001 && ' ✅ ใบเบิกจะปิดอัตโนมัติ'}
-                    </p>
+                    ) : (
+                      <>
+                        <div className="flex justify-end">
+                          <button type="button" onClick={() => toggleDefect(l.issue, false)} className="text-xs text-green-600 hover:underline">↩ คืนครบ ไม่มีงานเสีย</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-500">งานดี *</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.good_qty} onChange={e => updateLine(l.issue.id, 'good_qty', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">เศษคืน</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.waste_qty} onChange={e => updateLine(l.issue.id, 'waste_qty', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-rose-600">เสีย — จากการตัด (หักเงิน)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-amber-600">เสีย — จากโรงงาน (จ่ายปกติ)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
+                          </div>
+                        </div>
+                        <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
+                          รวม {total} / คงเหลือ {rem} {l.issue.unit}
+                          {total > rem + 0.001 && ' ⚠️ เกินจำนวนคงเหลือ'}
+                          {total > 0 && total >= rem && total <= rem + 0.001 && ' ✅ ใบเบิกจะปิดอัตโนมัติ'}
+                        </p>
+                      </>
+                    )}
                   </div>
                 );
               })}
