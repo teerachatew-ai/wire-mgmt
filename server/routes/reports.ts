@@ -64,8 +64,9 @@ router.get('/performance', (req, res) => {
   const rows = products.map((p: any) => {
     const revenue_all   = p.shipped_good_all * p.factory_price;
     const revenue_month = p.shipped_good_month * p.factory_price;
-    const wage_all      = (p.ret_good_all * p.wage_per_unit) + (p.ret_ngcut_all * p.wage_per_unit * defectWagePct);
-    const wage_month    = (p.ret_good_month * p.wage_per_unit) + (p.ret_defect_month * p.wage_per_unit * defectWagePct);
+    // ค่าจ้างตัดในภาพรวม คิดจาก "งานที่ส่งออก" (shipped × ค่าจ้าง/หน่วย) — เห็นกำไรขั้นต้นได้แม้ยังไม่บันทึกเบิก/รับคืน
+    const wage_all      = p.shipped_good_all * p.wage_per_unit;
+    const wage_month    = p.shipped_good_month * p.wage_per_unit;
     return {
       ...p, revenue_all, revenue_month, wage_all, wage_month,
       profit_month: revenue_month - wage_month,
