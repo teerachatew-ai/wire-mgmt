@@ -10,6 +10,24 @@ const router = Router();
 // Windows ใช้ "python", Linux (cloud) ใช้ "python3"
 const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
 
+// รายได้จาก Amphenol ของเดือน (ยอดรับจริงถ้ามี × ราคาโรงงาน)
+function monthRevenueOf(month: string): number {
+  return (prepare(`SELECT COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) * p.factory_price),0) v
+    FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id
+    WHERE s.shipped_at LIKE ?`).get(`${month}%`) as any).v || 0;
+}
+// ค่าตอบแทนผู้บริหารของเดือน — ถ้ากำหนดเองใน manager_month ใช้ค่านั้น มิฉะนั้นคิดอัตโนมัติ
+function managerCompForMonth(month: string): any[] {
+  const rev = monthRevenueOf(month);
+  const managers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
+  const ov = Object.fromEntries((prepare(`SELECT manager_id, amount FROM manager_month WHERE month = ?`).all(month) as any[]).map((r: any) => [r.manager_id, r.amount]));
+  return managers.map((mg: any) => {
+    const auto = mg.compensation_type === 'percent' ? rev * (mg.amount / 100) : mg.amount;
+    const overridden = ov[mg.id] !== undefined;
+    return { ...mg, auto, computed: overridden ? ov[mg.id] : auto, overridden };
+  });
+}
+
 router.get('/dashboard', (_req, res) => {
   const stock = prepare(`
     SELECT p.id, p.name, p.unit, p.code,
@@ -101,18 +119,14 @@ router.get('/performance', (req, res) => {
   const fcRevenueAll = fcRows.reduce((s, r) => s + r.ra * r.fp, 0);
   const fcWageAll = fcRows.reduce((s, r) => s + r.ra * r.wp, 0);
 
-  // ค่าตอบแทนผู้บริหาร: ตายตัว(บาท/เดือน) + %ของค่าแรง
-  const managers = prepare(`SELECT * FROM managers WHERE active = 1`).all() as any[];
-  const fixedComp = managers.filter(m => m.compensation_type !== 'percent').reduce((s, m) => s + (m.amount || 0), 0);
-  const pctComp = managers.filter(m => m.compensation_type === 'percent').reduce((s, m) => s + (m.amount || 0), 0) / 100;
-  const monthsActive = (prepare(`SELECT COUNT(DISTINCT pay_cycle) c FROM returns WHERE pay_cycle IS NOT NULL`).get() as any).c || 1;
   const wageMonthVal = sum('wage_month');
   const wageAllVal = sum('wage_all');
   const revMonthVal = sum('revenue_month');
   const revAllVal = sum('revenue_all');
-  // ค่าตอบแทนผู้บริหาร (แบบ %) คิดจาก "รายได้จาก Amphenol" ไม่ใช่ค่าแรงสมาชิก
-  const managerCompMonth = fixedComp + pctComp * revMonthVal;
-  const managerCompAll = fixedComp * monthsActive + pctComp * revAllVal;
+  // ค่าตอบแทนผู้บริหาร: เดือนนี้ = ตามที่กำหนดรายเดือน (หรืออัตโนมัติ) · สะสม = รวมทุกเดือนที่มีการส่งออก
+  const managerCompMonth = managerCompForMonth(thisMonth).reduce((s, m) => s + (m.computed || 0), 0);
+  const shipMonths = (prepare(`SELECT DISTINCT strftime('%Y-%m', shipped_at) m FROM shipments WHERE shipped_at IS NOT NULL AND shipped_at != ''`).all() as any[]).map(r => r.m);
+  const managerCompAll = shipMonths.reduce((s, m) => s + managerCompForMonth(m).reduce((a, x) => a + (x.computed || 0), 0), 0);
   const taxRate = withholdingTaxPct / 100;
   const taxMonth = revMonthVal * taxRate;
   const taxAll = revAllVal * taxRate;
@@ -605,15 +619,9 @@ router.get('/payroll-monthly', (req, res) => {
     WHERE s.shipped_at LIKE ?
   `).get(`${month}%`) as any).revenue || 0;
 
-  const managers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
-  const managersWithComp = managers.map((mg: any) => {
-    // % คิดจากรายได้จาก Amphenol เดือนนั้น (ไม่ใช่ค่าแรงสมาชิก)
-    const computed = mg.compensation_type === 'percent'
-      ? monthRevenue * (mg.amount / 100)
-      : mg.amount;
-    return { ...mg, computed };
-  });
-  const total_manager_comp = managersWithComp.reduce((s: number, m: any) => s + m.computed, 0);
+  // ค่าตอบแทนผู้บริหาร — ใช้ค่ากำหนดรายเดือนถ้ามี ไม่งั้นคิดอัตโนมัติจากรายได้เดือนนั้น
+  const managersWithComp = managerCompForMonth(String(month));
+  const total_manager_comp = managersWithComp.reduce((s: number, m: any) => s + (m.computed || 0), 0);
   // เงินที่จ่ายสมาชิก = ค่าแรง − หักกองกลาง (ค่าตอบแทนผู้บริหารมาจากรายได้กลุ่ม ไม่หักจากค่าแรงสมาชิก)
   const net_payout = total_wage - group_deduction;
 
@@ -629,6 +637,19 @@ router.get('/payroll-monthly', (req, res) => {
     total_manager_comp,
     net_payout,
   });
+});
+
+// กำหนดค่าตอบแทนผู้บริหารรายเดือน (override) — ส่ง amount=null/'' เพื่อกลับไปใช้ค่าอัตโนมัติ
+router.put('/manager-month', (req, res) => {
+  const { month, manager_id, amount } = req.body || {};
+  if (!month || !/^\d{4}-\d{2}$/.test(month) || !manager_id) return res.status(400).json({ error: 'month/manager_id ไม่ถูกต้อง' });
+  if (amount === null || amount === '' || amount === undefined) {
+    prepare(`DELETE FROM manager_month WHERE month = ? AND manager_id = ?`).run(month, Number(manager_id));
+    return res.json({ ok: true, cleared: true });
+  }
+  prepare(`DELETE FROM manager_month WHERE month = ? AND manager_id = ?`).run(month, Number(manager_id));
+  prepare(`INSERT INTO manager_month (month, manager_id, amount) VALUES (?, ?, ?)`).run(month, Number(manager_id), Number(amount));
+  res.json({ ok: true });
 });
 
 // ── Cumulative payroll per member (month-by-month) ─────────────────────────

@@ -1,11 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import {
   DollarSign, Download, Users, TrendingUp,
   ChevronDown, ChevronUp, Loader2,
-  Wallet, Building2, FileText
+  Wallet, Building2, FileText, RotateCcw, Save
 } from 'lucide-react';
+
+// ช่องกรอกค่าตอบแทนผู้บริหารรายเดือน (กำหนดเอง / ใช้อัตโนมัติ)
+function MgrCompInput({ mg, month, onSaved }: { mg: any; month: string; onSaved: () => void }) {
+  const [val, setVal] = useState<string>(String(Math.round((mg.computed || 0) * 100) / 100));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setVal(String(Math.round((mg.computed || 0) * 100) / 100)); }, [mg.computed, month]);
+  const changed = Number(val || 0) !== Math.round((mg.computed || 0) * 100) / 100;
+  const save = async () => { setSaving(true); try { await reportApi.setManagerMonth({ month, manager_id: mg.id, amount: val === '' ? null : Number(val) }); onSaved(); } finally { setSaving(false); } };
+  const reset = async () => { setSaving(true); try { await reportApi.setManagerMonth({ month, manager_id: mg.id, amount: null }); onSaved(); } finally { setSaving(false); } };
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      {mg.overridden ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">กำหนดเอง</span>
+        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">อัตโนมัติ</span>}
+      <input type="number" step="0.01" className="input !min-h-[34px] !py-1 !px-2 text-sm w-28 text-right" value={val} onChange={e => setVal(e.target.value)} />
+      {changed && <button className="text-blue-600 hover:text-blue-800" title="บันทึกเดือนนี้" onClick={save} disabled={saving}><Save size={15} /></button>}
+      {mg.overridden && !changed && <button className="text-gray-400 hover:text-gray-600" title="กลับไปใช้อัตโนมัติ" onClick={reset} disabled={saving}><RotateCcw size={14} /></button>}
+    </div>
+  );
+}
 
 /* ─── helpers ─────────────────────────────────────────────── */
 const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -218,7 +237,7 @@ function MonthlyTab() {
                       <td className="px-4 py-2.5 text-right text-gray-600">
                         {mg.compensation_type === 'percent' ? `${mg.amount}%` : `${fmt(mg.amount)} บาท`}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-bold text-purple-700">{fmt(mg.computed)}</td>
+                      <td className="px-4 py-2.5"><MgrCompInput mg={mg} month={month} onSaved={load} /></td>
                     </tr>
                   ))}
                   <tr className="bg-purple-50 border-t">

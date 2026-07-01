@@ -256,6 +256,14 @@ CREATE TABLE IF NOT EXISTS managers (
     if (!cols.includes('created_by')) db.exec(`ALTER TABLE ${t} ADD COLUMN created_by TEXT`);
   }
 
+  // ค่าตอบแทนผู้บริหารรายเดือน (กำหนดเองต่อเดือน — ถ้าไม่กำหนดจะใช้ค่าอัตโนมัติ % ของรายได้)
+  db.exec(`CREATE TABLE IF NOT EXISTS manager_month (
+    month TEXT NOT NULL,
+    manager_id INTEGER NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (month, manager_id)
+  )`);
+
   // สินทรัพย์/การลงทุนของกลุ่ม + การทยอยคืนเงินเจ้าของ
   db.exec(`CREATE TABLE IF NOT EXISTS assets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

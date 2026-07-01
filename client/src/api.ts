@@ -69,6 +69,7 @@ export const reportApi = {
   payroll: (from: string, to: string) => api.get('/reports/payroll', { params: { from, to } }).then(r => r.data),
   payrollMonthly: (month: string) => api.get('/reports/payroll-monthly', { params: { month } }).then(r => r.data),
   payrollCumulative: () => api.get('/reports/payroll-cumulative').then(r => r.data),
+  setManagerMonth: (data: any) => api.put('/reports/manager-month', data).then(r => r.data),
   stockFlow: (month?: string) => api.get('/reports/stock-flow', { params: month ? { month } : {} }).then(r => r.data),
   billing: (month?: string) => api.get('/reports/billing', { params: month ? { month } : {} }).then(r => r.data),
   billingExport: (data: any, format?: 'pdf') => api.post('/reports/billing-export', data, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
