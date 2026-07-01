@@ -161,6 +161,7 @@ export default function Dashboard() {
   const profit  = isM ? data.profit_month : data.profit_all;
   const finalNet = isM ? data.final_net_month : data.final_net_all;
   const margin  = revenue > 0 ? (finalNet / revenue) * 100 : 0;
+  const grossMargin = revenue > 0 ? (profit / revenue) * 100 : 0;   // อัตรากำไรขั้นต้น (ก่อนหักผู้บริหาร/บริหารจัดการ)
   const taxPct  = data.withholding_tax_pct ?? 3;
   const products = (data.products as any[]).filter(p => p.revenue_all > 0 || p.revenue_month > 0);
 
@@ -200,8 +201,20 @@ export default function Dashboard() {
         <div className="space-y-1 text-sm tabular-nums max-w-md">
           {[
             ['รายรับจาก Amphenol', revenue, 'text-emerald-700'],
+            ['หัก ค่าแรงสมาชิก (ค่าตัด)', -wage, 'text-rose-600'],
+          ].map(([label, val, cls]: any) => (
+            <div key={label} className="flex justify-between">
+              <span className="text-slate-600">{label}</span>
+              <span className={cls}>{val < 0 ? '−' : ''}฿{thb2(Math.abs(val))}</span>
+            </div>
+          ))}
+          {/* กำไรขั้นต้น + % */}
+          <div className="flex justify-between pt-1.5 mt-1 border-t border-dashed border-slate-300 font-semibold">
+            <span className="text-slate-700">กำไรขั้นต้น <span className="text-xs font-normal text-slate-400">(ก่อนหักผู้บริหาร/บริหาร)</span></span>
+            <span className="text-emerald-700">฿{thb2(profit)} <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ml-1">{grossMargin.toFixed(1)}%</span></span>
+          </div>
+          {[
             [`หัก ภาษี ณ ที่จ่าย ${taxPct}%`, -(isM ? data.tax_month : data.tax_all), 'text-rose-600'],
-            ['หัก ค่าแรงสมาชิก', -wage, 'text-rose-600'],
             ['หัก ค่าตอบแทนผู้บริหาร', -(isM ? data.manager_comp_month : data.manager_comp_all), 'text-rose-600'],
             ['หัก ค่าใช้จ่ายบริหารจัดการ', -(isM ? data.expenses_month : data.expenses_all), 'text-rose-600'],
           ].map(([label, val, cls]: any) => (
@@ -211,8 +224,8 @@ export default function Dashboard() {
             </div>
           ))}
           <div className="flex justify-between pt-2 mt-1 border-t border-slate-300 font-bold text-base">
-            <span className="text-slate-800">กำไรสุทธิสุดท้าย</span>
-            <span className="text-violet-700">฿{thb2(isM ? data.final_net_month : data.final_net_all)}</span>
+            <span className="text-slate-800">กำไรสุทธิสุดท้าย (bottom line)</span>
+            <span className="text-violet-700">฿{thb2(isM ? data.final_net_month : data.final_net_all)} <span className="text-xs px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 ml-1">{margin.toFixed(1)}%</span></span>
           </div>
         </div>
       </div>
