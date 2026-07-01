@@ -122,7 +122,8 @@ router.get('/performance', (req, res) => {
 
   // 6-month trend: revenue vs wage
   const revByMonth  = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(si.good_qty*p.factory_price),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
-  const wageByMonth = prepare(`SELECT strftime('%Y-%m', r.returned_at) month, COALESCE(SUM(r.good_qty*p.wage_per_unit),0) v FROM returns r JOIN issues i ON r.issue_id=i.id JOIN products p ON i.product_id=p.id GROUP BY month`).all() as any[];
+  // ค่าตัดในกราฟ ใช้ฐานเดียวกับการ์ด = งานที่ส่งออก × ค่าจ้าง/หน่วย (ตามเดือนที่ส่งออก)
+  const wageByMonth = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(si.good_qty*p.wage_per_unit),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
   const revMap  = Object.fromEntries(revByMonth.map(r => [r.month, r.v]));
   const wageMap = Object.fromEntries(wageByMonth.map(r => [r.month, r.v]));
   const trend: any[] = [];
