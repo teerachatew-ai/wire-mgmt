@@ -6,7 +6,8 @@ warnings.simplefilter("ignore")
 from openpyxl import load_workbook
 
 tpl, dataf, out = sys.argv[1], sys.argv[2], sys.argv[3]
-mode = sys.argv[4] if len(sys.argv) > 4 else ""   # "pdf" = เหลือเฉพาะชีตใบแจ้งหนี้
+mode = sys.argv[4] if len(sys.argv) > 4 else ""       # "pdf" = เหลือเฉพาะชีตเอกสาร + ขยายฟอนต์
+doctype = sys.argv[5] if len(sys.argv) > 5 else ""    # "receipt" = ทำ 2 หน้า (ต้นฉบับ/คู่ฉบับ)
 d = json.load(open(dataf, encoding="utf-8-sig"))
 
 wb = load_workbook(tpl)
@@ -52,19 +53,44 @@ for i in range(CAP):
         for col in (3, 4, 5, 8, 9):
             ws.cell(row=r, column=col).value = None
 
-# โหมด PDF: ลบชีตข้อมูลช่วยออก เหลือเฉพาะใบแจ้งหนี้ + บีบให้พอดี 1 หน้าเสมอ
+# โหมด PDF: ลบชีตข้อมูลช่วยออก เหลือเฉพาะเอกสาร + ขยายฟอนต์ ~15% (fit กว้าง 1 หน้าเหมือนเดิม)
 if mode == "pdf":
     for sn in list(wb.sheetnames):
         if sn != "ใบแจ้งหนี้":
             del wb[sn]
     from openpyxl.worksheet.properties import PageSetupProperties
-    if ws.sheet_properties.pageSetUpPr is None:
-        ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
-    else:
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-    ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
-    ws.page_setup.scale = None
+    from openpyxl.styles import Font
+
+    def scaleFonts(sheet):
+        for row in sheet.iter_rows(min_row=1, max_row=55, min_col=1, max_col=14):
+            for cell in row:
+                f = cell.font
+                cell.font = Font(name=f.name, size=round((f.size or 11) * 1.15, 1),
+                                 bold=f.bold, italic=f.italic, color=f.color,
+                                 underline=f.underline, strike=f.strike, vertAlign=f.vertAlign)
+
+    def pageFit(sheet):
+        if sheet.sheet_properties.pageSetUpPr is None:
+            sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+        else:
+            sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 1   # บังคับ 1 หน้า/แผ่น (ใบเสร็จ = 2 แผ่น ต้นฉบับ/คู่ฉบับ)
+        sheet.page_setup.scale = None
+        sheet.print_area = "A1:K44"        # ตัดแถวว่างท้ายออก → fit ได้ตัวใหญ่ขึ้น
+
+    scaleFonts(ws)
+    pageFit(ws)
+
+    # ใบเสร็จรับเงิน: ทำ 2 หน้า — ต้นฉบับ (Original) + คู่ฉบับ (Copy)
+    if doctype == "receipt":
+        ws["J3"] = "ใบเสร็จรับเงิน (ต้นฉบับ)"
+        ws["J4"] = "RECEIPT (Original)"
+        ws2 = wb.copy_worksheet(ws)
+        ws2.title = "copy"
+        ws2["J3"] = "ใบเสร็จรับเงิน (คู่ฉบับ)"
+        ws2["J4"] = "RECEIPT (Copy)"
+        pageFit(ws2)
 
 wb.save(out)
 print(out)

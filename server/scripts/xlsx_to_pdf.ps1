@@ -10,18 +10,10 @@ try {
   $xl.Visible = $false
   $xl.DisplayAlerts = $false
   $wb = $xl.Workbooks.Open($In, $false, $true)  # ReadOnly
-  # export เฉพาะชีตฟอร์ม = ชีตที่ 2 (จับด้วย index กันปัญหาชื่อภาษาไทย)
-  $ws = $null
-  foreach ($s in $wb.Worksheets) { if ($s.Name -like "*Form*") { $ws = $s; break } }
-  if ($ws -eq $null -and $wb.Worksheets.Count -ge 2) { $ws = $wb.Worksheets.Item(2) }
-  if ($ws -ne $null) {
-    $ws.Activate() | Out-Null
-    # ใช้ค่า page setup จากไฟล์ (fitToWidth=1, fitToHeight=0 = กว้าง 1 หน้า สูงไหลหลายหน้า)
-    # 0 = xlTypePDF
-    $ws.ExportAsFixedFormat(0, $Out)
-  } else {
-    $wb.ExportAsFixedFormat(0, $Out)
-  }
+  # export ทั้งเวิร์กบุ๊ก (ไฟล์ถูกลบชีตที่ไม่ต้องการออกแล้ว เหลือเฉพาะหน้าที่ต้องการ
+  #  — ใบวางบิล/ใบแจ้งหนี้ = 1 หน้า, ใบเสร็จ = 2 หน้า ต้นฉบับ/คู่ฉบับ)
+  # 0 = xlTypePDF
+  $wb.ExportAsFixedFormat(0, $Out)
   Write-Output "OK"
 } finally {
   if ($wb -ne $null) { $wb.Close($false) | Out-Null }

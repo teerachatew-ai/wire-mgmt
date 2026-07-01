@@ -471,7 +471,7 @@ router.post('/invoice-export', (req, res) => {
   };
 
   const args = [script, tpl, dataFile, xlsxFile];
-  if (wantPdf) args.push('pdf');
+  if (wantPdf) args.push('pdf', docName);  // docName: invoice | receipt (receipt = 2 หน้า ต้นฉบับ/คู่ฉบับ)
   const py = spawn(PYTHON, args, { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
   let errOut = '';
   py.stderr.on('data', (c) => { errOut += c.toString(); });
