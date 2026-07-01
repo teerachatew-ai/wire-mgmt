@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextCode } from '../db';
 import { computePayCycle, loadCutoffConfig } from '../payCycle';
+import { userOf } from '../reqUser';
 
 const router = Router();
 
@@ -20,11 +21,12 @@ function updateIssueStatus(issueId: number) {
 }
 
 router.get('/', (req, res) => {
-  const { issue_id } = req.query;
+  const { issue_id, date } = req.query;
   let sql = `SELECT r.*, i.code as issue_code, m.name as member_name, p.name as product_name FROM returns r
     JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE 1=1`;
   const params: any[] = [];
   if (issue_id) { sql += ` AND r.issue_id = ?`; params.push(issue_id); }
+  if (date) { sql += ` AND r.returned_at LIKE ?`; params.push(`${date}%`); }
   sql += ` ORDER BY r.returned_at DESC, r.id DESC`;
   res.json(prepare(sql).all(...params));
 });
@@ -53,8 +55,8 @@ router.post('/', (req, res) => {
 
   const code = nextCode('RT', 'returns');
   const payCycle = payCycleFor(returned_at);
-  const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, waste_qty, inspector, notes, pay_cycle) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, wQty, inspector || null, notes || null, payCycle);
+  const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, waste_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, wQty, inspector || null, notes || null, payCycle, userOf(req));
 
   updateIssueStatus(parseInt(issue_id));
 

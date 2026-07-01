@@ -250,6 +250,12 @@ CREATE TABLE IF NOT EXISTS managers (
     db.exec(`ALTER TABLE shipment_items ADD COLUMN received_qty REAL`);
   }
 
+  // บันทึกว่าผู้ใช้ (admin) คนไหนเป็นคนกรอกแต่ละรายการ
+  for (const t of ['receives', 'issues', 'returns', 'shipments']) {
+    const cols = db.exec(`PRAGMA table_info(${t})`)[0]?.values.map(r => r[1]) ?? [];
+    if (!cols.includes('created_by')) db.exec(`ALTER TABLE ${t} ADD COLUMN created_by TEXT`);
+  }
+
   // สินทรัพย์/การลงทุนของกลุ่ม + การทยอยคืนเงินเจ้าของ
   db.exec(`CREATE TABLE IF NOT EXISTS assets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -2,6 +2,15 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: '/api' });
 
+// แนบชื่อผู้ใช้ปัจจุบันไปกับทุก request (ให้ backend บันทึกว่าใครเป็นคนกรอก)
+api.interceptors.request.use((cfg) => {
+  try {
+    const u = JSON.parse(localStorage.getItem('wire_user') || 'null');
+    if (u?.name) cfg.headers['X-User'] = encodeURIComponent(u.name);
+  } catch {}
+  return cfg;
+});
+
 export const memberApi = {
   list: (params?: any) => api.get('/members', { params }).then(r => r.data),
   get: (id: number) => api.get(`/members/${id}`).then(r => r.data),

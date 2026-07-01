@@ -142,7 +142,8 @@ export default function Returns() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
-  const { data: returns_ = [], isLoading } = useQuery({ queryKey: ['returns'], queryFn: () => returnApi.list() });
+  const [dayFilter, setDayFilter] = useState('');
+  const { data: returns_ = [], isLoading } = useQuery({ queryKey: ['returns', dayFilter], queryFn: () => returnApi.list({ date: dayFilter || undefined }) });
   const { data: openIssues = [] } = useQuery({
     queryKey: ['issues-open'],
     queryFn: () => issueApi.list({ status: 'pending' })
@@ -211,9 +212,13 @@ export default function Returns() {
           <RotateCcw size={20} className="text-green-600" />
           <h1 className="text-xl font-bold text-gray-800">รับคืนงาน</h1>
         </div>
-        <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
-          <Plus size={16} /> บันทึกรับคืน
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่คืน" />
+          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
+            <Plus size={16} /> บันทึกรับคืน
+          </button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-x-auto">
@@ -239,7 +244,7 @@ export default function Returns() {
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
-                <td className="px-4 py-3 text-gray-600">{r.returned_at}</td>
+                <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
                 <td className="px-4 py-3 text-gray-800">{r.member_name}</td>
                 <td className="px-4 py-3 text-gray-600">{r.product_name}</td>
                 <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>

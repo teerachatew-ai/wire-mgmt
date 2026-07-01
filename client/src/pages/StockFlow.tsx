@@ -592,11 +592,12 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editShip, setEditShip] = useState<any>(null);
+  const [dayFilter, setDayFilter] = useState('');
   const readyProducts = products.filter(p => p.stock_ready > 0);
 
   const { data: shipments = [], isLoading } = useQuery({
-    queryKey: ['shipments'],
-    queryFn: () => shipmentApi.list(),
+    queryKey: ['shipments', dayFilter],
+    queryFn: () => shipmentApi.list(dayFilter ? { date: dayFilter } : {}),
   });
 
   const deleteMut = useMutation({
@@ -662,9 +663,15 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
 
       {/* Shipment history — single table */}
       <div>
-        <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-2 mb-3">
-          <Truck size={15} className="text-gray-500" /> ประวัติการส่งออก
-        </h3>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
+            <Truck size={15} className="text-gray-500" /> ประวัติการส่งออก
+          </h3>
+          <div className="flex items-center gap-2">
+            <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่ส่ง" />
+            {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          </div>
+        </div>
         {isLoading && <div className="py-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
         {!isLoading && (shipments as any[]).length === 0 && (
           <div className="py-10 text-center text-gray-400 border rounded-xl">
@@ -692,7 +699,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                 {(shipments as any[]).flatMap((sh: any) =>
                   (sh.items.length ? sh.items : [{}]).map((it: any, i: number) => (
                     <tr key={`${sh.id}-${i}`} className={`hover:bg-gray-50 ${i === 0 ? 'border-t border-gray-100' : ''}`}>
-                      <td className="px-4 py-2.5 text-gray-600">{i === 0 ? sh.shipped_at : ''}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{i === 0 ? sh.shipped_at : ''}{i === 0 && sh.created_by && <div className="text-xs text-gray-400">โดย {sh.created_by}</div>}</td>
                       <td className="px-4 py-2.5 font-mono text-xs text-blue-600 font-semibold">{i === 0 ? sh.code : ''}</td>
                       <td className="px-4 py-2.5 text-gray-700">
                         {it.product_name ? (

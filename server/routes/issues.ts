@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prepare, nextCode } from '../db';
+import { userOf } from '../reqUser';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ function calcIssueStatus(issueId: number) {
 }
 
 router.get('/', (req, res) => {
-  const { status, member_id, from, to } = req.query;
+  const { status, member_id, from, to, date } = req.query;
   let sql = `SELECT i.*,
     m.name as member_name, m.code as member_code, m.nickname as member_nickname,
     p.name as product_name, p.unit, p.wage_per_unit,
@@ -32,6 +33,7 @@ router.get('/', (req, res) => {
   const params: any[] = [];
   if (status) { sql += ` AND i.status = ?`; params.push(status); }
   if (member_id) { sql += ` AND i.member_id = ?`; params.push(member_id); }
+  if (date) { sql += ` AND i.issued_at LIKE ?`; params.push(`${date}%`); }
   if (from) { sql += ` AND i.issued_at >= ?`; params.push(from); }
   if (to) { sql += ` AND i.issued_at <= ?`; params.push(to); }
   sql += ` ORDER BY i.issued_at DESC, i.id DESC`;
@@ -65,8 +67,8 @@ router.post('/', (req, res) => {
   }
 
   const code = nextCode('IS', 'issues');
-  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, issued_at, member_id, product_id, quantity, due_date || null, notes || null);
+  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, issued_at, member_id, product_id, quantity, due_date || null, notes || null, userOf(req));
 
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(result.lastInsertRowid));
 });

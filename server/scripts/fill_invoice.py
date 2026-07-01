@@ -59,7 +59,14 @@ if mode == "pdf":
         if sn != "ใบแจ้งหนี้":
             del wb[sn]
     from openpyxl.worksheet.properties import PageSetupProperties
-    from openpyxl.styles import Font
+    from openpyxl.styles import Font, Border, Side
+
+    def closeBox(sheet):
+        # วาดขอบล่างของกล่อง (medium) ที่แถวสุดท้ายของ print_area (44) กันขอบล่างหาย
+        med = Side(style='medium')
+        for col in 'ABCDEFGHIJK':
+            c = sheet[f'{col}44']; b = c.border
+            c.border = Border(left=b.left, right=b.right, top=b.top, bottom=med)
 
     def scaleFonts(sheet):
         for row in sheet.iter_rows(min_row=1, max_row=55, min_col=1, max_col=14):
@@ -81,6 +88,7 @@ if mode == "pdf":
 
     scaleFonts(ws)
     pageFit(ws)
+    closeBox(ws)
 
     # ใบเสร็จรับเงิน: ทำ 2 หน้า — ต้นฉบับ (Original) + คู่ฉบับ (Copy)
     if doctype == "receipt":
@@ -91,6 +99,7 @@ if mode == "pdf":
         ws2["J3"] = "ใบเสร็จรับเงิน (คู่ฉบับ)"
         ws2["J4"] = "RECEIPT (Copy)"
         pageFit(ws2)
+        closeBox(ws2)
 
 wb.save(out)
 print(out)

@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import { prepare } from '../db';
+import { userOf } from '../reqUser';
 
 const router = Router();
 
 // ── List shipments ────────────────────────────────────────────────────────
 router.get('/', (req, res) => {
-  const { from, to } = req.query as any;
-  let sql = `SELECT s.id, s.code, s.shipped_at, s.notes,
+  const { from, to, date } = req.query as any;
+  let sql = `SELECT s.id, s.code, s.shipped_at, s.notes, s.created_by,
     COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si WHERE si.shipment_id = s.id),0) as total_qty
     FROM shipments s WHERE 1=1`;
   const params: any[] = [];
+  if (date) { sql += ` AND s.shipped_at LIKE ?`; params.push(`${date}%`); }
   if (from) { sql += ` AND s.shipped_at >= ?`; params.push(from); }
   if (to)   { sql += ` AND s.shipped_at <= ?`; params.push(to); }
   sql += ` ORDER BY s.shipped_at DESC, s.id DESC`;
@@ -37,7 +39,7 @@ router.post('/', (req, res) => {
   const cnt = (prepare(`SELECT COUNT(*) as c FROM shipments`).get() as any).c;
   const code = `SH${String(cnt + 1).padStart(3, '0')}`;
 
-  prepare(`INSERT INTO shipments (code, shipped_at, notes) VALUES (?, ?, ?)`).run(code, shipped_at, notes || null);
+  prepare(`INSERT INTO shipments (code, shipped_at, notes, created_by) VALUES (?, ?, ?, ?)`).run(code, shipped_at, notes || null, userOf(req));
   const shipment = prepare(`SELECT * FROM shipments ORDER BY id DESC LIMIT 1`).get() as any;
 
   for (const it of validItems) {

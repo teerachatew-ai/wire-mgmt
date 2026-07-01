@@ -77,7 +77,8 @@ export default function Receives() {
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState('');
 
-  const { data: receives = [], isLoading } = useQuery({ queryKey: ['receives'], queryFn: () => receiveApi.list() });
+  const [dayFilter, setDayFilter] = useState('');
+  const { data: receives = [], isLoading } = useQuery({ queryKey: ['receives', dayFilter], queryFn: () => receiveApi.list({ date: dayFilter || undefined }) });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
 
   const { register, handleSubmit, reset, setValue } = useForm<any>({
@@ -155,9 +156,13 @@ export default function Receives() {
           <ArrowDownToLine size={20} className="text-blue-600" />
           <h1 className="text-xl font-bold text-gray-800">รับของจากโรงงาน</h1>
         </div>
-        <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setShowModal(true)}>
-          <Plus size={16} /> บันทึกรับของ
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่รับ" />
+          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setShowModal(true)}>
+            <Plus size={16} /> บันทึกรับของ
+          </button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
@@ -178,7 +183,7 @@ export default function Receives() {
             {receives.map((r: any) => (
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{r.code}</td>
-                <td className="px-4 py-3 text-gray-600">{r.received_at}</td>
+                <td className="px-4 py-3 text-gray-600">{r.received_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
                 <td className="px-4 py-3 font-medium text-gray-800">
                   <span className="inline-flex items-center gap-2">
                     {r.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.color }} />}

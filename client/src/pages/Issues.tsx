@@ -395,10 +395,11 @@ export default function Issues() {
   const [editing, setEditing] = useState<any>(null);
   const [deleting, setDeleting] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [dayFilter, setDayFilter] = useState('');
 
   const { data: issues = [], isLoading } = useQuery({
-    queryKey: ['issues', statusFilter],
-    queryFn: () => issueApi.list({ status: statusFilter || undefined })
+    queryKey: ['issues', statusFilter, dayFilter],
+    queryFn: () => issueApi.list({ status: statusFilter || undefined, date: dayFilter || undefined })
   });
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => memberApi.list() });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
@@ -423,6 +424,8 @@ export default function Issues() {
           <h1 className="text-xl font-bold text-gray-800">ใบเบิกงาน</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่" />
+          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           <select className="input w-36 text-sm" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">ทุกสถานะ</option>
             <option value="pending">ค้างส่ง</option>
@@ -461,7 +464,7 @@ export default function Issues() {
                 <div><p className="text-xs text-gray-400">คงเหลือ</p><p className={`font-bold ${remaining > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{remaining}</p></div>
               </div>
               <div className="flex gap-2 justify-between items-center text-xs text-gray-400">
-                <span>เบิก {i.issued_at}{i.due_date && ` · คืน ${i.due_date}`}</span>
+                <span>เบิก {i.issued_at}{i.due_date && ` · คืน ${i.due_date}`}{i.created_by && ` · โดย ${i.created_by}`}</span>
                 <div className="flex gap-3">
                   <button className="text-blue-500 hover:text-blue-700" onClick={() => setDetailId(i.id)}><Eye size={18} /></button>
                   <button className="text-amber-500 hover:text-amber-700" onClick={() => setEditing(i)}><Edit2 size={18} /></button>
@@ -503,6 +506,7 @@ export default function Issues() {
                   <td className="px-4 py-3 text-xs text-gray-600">
                     <div>{i.issued_at}</div>
                     {i.due_date && <div className={overdue ? 'text-red-600 font-medium' : 'text-gray-400'}>คืน: {i.due_date}</div>}
+                    {i.created_by && <div className="text-gray-400">โดย {i.created_by}</div>}
                   </td>
                   <td className="px-4 py-3">
                     <span className="font-mono text-xs text-gray-500">{i.member_code}</span>{' '}
