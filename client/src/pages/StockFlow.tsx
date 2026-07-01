@@ -8,6 +8,7 @@ import {
   RefreshCw, BarChart3, ScanLine, Upload, FileText, CheckCircle, Edit2
 } from 'lucide-react';
 import { matchProduct } from '../matchProduct';
+import DaySummary from '../components/DaySummary';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -672,6 +673,13 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           </div>
         </div>
+        <DaySummary
+          groups={Object.values((shipments as any[]).flatMap((sh: any) => sh.items || []).reduce((a: any, it: any) => {
+            if (!it.product_name) return a;
+            (a[it.product_name] ??= { name: it.product_name, unit: it.unit, color: it.color, qty: 0 }).qty += (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0);
+            return a;
+          }, {})) as any[]}
+          note={dayFilter || 'ทั้งหมด'} unitLabel="ส่งออก" />
         {isLoading && <div className="py-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
         {!isLoading && (shipments as any[]).length === 0 && (
           <div className="py-10 text-center text-gray-400 border rounded-xl">

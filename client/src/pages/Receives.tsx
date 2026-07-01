@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { receiveApi, productApi, ocrApi } from '../api';
 import { colorDot } from '../colorDot';
 import { matchProduct } from '../matchProduct';
+import DaySummary from '../components/DaySummary';
 import { Plus, X, ArrowDownToLine, Trash2, Edit2, ScanLine, Upload, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 
 function Modal({ title, onClose, children }: any) {
@@ -164,6 +165,12 @@ export default function Receives() {
           </button>
         </div>
       </div>
+
+      <DaySummary
+        groups={Object.values((receives as any[]).reduce((a: any, r: any) => {
+          const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
+        }, {})) as any[]}
+        note={dayFilter || 'ทั้งหมด'} unitLabel="รับเข้า" />
 
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">

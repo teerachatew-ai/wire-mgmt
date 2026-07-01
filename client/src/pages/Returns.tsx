@@ -123,6 +123,8 @@ function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
   );
 }
 
+import DaySummary from '../components/DaySummary';
+
 export default function Returns() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -220,6 +222,12 @@ export default function Returns() {
           </button>
         </div>
       </div>
+
+      <DaySummary
+        groups={Object.values((returns_ as any[]).reduce((a: any, r: any) => {
+          const k = r.product_name; (a[k] ??= { name: k, qty: 0 }).qty += Number(r.good_qty) || 0; return a;
+        }, {})) as any[]}
+        note={dayFilter || 'ทั้งหมด'} unitLabel="งานดีคืน" />
 
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm min-w-[860px]">

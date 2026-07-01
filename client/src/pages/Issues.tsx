@@ -5,6 +5,7 @@ import { issueApi, memberApi, productApi, reportApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2 } from 'lucide-react';
+import DaySummary from '../components/DaySummary';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -416,6 +417,10 @@ export default function Issues() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
+  const summary = Object.values((issues as any[]).reduce((a: any, i: any) => {
+    const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, qty: 0 }).qty += Number(i.quantity) || 0; return a;
+  }, {})) as any[];
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -440,6 +445,8 @@ export default function Issues() {
           </button>
         </div>
       </div>
+
+      <DaySummary groups={summary} note={dayFilter || 'ทั้งหมด'} unitLabel="เบิก" />
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
