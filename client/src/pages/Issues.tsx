@@ -461,7 +461,7 @@ export default function Issues() {
                 <div>
                   <span className="font-mono text-xs text-blue-600 font-bold">{i.code}</span>
                   <p className="font-semibold text-gray-800 mt-0.5">{i.member_name}</p>
-                  <p className="text-sm text-gray-500">{i.product_name}</p>
+                  <p className="text-sm text-gray-500 inline-flex items-center gap-1.5">{i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</p>
                 </div>
                 <span className={statusClass[i.status]}>{statusLabel[i.status]}</span>
               </div>
@@ -519,7 +519,7 @@ export default function Issues() {
                     <span className="font-mono text-xs text-gray-500">{i.member_code}</span>{' '}
                     <span className="font-medium text-gray-800">{i.member_name}</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{i.product_name}</td>
+                  <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{i.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</span></td>
                   <td className="px-4 py-3 text-right font-medium">{i.quantity} {i.unit}</td>
                   <td className="px-4 py-3 text-right text-green-600">{returned}</td>
                   <td className="px-4 py-3 text-right">

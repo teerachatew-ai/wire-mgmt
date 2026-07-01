@@ -254,7 +254,7 @@ export default function Returns() {
                 <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
                 <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
                 <td className="px-4 py-3 text-gray-800">{r.member_name}</td>
-                <td className="px-4 py-3 text-gray-600">{r.product_name}</td>
+                <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
                 <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
                 <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
                 <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
@@ -317,7 +317,7 @@ export default function Returns() {
                           <span className="font-mono text-blue-600 text-xs">{i.code}</span>{' '}
                           <span className="font-medium">{i.member_name}</span>
                           {i.member_nickname && <span className="text-gray-400">{' '}({i.member_nickname})</span>}
-                          <span className="text-gray-500 block text-xs">{i.product_name}</span>
+                          <span className="text-gray-500 block text-xs inline-flex items-center gap-1">{i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</span>
                         </span>
                         <span className="shrink-0 text-right">
                           <span className="text-amber-600 font-medium text-sm">เหลือ {rem}</span>
@@ -339,7 +339,7 @@ export default function Returns() {
                       <div className="min-w-0 text-sm">
                         <span className="font-mono text-blue-600 text-xs">{l.issue.code}</span>{' '}
                         <span className="font-medium">{l.issue.member_name}</span>
-                        <span className="text-gray-500 block text-xs">{l.issue.product_name} · คงเหลือ <strong className="text-amber-600">{rem}</strong> {l.issue.unit}</span>
+                        <span className="text-gray-500 block text-xs inline-flex items-center gap-1">{l.issue.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: l.issue.color }} />}{l.issue.product_name} · คงเหลือ <strong className="text-amber-600">{rem}</strong> {l.issue.unit}</span>
                       </div>
                       <button type="button" onClick={() => removeIssue(l.issue.id)} className="shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
                     </div>

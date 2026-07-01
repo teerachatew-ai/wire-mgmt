@@ -325,6 +325,7 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
       items: products.map(p => ({
         product_id: p.id,
         product_name: p.name,
+        color: p.color,
         unit: p.unit,
         max_good: p.ret_good > 0 ? p.ret_good : 0,
         max_total: p.stock_ready,
@@ -461,7 +462,10 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
                 {fields.map((f: any, i: number) => (
                   <div key={f.id} className="border rounded-lg p-3 bg-gray-50">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-medium text-gray-800 text-sm">{f.product_name}</span>
+                      <span className="font-medium text-gray-800 text-sm inline-flex items-center gap-1.5">
+                        {f.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: f.color }} />}
+                        {f.product_name}
+                      </span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${f.max_total > 0 ? 'text-green-700 bg-green-100' : 'text-amber-700 bg-amber-100'}`}>
                         สต้อคพร้อมส่ง {fmt(f.max_total)} {f.unit}
                       </span>
@@ -552,7 +556,10 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
               const diff = recv == null ? null : recv - (Number(it.good_qty) || 0);
               return (
                   <div key={i} className="border rounded-lg p-3 bg-gray-50">
-                    <p className="font-medium text-gray-800 text-sm mb-2">{it.product_name} <span className="text-xs text-gray-400">({it.unit})</span></p>
+                    <p className="font-medium text-gray-800 text-sm mb-2 inline-flex items-center gap-1.5">
+                      {it.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: it.color }} />}
+                      {it.product_name} <span className="text-xs text-gray-400">({it.unit})</span>
+                    </p>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="label text-xs">งานดี (ส่งไป)</label>
