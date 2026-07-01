@@ -107,15 +107,22 @@ router.get('/performance', (req, res) => {
   const expensesMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ?`).get(thisMonth) as any).v;
   const expensesAll = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses`).get() as any).v;
 
-  // ประมาณการ จากยอด "รับเข้า" (ถึงยังไม่แจกจ่ายก็คิด)
+  // ประมาณการเดือนนี้ = งานที่มีอยู่พร้อมทำ = ยอดยกมาต้นเดือน (คงค้างในระบบจากเดือนก่อน) + รับเข้าในเดือนนี้
+  // ยอดยกมา = รับเข้าสะสม − ส่งออกสะสม − สูญเสียสะสม (ก่อนเริ่มเดือน)  [สอดคล้องกับหน้าตรวจสอบสต้อค]
+  const monthStart = `${thisMonth}-01`;
   const fcRows = prepare(`
     SELECT p.factory_price fp, p.wage_per_unit wp,
       COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id AND received_at LIKE ?), 0) rm,
-      COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id), 0) ra
+      COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id), 0) ra,
+      COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id AND received_at < ?), 0) carry_recv,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND s.shipped_at < ?), 0) carry_ship,
+      COALESCE((SELECT SUM(r.waste_qty) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id AND r.returned_at < ?), 0) carry_waste
     FROM products p WHERE p.active = 1
-  `).all(mk) as any[];
-  const fcRevenueMonth = fcRows.reduce((s, r) => s + r.rm * r.fp, 0);
-  const fcWageMonth = fcRows.reduce((s, r) => s + r.rm * r.wp, 0);
+  `).all(mk, monthStart, monthStart, monthStart) as any[];
+  // งานพร้อมทำเดือนนี้ต่อชนิด = ยกมา + รับเข้าเดือนนี้ (ไม่ติดลบ)
+  const fcQtyMonth = (r: any) => Math.max(0, (r.carry_recv - r.carry_ship - r.carry_waste)) + r.rm;
+  const fcRevenueMonth = fcRows.reduce((s, r) => s + fcQtyMonth(r) * r.fp, 0);
+  const fcWageMonth = fcRows.reduce((s, r) => s + fcQtyMonth(r) * r.wp, 0);
   const fcRevenueAll = fcRows.reduce((s, r) => s + r.ra * r.fp, 0);
   const fcWageAll = fcRows.reduce((s, r) => s + r.ra * r.wp, 0);
 
