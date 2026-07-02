@@ -4,6 +4,14 @@ import { useForm } from 'react-hook-form';
 import { returnApi, issueApi } from '../api';
 import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2 } from 'lucide-react';
 
+// วันที่แบบสั้น dd/mm/yyyy (พ.ศ.)
+function fmtDate(s: string) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}`;
+}
+
 function Modal({ title, onClose, children }: any) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -318,6 +326,7 @@ export default function Returns() {
                           <span className="font-medium">{i.member_name}</span>
                           {i.member_nickname && <span className="text-gray-400">{' '}({i.member_nickname})</span>}
                           <span className="text-gray-500 block text-xs inline-flex items-center gap-1">{i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</span>
+                          {i.issued_at && <span className="text-gray-400 block text-[11px]">📅 เบิกเมื่อ {fmtDate(i.issued_at)}</span>}
                         </span>
                         <span className="shrink-0 text-right">
                           <span className="text-amber-600 font-medium text-sm">เหลือ {rem}</span>
@@ -340,6 +349,7 @@ export default function Returns() {
                         <span className="font-mono text-blue-600 text-xs">{l.issue.code}</span>{' '}
                         <span className="font-medium">{l.issue.member_name}</span>
                         <span className="text-gray-500 block text-xs inline-flex items-center gap-1">{l.issue.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: l.issue.color }} />}{l.issue.product_name} · คงเหลือ <strong className="text-amber-600">{rem}</strong> {l.issue.unit}</span>
+                        {l.issue.issued_at && <span className="text-gray-400 block text-[11px]">📅 เบิกเมื่อ {fmtDate(l.issue.issued_at)}</span>}
                       </div>
                       <button type="button" onClick={() => removeIssue(l.issue.id)} className="shrink-0 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
                     </div>
