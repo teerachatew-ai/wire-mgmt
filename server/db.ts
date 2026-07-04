@@ -339,11 +339,17 @@ CREATE TABLE IF NOT EXISTS managers (
 }
 
 export function nextCode(prefix: string, table: string, field: string = 'code'): string {
-  const res = db.exec(`SELECT ${field} FROM ${table} WHERE ${field} LIKE '${prefix}%' ORDER BY id DESC LIMIT 1`);
-  if (!res[0]?.values[0]) return `${prefix}001`;
-  const last = res[0].values[0][0] as string;
-  const num = parseInt(last.replace(prefix, '')) + 1;
-  return `${prefix}${String(num).padStart(3, '0')}`;
+  // ใช้เลขสูงสุดที่เคยใช้ +1 (กันรหัสซ้ำเมื่อมีการลบรายการไปก่อนหน้า) แล้ววนหาจนกว่าจะว่างจริง
+  const res = db.exec(`SELECT ${field} FROM ${table} WHERE ${field} LIKE '${prefix}%'`);
+  const codes = (res[0]?.values ?? []).map(r => String(r[0]));
+  const re = new RegExp(`^${prefix}(\\d+)$`);
+  let maxNum = 0;
+  for (const c of codes) { const mm = re.exec(c); if (mm) maxNum = Math.max(maxNum, Number(mm[1])); }
+  const used = new Set(codes);
+  let num = maxNum + 1;
+  let code = `${prefix}${String(num).padStart(3, '0')}`;
+  while (used.has(code)) { num++; code = `${prefix}${String(num).padStart(3, '0')}`; }
+  return code;
 }
 
 export { prepare, exec };

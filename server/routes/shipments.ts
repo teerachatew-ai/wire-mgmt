@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepare } from '../db';
+import { prepare, nextCode } from '../db';
 import { userOf } from '../reqUser';
 
 const router = Router();
@@ -39,9 +39,8 @@ router.post('/', (req, res) => {
     const validItems = (items || []).filter((it: any) => num(it.good_qty) + num(it.defect_qty) > 0 && it.product_id != null);
     if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
 
-    // Generate code
-    const cnt = (prepare(`SELECT COUNT(*) as c FROM shipments`).get() as any).c;
-    const code = `SH${String(cnt + 1).padStart(3, '0')}`;
+    // สร้างรหัสแบบกันซ้ำ (เลขสูงสุด +1) เหมือนเอกสารอื่นๆ
+    const code = nextCode('SH', 'shipments');
 
     prepare(`INSERT INTO shipments (code, shipped_at, notes, created_by) VALUES (?, ?, ?, ?)`).run(code, shipped_at, notes || null, userOf(req));
     const shipment = prepare(`SELECT * FROM shipments ORDER BY id DESC LIMIT 1`).get() as any;
