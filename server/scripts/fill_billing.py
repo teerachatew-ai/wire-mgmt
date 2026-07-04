@@ -146,6 +146,12 @@ ws.page_setup.scale = None
 ws.print_area = f"A1:L{footer_last}"
 ws.print_title_rows = None
 
+# ลดขอบกระดาษให้แคบที่สุด -> เพิ่มพื้นที่ใช้งาน -> fit-to-page ขยาย scale ตัวหนังสือใหญ่ขึ้น
+# (ยังบังคับ 1 หน้าเสมอด้วย fitToWidth/Height=1 จึงไม่มีทางล้นไปหน้า 2)
+from openpyxl.worksheet.page import PageMargins
+ws.page_margins = PageMargins(left=0.2, right=0.2, top=0.25, bottom=0.2, header=0.1, footer=0.1)
+ws.page_setup.horizontalCentered = True
+
 # โหมด PDF: ลบชีตอื่น (วิธีการกรอก/ตัวอย่าง) ออก เหลือเฉพาะชีตฟอร์ม กัน PDF ติดหน้าตัวอย่าง
 if mode == "pdf":
     for sn in list(wb.sheetnames):
