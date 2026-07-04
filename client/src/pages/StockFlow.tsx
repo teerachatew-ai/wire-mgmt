@@ -328,7 +328,7 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
         color: p.color,
         unit: p.unit,
         max_good: p.ret_good > 0 ? p.ret_good : 0,
-        max_total: p.stock_ready,
+        max_total: p.available ?? (p.received - p.shipped),
         good_qty: 0,
         defect_qty: 0,
       }))
@@ -601,7 +601,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
   const [showModal, setShowModal] = useState(false);
   const [editShip, setEditShip] = useState<any>(null);
   const [dayFilter, setDayFilter] = useState('');
-  const readyProducts = products.filter(p => p.stock_ready > 0);
+  const readyProducts = products.filter(p => (p.available ?? 0) > 0);
 
   const { data: shipments = [], isLoading } = useQuery({
     queryKey: ['shipments', dayFilter],
@@ -633,10 +633,9 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
           <thead className="border-b text-xs text-gray-500">
             <tr>
               <th className="px-4 py-2.5 text-left font-medium">สินค้า</th>
-              <th className="px-4 py-2.5 text-right font-medium text-green-600">คืนดี</th>
-              <th className="px-4 py-2.5 text-right font-medium text-orange-500">คืนเสีย</th>
+              <th className="px-4 py-2.5 text-right font-medium text-blue-600">รับเข้า (สะสม)</th>
               <th className="px-4 py-2.5 text-right font-medium text-gray-500">ส่งออกแล้ว</th>
-              <th className="px-4 py-2.5 text-right font-medium text-green-700">สต้อคพร้อมส่ง</th>
+              <th className="px-4 py-2.5 text-right font-medium text-green-700">พร้อมส่ง (คงเหลือ)</th>
             </tr>
           </thead>
           <tbody>
@@ -648,22 +647,20 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                     <span><span className="font-mono text-xs text-gray-400 mr-1">{p.code}</span>{p.name}<span className="text-xs text-gray-400 ml-1">({p.unit})</span></span>
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-right text-green-600">{fmt(p.ret_good)}</td>
-                <td className="px-4 py-2.5 text-right text-orange-500">{fmt(p.ret_defect)}</td>
+                <td className="px-4 py-2.5 text-right text-blue-600">{fmt(p.received)}</td>
                 <td className="px-4 py-2.5 text-right text-gray-400">{fmt(p.shipped)}</td>
                 <td className="px-4 py-2.5 text-right">
-                  <span className={`font-bold text-lg ${p.stock_ready > 0 ? 'text-green-700' : 'text-gray-300'}`}>
-                    {fmt(p.stock_ready)}
+                  <span className={`font-bold text-lg ${(p.available ?? 0) > 0 ? 'text-green-700' : 'text-gray-300'}`}>
+                    {fmt(p.available)}
                   </span>
                 </td>
               </tr>
             ))}
             <tr className="bg-green-50 border-t font-semibold">
               <td className="px-4 py-2.5 text-green-800">รวม</td>
-              <td className="px-4 py-2.5 text-right text-green-700">{fmt(products.reduce((s, p) => s + p.ret_good, 0))}</td>
-              <td className="px-4 py-2.5 text-right text-orange-600">{fmt(products.reduce((s, p) => s + p.ret_defect, 0))}</td>
+              <td className="px-4 py-2.5 text-right text-blue-700">{fmt(products.reduce((s, p) => s + p.received, 0))}</td>
               <td className="px-4 py-2.5 text-right text-gray-500">{fmt(products.reduce((s, p) => s + p.shipped, 0))}</td>
-              <td className="px-4 py-2.5 text-right text-green-800 text-lg">{fmt(products.reduce((s, p) => s + p.stock_ready, 0))}</td>
+              <td className="px-4 py-2.5 text-right text-green-800 text-lg">{fmt(products.reduce((s, p) => s + (p.available ?? 0), 0))}</td>
             </tr>
           </tbody>
         </table>

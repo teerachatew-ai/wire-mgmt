@@ -557,8 +557,10 @@ router.get('/stock-flow', (req, res) => {
     const in_warehouse = p.received - p.total_issued;
     const with_members = p.total_issued - (p.ret_good + p.ret_defect + p.ret_waste);
     const stock_ready  = p.ret_good + p.ret_defect - p.shipped;
+    // ยอดคงเหลือพร้อมส่ง = รับเข้าสะสม − ส่งออกสะสม (ยกมา+รับเข้า−ส่งออก) — ไม่หักเศษ
+    const available = p.received - p.shipped;
     const balance = p.received - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste;
-    return { ...p, in_warehouse, with_members, stock_ready, balance,
+    return { ...p, in_warehouse, with_members, stock_ready, available, balance,
       ok: in_warehouse >= 0 && with_members >= 0 && stock_ready >= 0 };
   });
 
