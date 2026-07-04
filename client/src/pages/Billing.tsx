@@ -261,11 +261,12 @@ export default function Billing() {
               <span>% ของราคา/ชิ้น</span>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              {dirty && (
-                <button className="btn-primary btn-sm flex items-center gap-1.5" onClick={saveSync} disabled={syncing}>
-                  {syncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึกกลับไปใบส่งของ
-                </button>
-              )}
+              <button
+                className={`btn-sm flex items-center gap-1.5 ${dirty ? 'btn-primary animate-pulse' : 'btn-primary'}`}
+                onClick={saveSync} disabled={syncing}
+                title="บันทึกจำนวนรับจริง/วันที่ กลับไปยังประวัติส่งงานออกโรงงาน — สต๊อค ใบแจ้งหนี้ ภาพรวม จะอัปเดตตาม">
+                {syncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save บันทึก{dirty ? ' (มีแก้ไข)' : ''}
+              </button>
               <button className="btn-secondary btn-sm flex items-center gap-1" onClick={addLine}><Plus size={14} /> เพิ่มแถว</button>
             </div>
           </div>
