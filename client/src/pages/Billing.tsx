@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, BadgeCheck, X } from 'lucide-react';
 
@@ -7,7 +7,7 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFract
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const monthLabel = (m: string) => { if (!m) return ''; const [y, mo] = m.split('-'); return `${TH[+mo - 1]} ${y}`; };
 
-interface Line { project: string; part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
+interface Line { item_id?: number; shipment_code?: string; project: string; part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
 
 export default function Billing() {
   const [month, setMonth] = useState('');
@@ -21,6 +21,9 @@ export default function Billing() {
   const [invPdf, setInvPdf] = useState(false);
   const [rcptPdf, setRcptPdf] = useState(false);
   const [showSupplier, setShowSupplier] = useState(false);
+  const [dirty, setDirty] = useState(false);       // มีการแก้จำนวน/วันที่ที่ยังไม่บันทึกกลับ
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
 
   const { data, isLoading } = useQuery({ queryKey: ['billing', month || 'none'], queryFn: () => reportApi.billing(month || undefined) });
   const { data: base } = useQuery({ queryKey: ['billing-base'], queryFn: () => reportApi.billing() });
@@ -30,18 +33,48 @@ export default function Billing() {
       setWhtRate(data.wht_rate ?? 0.03);
       if (data.supplier) setSupplier(s => ({ ...s, ...data.supplier }));
       setLines((data.lines || []).map((l: any) => ({
+        item_id: l.item_id, shipment_code: l.shipment_code,
         project: l.project || '', part_number: l.part_number || '', description: l.description || '',
         quantity: l.quantity || 0, unit: l.unit || 'EA', price: l.price || 0,
         deliveryDate: (l.shipped_at || '').slice(0, 10),
       })));
+      setDirty(false);
     }
   }, [data]);
 
   const months: string[] = base?.months || data?.months || [];
 
-  const updLine = (i: number, f: keyof Line, v: any) => setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
+  const qc = useQueryClient();
+  const updLine = (i: number, f: keyof Line, v: any) => {
+    setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
+    if (f === 'quantity' || f === 'deliveryDate') setDirty(true);   // จำนวน/วันที่ sync กลับไปใบส่งของได้
+  };
   const addLine = () => setLines(ls => [...ls, { project: '', part_number: '', description: '', quantity: 0, unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
   const delLine = (i: number) => setLines(ls => ls.filter((_, idx) => idx !== i));
+
+  // บันทึกจำนวน/วันที่ที่แก้ กลับไปยังรายการส่งของจริง (ประวัติส่งงานออกโรงงาน)
+  const saveSync = async () => {
+    const syncable = lines.filter(l => l.item_id);
+    if (!syncable.length) { alert('ไม่มีรายการที่เชื่อมกับใบส่งของ (แถวที่เพิ่มเองจะไม่ถูกบันทึกกลับ)'); return; }
+    if (!window.confirm(
+      'บันทึกจำนวน/วันที่ที่แก้ไข กลับไปยัง "ประวัติส่งงานออกโรงงาน" ?\n\n' +
+      '• จำนวน → อัปเดตเป็น "ยอดที่โรงงานรับจริง" ของใบส่งนั้น\n' +
+      '• วันที่ → เลื่อนวันที่ของใบส่งนั้น (ทุกรายการในใบเดียวกันจะเลื่อนตาม)\n' +
+      '• ใบวางบิล / ใบแจ้งหนี้ / สต๊อค จะใช้ยอดใหม่นี้ทันที'
+    )) return;
+    setSyncing(true); setSyncMsg('');
+    try {
+      const r = await reportApi.billingSync(syncable.map(l => ({ item_id: l.item_id, quantity: l.quantity, deliveryDate: l.deliveryDate })));
+      setSyncMsg(`บันทึกแล้ว ✓ (จำนวน ${r.updatedQty} รายการ${r.updatedDate ? `, วันที่ ${r.updatedDate} ใบ` : ''})`);
+      setDirty(false);
+      qc.invalidateQueries({ queryKey: ['billing'] });
+      qc.invalidateQueries({ queryKey: ['stock-flow'] });
+      qc.invalidateQueries({ queryKey: ['shipments'] });
+      setTimeout(() => setSyncMsg(''), 4000);
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'บันทึกไม่สำเร็จ');
+    } finally { setSyncing(false); }
+  };
 
   const calc = lines.map(l => { const amount = l.quantity * l.price; const wht = amount * whtRate; return { ...l, amount, wht, net: amount - wht }; });
   const totQty = calc.reduce((s, l) => s + l.quantity, 0);
@@ -183,7 +216,15 @@ export default function Billing() {
         <div className="card p-0 overflow-x-auto">
           <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
             <span className="font-semibold text-gray-700 text-sm">รายการวางบิล — {monthLabel(month)}</span>
-            <button className="ml-auto btn-secondary btn-sm flex items-center gap-1" onClick={addLine}><Plus size={14} /> เพิ่มแถว</button>
+            {syncMsg && <span className="text-green-600 text-xs font-medium">{syncMsg}</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {dirty && (
+                <button className="btn-primary btn-sm flex items-center gap-1.5" onClick={saveSync} disabled={syncing}>
+                  {syncing ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} บันทึกกลับไปใบส่งของ
+                </button>
+              )}
+              <button className="btn-secondary btn-sm flex items-center gap-1" onClick={addLine}><Plus size={14} /> เพิ่มแถว</button>
+            </div>
           </div>
           <table className="w-full text-sm min-w-[1000px]">
             <thead className="bg-gray-50 border-b text-xs text-gray-500">
@@ -204,7 +245,10 @@ export default function Billing() {
               {calc.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">ไม่มีงานส่งออกในเดือนนี้ — กด "เพิ่มแถว" เพื่อกรอกเอง</td></tr>}
               {calc.map((l, i) => (
                 <tr key={i} className="border-b border-gray-50">
-                  <td className="px-2 py-1 text-center text-gray-400">{i + 1}</td>
+                  <td className="px-2 py-1 text-center text-gray-400">
+                    {i + 1}
+                    {l.shipment_code && <span className="block text-[9px] text-blue-400 font-mono leading-tight">{l.shipment_code}</span>}
+                  </td>
                   <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs w-28" value={l.part_number} onChange={e => updLine(i, 'part_number', e.target.value)} /></td>
                   <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs min-w-[140px]" value={l.description} onChange={e => updLine(i, 'description', e.target.value)} /></td>
                   <td className="px-2 py-1"><input type="number" className="input !min-h-[36px] !py-1 !px-2 text-xs w-20 text-right" value={l.quantity} onChange={e => updLine(i, 'quantity', parseFloat(e.target.value) || 0)} /></td>

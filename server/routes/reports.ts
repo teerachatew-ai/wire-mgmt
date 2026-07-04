@@ -321,7 +321,8 @@ router.get('/billing', (req, res) => {
   const whtRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
 
   const raw = m ? prepare(`
-    SELECT s.shipped_at, s.notes as po, p.project as project, p.name as part_number, p.description as descr, p.color,
+    SELECT si.id as item_id, s.id as shipment_id, s.code as shipment_code,
+      s.shipped_at, s.notes as po, p.project as project, p.name as part_number, p.description as descr, p.color,
       COALESCE(si.received_qty, si.good_qty) as quantity, p.unit, p.factory_price as price
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id
@@ -355,6 +356,37 @@ router.get('/billing', (req, res) => {
     },
     lines,
   });
+});
+
+// บันทึกยอด/วันที่ที่แก้ในหน้าวางบิล กลับไปยังรายการส่งของจริง (shipment history)
+// -> จำนวน = อัปเดต "ยอดที่โรงงานรับจริง" (received_qty) ของ shipment_item นั้น
+// -> วันที่ = อัปเดตวันที่ส่ง (shipped_at) ของใบส่งนั้น (กระทบทุกรายการในใบเดียวกัน)
+router.put('/billing-sync', (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการให้บันทึก' });
+    let updatedQty = 0, updatedDate = 0, skipped = 0;
+    for (const it of items) {
+      const itemId = Number(it.item_id);
+      if (!itemId) { skipped++; continue; }  // แถวที่เพิ่มเอง (ไม่ได้มาจากใบส่ง) ข้าม
+      const row = prepare(`SELECT si.id, si.shipment_id, s.shipped_at FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.id = ?`).get(itemId) as any;
+      if (!row) { skipped++; continue; }
+      const q = Number(it.quantity);
+      if (Number.isFinite(q) && q >= 0) {
+        prepare(`UPDATE shipment_items SET received_qty = ? WHERE id = ?`).run(q, itemId);
+        updatedQty++;
+      }
+      const dt = typeof it.deliveryDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(it.deliveryDate) ? it.deliveryDate : '';
+      if (dt && dt !== String(row.shipped_at).slice(0, 10)) {
+        prepare(`UPDATE shipments SET shipped_at = ? WHERE id = ?`).run(dt, row.shipment_id);
+        updatedDate++;
+      }
+    }
+    res.json({ ok: true, updatedQty, updatedDate, skipped });
+  } catch (e: any) {
+    console.error('[billing-sync] error:', e);
+    res.status(500).json({ error: `บันทึกไม่สำเร็จ: ${e?.message || e}` });
+  }
 });
 
 // Export ใบวางบิลเป็นไฟล์ Excel (.xlsx) จาก template จริง — เป๊ะ 100%
