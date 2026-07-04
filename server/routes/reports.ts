@@ -518,9 +518,7 @@ router.post('/invoice-export', (req, res) => {
   });
 });
 
-router.get('/stock-flow', (req, res) => {
-  // filter เดือน (YYYY-MM) — ถ้าระบุจะคิดเฉพาะยอดเคลื่อนไหวในเดือนนั้น
-  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)) ? req.query.month : '';
+function computeStockFlow(m: string) {
   const fRecv = m ? ` AND received_at LIKE '${m}%'` : '';
   const fIss  = m ? ` AND issued_at LIKE '${m}%'` : '';
   const fRet  = m ? ` AND r.returned_at LIKE '${m}%'` : '';
@@ -582,7 +580,42 @@ router.get('/stock-flow', (req, res) => {
     ) WHERE ym IS NOT NULL AND ym != '' ORDER BY ym DESC
   `).all() as any[]).map(r => r.ym);
 
-  res.json({ products: rows, incoming, month: m || null, months });
+  return { products: rows, incoming, month: m || null, months };
+}
+
+router.get('/stock-flow', (req, res) => {
+  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)) ? req.query.month : '';
+  res.json(computeStockFlow(m));
+});
+
+// Export ตารางตรวจสอบสต็อค (Check & Balance) เป็นไฟล์ Excel
+router.post('/stock-flow-export', (req, res) => {
+  const body = req.body || {};
+  const m = typeof body.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : '';
+  const data = computeStockFlow(m);
+
+  const root = process.cwd();
+  const script = path.join(root, 'server', 'scripts', 'stock_export.py');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stock-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `stock-${m || 'all'}.xlsx`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+
+  const py = spawn(PYTHON, [script, dataFile, xlsxFile], {
+    env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' },
+  });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="stock-${m || 'all'}.xlsx"`);
+    const stream = fs.createReadStream(xlsxFile);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  });
 });
 
 // ── Monthly payroll with deductions ────────────────────────────────────────

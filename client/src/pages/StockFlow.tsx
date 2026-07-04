@@ -5,7 +5,7 @@ import { reportApi, shipmentApi, productApi, ocrApi } from '../api';
 import {
   ArrowDownToLine, ArrowUpFromLine, Package, Truck,
   CheckCircle2, AlertTriangle, Plus, Trash2, X, Loader2,
-  RefreshCw, BarChart3, ScanLine, Upload, FileText, CheckCircle, Edit2
+  RefreshCw, BarChart3, ScanLine, Upload, FileText, CheckCircle, Edit2, Download
 } from 'lucide-react';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
@@ -80,6 +80,20 @@ function CheckBalance() {
     </div>
   ) : null;
 
+  const [exporting, setExporting] = useState(false);
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      const blob = await reportApi.stockFlowExport(month || undefined);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `stock-${month || 'all'}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch { alert('ดาวน์โหลดไม่สำเร็จ'); }
+    finally { setExporting(false); }
+  };
+
   const availMonths = monthOptions().filter(o => (data?.months || []).includes(o.v));
   const filterBar = (
     <div className="card flex flex-wrap items-end gap-3">
@@ -91,6 +105,9 @@ function CheckBalance() {
         </select>
       </div>
       {monthly && <p className="text-xs text-gray-500 pb-2">แสดงเฉพาะยอดเคลื่อนไหวในเดือนที่เลือก</p>}
+      <button className="btn-secondary flex items-center gap-2 text-sm ml-auto" onClick={exportExcel} disabled={exporting}>
+        {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Export Excel
+      </button>
     </div>
   );
 
