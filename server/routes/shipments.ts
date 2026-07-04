@@ -28,48 +28,61 @@ router.get('/', (req, res) => {
   res.json(result);
 });
 
+// จำนวนที่ปลอดภัยสำหรับ SQLite (กัน NaN/undefined/null → 0)
+const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
 // ── Create shipment ───────────────────────────────────────────────────────
 router.post('/', (req, res) => {
-  const { shipped_at, notes, items } = req.body;
-  if (!shipped_at) return res.status(400).json({ error: 'กรุณาระบุวันที่ส่ง' });
-  const validItems = (items || []).filter((it: any) => (it.good_qty || 0) + (it.defect_qty || 0) > 0);
-  if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
+  try {
+    const { shipped_at, notes, items } = req.body;
+    if (!shipped_at) return res.status(400).json({ error: 'กรุณาระบุวันที่ส่ง' });
+    const validItems = (items || []).filter((it: any) => num(it.good_qty) + num(it.defect_qty) > 0 && it.product_id != null);
+    if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
 
-  // Generate code
-  const cnt = (prepare(`SELECT COUNT(*) as c FROM shipments`).get() as any).c;
-  const code = `SH${String(cnt + 1).padStart(3, '0')}`;
+    // Generate code
+    const cnt = (prepare(`SELECT COUNT(*) as c FROM shipments`).get() as any).c;
+    const code = `SH${String(cnt + 1).padStart(3, '0')}`;
 
-  prepare(`INSERT INTO shipments (code, shipped_at, notes, created_by) VALUES (?, ?, ?, ?)`).run(code, shipped_at, notes || null, userOf(req));
-  const shipment = prepare(`SELECT * FROM shipments ORDER BY id DESC LIMIT 1`).get() as any;
+    prepare(`INSERT INTO shipments (code, shipped_at, notes, created_by) VALUES (?, ?, ?, ?)`).run(code, shipped_at, notes || null, userOf(req));
+    const shipment = prepare(`SELECT * FROM shipments ORDER BY id DESC LIMIT 1`).get() as any;
 
-  for (const it of validItems) {
-    const recv = (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty);
-    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
-      .run(shipment.id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0, recv);
+    for (const it of validItems) {
+      const recv = (it.received_qty === '' || it.received_qty == null) ? null : num(it.received_qty);
+      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
+        .run(shipment.id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv);
+    }
+
+    res.json({ ok: true, code, id: shipment.id });
+  } catch (e: any) {
+    console.error('[shipment create] error:', e);
+    res.status(500).json({ error: `บันทึกไม่สำเร็จ: ${e?.message || e}` });
   }
-
-  res.json({ ok: true, code, id: shipment.id });
 });
 
 // ── Update shipment ───────────────────────────────────────────────────────
 router.put('/:id', (req, res) => {
-  const id = Number(req.params.id);
-  const { shipped_at, notes, items } = req.body;
-  const ship = prepare(`SELECT * FROM shipments WHERE id = ?`).get(id) as any;
-  if (!ship) return res.status(404).json({ error: 'ไม่พบรายการส่งออก' });
-  if (!shipped_at) return res.status(400).json({ error: 'กรุณาระบุวันที่ส่ง' });
-  const validItems = (items || []).filter((it: any) => (it.good_qty || 0) + (it.defect_qty || 0) > 0);
-  if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
+  try {
+    const id = Number(req.params.id);
+    const { shipped_at, notes, items } = req.body;
+    const ship = prepare(`SELECT * FROM shipments WHERE id = ?`).get(id) as any;
+    if (!ship) return res.status(404).json({ error: 'ไม่พบรายการส่งออก' });
+    if (!shipped_at) return res.status(400).json({ error: 'กรุณาระบุวันที่ส่ง' });
+    const validItems = (items || []).filter((it: any) => num(it.good_qty) + num(it.defect_qty) > 0 && it.product_id != null);
+    if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
 
-  prepare(`UPDATE shipments SET shipped_at = ?, notes = ? WHERE id = ?`).run(shipped_at, notes || null, id);
-  // แทนที่รายการสินค้าทั้งหมด
-  prepare(`DELETE FROM shipment_items WHERE shipment_id = ?`).run(id);
-  for (const it of validItems) {
-    const recv = (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty);
-    prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
-      .run(id, Number(it.product_id), Number(it.good_qty) || 0, Number(it.defect_qty) || 0, recv);
+    prepare(`UPDATE shipments SET shipped_at = ?, notes = ? WHERE id = ?`).run(shipped_at, notes || null, id);
+    // แทนที่รายการสินค้าทั้งหมด
+    prepare(`DELETE FROM shipment_items WHERE shipment_id = ?`).run(id);
+    for (const it of validItems) {
+      const recv = (it.received_qty === '' || it.received_qty == null) ? null : num(it.received_qty);
+      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
+        .run(id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv);
+    }
+    res.json({ ok: true, id, code: ship.code });
+  } catch (e: any) {
+    console.error('[shipment update] error:', e);
+    res.status(500).json({ error: `แก้ไขไม่สำเร็จ: ${e?.message || e}` });
   }
-  res.json({ ok: true, id, code: ship.code });
 });
 
 // ── Delete shipment ───────────────────────────────────────────────────────
