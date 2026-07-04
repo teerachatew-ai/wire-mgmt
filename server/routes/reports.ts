@@ -323,6 +323,7 @@ router.get('/billing', (req, res) => {
   const raw = m ? prepare(`
     SELECT si.id as item_id, s.id as shipment_id, s.code as shipment_code,
       s.shipped_at, s.notes as po, p.project as project, p.name as part_number, p.description as descr, p.color,
+      si.good_qty as sent_qty, si.received_qty as received_qty,
       COALESCE(si.received_qty, si.good_qty) as quantity, p.unit, p.factory_price as price
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id

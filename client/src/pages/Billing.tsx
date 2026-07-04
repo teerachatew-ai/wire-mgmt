@@ -7,7 +7,15 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFract
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
 const monthLabel = (m: string) => { if (!m) return ''; const [y, mo] = m.split('-'); return `${TH[+mo - 1]} ${y}`; };
 
-interface Line { item_id?: number; shipment_code?: string; project: string; part_number: string; description: string; quantity: number; unit: string; price: number; deliveryDate: string; }
+interface Line {
+  item_id?: number; shipment_code?: string;
+  project: string; part_number: string; description: string;
+  sent_qty: number;                 // จำนวนที่บันทึกส่ง (จากใบส่งของ)
+  received_qty: number | '';        // ยอดที่โรงงานรับจริง ('' = ยังไม่ยืนยัน -> ใช้ sent_qty)
+  unit: string; price: number; deliveryDate: string;
+}
+// ยอดที่ใช้คิดเงิน = รับจริง (ถ้ากรอก) ไม่งั้นใช้จำนวนส่ง
+const effQty = (l: Line) => (l.received_qty === '' || l.received_qty == null) ? (l.sent_qty || 0) : Number(l.received_qty);
 
 export default function Billing() {
   const [month, setMonth] = useState('');
@@ -35,7 +43,9 @@ export default function Billing() {
       setLines((data.lines || []).map((l: any) => ({
         item_id: l.item_id, shipment_code: l.shipment_code,
         project: l.project || '', part_number: l.part_number || '', description: l.description || '',
-        quantity: l.quantity || 0, unit: l.unit || 'EA', price: l.price || 0,
+        sent_qty: l.sent_qty ?? l.quantity ?? 0,
+        received_qty: (l.received_qty === null || l.received_qty === undefined) ? '' : l.received_qty,
+        unit: l.unit || 'EA', price: l.price || 0,
         deliveryDate: (l.shipped_at || '').slice(0, 10),
       })));
       setDirty(false);
@@ -47,9 +57,9 @@ export default function Billing() {
   const qc = useQueryClient();
   const updLine = (i: number, f: keyof Line, v: any) => {
     setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
-    if (f === 'quantity' || f === 'deliveryDate') setDirty(true);   // จำนวน/วันที่ sync กลับไปใบส่งของได้
+    if (f === 'received_qty' || f === 'deliveryDate') setDirty(true);   // รับจริง/วันที่ sync กลับไปใบส่งของได้
   };
-  const addLine = () => setLines(ls => [...ls, { project: '', part_number: '', description: '', quantity: 0, unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
+  const addLine = () => setLines(ls => [...ls, { project: '', part_number: '', description: '', sent_qty: 0, received_qty: '', unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
   const delLine = (i: number) => setLines(ls => ls.filter((_, idx) => idx !== i));
 
   // บันทึกจำนวน/วันที่ที่แก้ กลับไปยังรายการส่งของจริง (ประวัติส่งงานออกโรงงาน)
@@ -64,7 +74,7 @@ export default function Billing() {
     )) return;
     setSyncing(true); setSyncMsg('');
     try {
-      const r = await reportApi.billingSync(syncable.map(l => ({ item_id: l.item_id, quantity: l.quantity, deliveryDate: l.deliveryDate })));
+      const r = await reportApi.billingSync(syncable.map(l => ({ item_id: l.item_id, quantity: effQty(l), deliveryDate: l.deliveryDate })));
       setSyncMsg(`บันทึกแล้ว ✓ (จำนวน ${r.updatedQty} รายการ${r.updatedDate ? `, วันที่ ${r.updatedDate} ใบ` : ''})`);
       setDirty(false);
       qc.invalidateQueries({ queryKey: ['billing'] });
@@ -76,8 +86,9 @@ export default function Billing() {
     } finally { setSyncing(false); }
   };
 
-  const calc = lines.map(l => { const amount = l.quantity * l.price; const wht = amount * whtRate; return { ...l, amount, wht, net: amount - wht }; });
-  const totQty = calc.reduce((s, l) => s + l.quantity, 0);
+  const calc = lines.map(l => { const q = effQty(l); const amount = q * l.price; const wht = amount * whtRate; return { ...l, eff: q, amount, wht, net: amount - wht }; });
+  const totSent = calc.reduce((s, l) => s + (l.sent_qty || 0), 0);
+  const totQty = calc.reduce((s, l) => s + l.eff, 0);
   const totAmount = calc.reduce((s, l) => s + l.amount, 0);
   const totWht = calc.reduce((s, l) => s + l.wht, 0);
   const totNet = totAmount - totWht;
@@ -98,10 +109,13 @@ export default function Billing() {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
 
+  // แถวที่ส่งไปทำเอกสาร: จำนวน = ยอดรับจริง (ถ้ากรอก) ไม่งั้นจำนวนส่ง
+  const exportLines = () => lines.map(l => ({ ...l, quantity: effQty(l) }));
+
   const exportXLSX = async () => {
     setExporting(true);
     try {
-      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines });
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() });
       download(blob, `ใบวางบิล-${monthLabel(month)}.xlsx`);
     } catch (e) {
       alert('สร้างไฟล์ Excel ไม่สำเร็จ');
@@ -111,7 +125,7 @@ export default function Billing() {
   const exportPDF = async () => {
     setExportingPdf(true);
     try {
-      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines }, 'pdf');
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() }, 'pdf');
       download(blob, `ใบวางบิล-${monthLabel(month)}.pdf`);
     } catch (e) {
       alert('สร้างไฟล์ PDF ไม่สำเร็จ');
@@ -232,7 +246,8 @@ export default function Billing() {
                 <th className="px-2 py-2 font-medium">No.</th>
                 <th className="px-2 py-2 font-medium text-left">Part No.</th>
                 <th className="px-2 py-2 font-medium text-left">ชื่อสินค้า</th>
-                <th className="px-2 py-2 font-medium text-right">จำนวน</th>
+                <th className="px-2 py-2 font-medium text-right">จำนวนส่ง</th>
+                <th className="px-2 py-2 font-medium text-right text-blue-600">รับจริง</th>
                 <th className="px-2 py-2 font-medium text-center">วันที่จัดส่ง</th>
                 <th className="px-2 py-2 font-medium text-right">ราคา/หน่วย</th>
                 <th className="px-2 py-2 font-medium text-right">จำนวนเงิน</th>
@@ -242,7 +257,7 @@ export default function Billing() {
               </tr>
             </thead>
             <tbody>
-              {calc.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">ไม่มีงานส่งออกในเดือนนี้ — กด "เพิ่มแถว" เพื่อกรอกเอง</td></tr>}
+              {calc.length === 0 && <tr><td colSpan={11} className="py-8 text-center text-gray-400">ไม่มีงานส่งออกในเดือนนี้ — กด "เพิ่มแถว" เพื่อกรอกเอง</td></tr>}
               {calc.map((l, i) => (
                 <tr key={i} className="border-b border-gray-50">
                   <td className="px-2 py-1 text-center text-gray-400">
@@ -251,7 +266,17 @@ export default function Billing() {
                   </td>
                   <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs w-28" value={l.part_number} onChange={e => updLine(i, 'part_number', e.target.value)} /></td>
                   <td className="px-2 py-1"><input className="input !min-h-[36px] !py-1 !px-2 text-xs min-w-[140px]" value={l.description} onChange={e => updLine(i, 'description', e.target.value)} /></td>
-                  <td className="px-2 py-1"><input type="number" className="input !min-h-[36px] !py-1 !px-2 text-xs w-20 text-right" value={l.quantity} onChange={e => updLine(i, 'quantity', parseFloat(e.target.value) || 0)} /></td>
+                  <td className="px-2 py-1 text-right">
+                    {l.item_id
+                      ? <span className="tabular-nums text-gray-500">{(l.sent_qty || 0).toLocaleString()}</span>
+                      : <input type="number" className="input !min-h-[36px] !py-1 !px-2 text-xs w-20 text-right" value={l.sent_qty} onChange={e => updLine(i, 'sent_qty', parseFloat(e.target.value) || 0)} />}
+                  </td>
+                  <td className="px-2 py-1">
+                    <input type="number" placeholder={String(l.sent_qty || 0)}
+                      className={`input !min-h-[36px] !py-1 !px-2 text-xs w-20 text-right ${l.received_qty !== '' && Number(l.received_qty) !== (l.sent_qty || 0) ? '!border-blue-400 !bg-blue-50' : ''}`}
+                      value={l.received_qty}
+                      onChange={e => updLine(i, 'received_qty', e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))} />
+                  </td>
                   <td className="px-2 py-1"><input type="date" className="input !min-h-[36px] !py-1 !px-2 text-xs w-36" value={l.deliveryDate} onChange={e => updLine(i, 'deliveryDate', e.target.value)} /></td>
                   <td className="px-2 py-1"><input type="number" step="0.0001" className="input !min-h-[36px] !py-1 !px-2 text-xs w-24 text-right" value={l.price} onChange={e => updLine(i, 'price', parseFloat(e.target.value) || 0)} /></td>
                   <td className="px-2 py-1 text-right tabular-nums">{fmt(l.amount)}</td>
@@ -264,7 +289,8 @@ export default function Billing() {
             <tfoot>
               <tr className="bg-gray-50 font-semibold">
                 <td colSpan={3} className="px-2 py-2 text-right">รวม / Total</td>
-                <td className="px-2 py-2 text-right tabular-nums">{totQty.toLocaleString()}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-gray-500">{totSent.toLocaleString()}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-blue-700">{totQty.toLocaleString()}</td>
                 <td></td><td></td>
                 <td className="px-2 py-2 text-right tabular-nums">{fmt(totAmount)}</td>
                 <td className="px-2 py-2 text-right tabular-nums text-rose-600">{fmt(totWht)}</td>
