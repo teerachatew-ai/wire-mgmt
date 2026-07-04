@@ -119,8 +119,8 @@ router.get('/performance', (req, res) => {
       COALESCE((SELECT SUM(r.waste_qty) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id AND r.returned_at < ?), 0) carry_waste
     FROM products p WHERE p.active = 1
   `).all(mk, monthStart, monthStart, monthStart) as any[];
-  // งานพร้อมทำเดือนนี้ต่อชนิด = ยกมา + รับเข้าเดือนนี้ (ไม่ติดลบ)
-  const fcQtyMonth = (r: any) => Math.max(0, (r.carry_recv - r.carry_ship - r.carry_waste)) + r.rm;
+  // งานพร้อมทำเดือนนี้ต่อชนิด = ยกมา (รับเข้าสะสม − ส่งออกสะสม) + รับเข้าเดือนนี้ (ไม่ติดลบ)
+  const fcQtyMonth = (r: any) => Math.max(0, (r.carry_recv - r.carry_ship)) + r.rm;
   const fcRevenueMonth = fcRows.reduce((s, r) => s + fcQtyMonth(r) * r.fp, 0);
   const fcWageMonth = fcRows.reduce((s, r) => s + fcQtyMonth(r) * r.wp, 0);
   const fcRevenueAll = fcRows.reduce((s, r) => s + r.ra * r.fp, 0);
@@ -549,8 +549,9 @@ router.get('/stock-flow', (req, res) => {
   const rows = products.map(p => {
     if (m) {
       // โหมดเดือน: ยอดเคลื่อนไหว + งานคงค้างในระบบ (ยกมา/ยกไป)
-      const carry_ready = (p.carry_recv || 0) - (p.carry_ship || 0) - (p.carry_waste || 0);   // ยกมาต้นเดือน (ทั้งระบบ)
-      const closing_ready = carry_ready + (p.received - p.shipped - p.ret_waste);             // ยกไปเดือนหน้า (ทั้งระบบ)
+      // ยอดคงเหลือ = รับเข้าสะสม − ส่งออกสะสม (เศษ/งานเสียเป็น byproduct ไม่หักจากยอดเส้น)
+      const carry_ready = (p.carry_recv || 0) - (p.carry_ship || 0);                // ยกมาต้นเดือน (ทั้งระบบ)
+      const closing_ready = carry_ready + (p.received - p.shipped);                 // ยกไปเดือนหน้า (ทั้งระบบ)
       return { ...p, in_warehouse: null, with_members: null, stock_ready: null, balance: null, ok: true, carry_ready, closing_ready };
     }
     const in_warehouse = p.received - p.total_issued;
