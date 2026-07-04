@@ -347,6 +347,7 @@ router.get('/billing', (req, res) => {
   res.json({
     month: m || null,
     wht_rate: whtRate,
+    ng_rate: parseFloat(cfg.bill_ng_rate || '100'),   // % ของราคาที่หักต่อชิ้น NG (100 = ไม่จ่ายชิ้น NG เลย)
     months,
     supplier: {
       name: cfg.bill_vender_name || '',
@@ -481,13 +482,25 @@ router.post('/invoice-export', (req, res) => {
     ORDER BY p.project, p.name
   `).all(`${month}%`) as any[];
 
-  const lines = rows.map((r: any) => ({
+  let lines = rows.map((r: any) => ({
     project: r.project || '',
     part_number: (r.name || '').replace(/\s*[\(（].*$/, '').trim(),
     description: r.description || (r.name || '').replace(/\s*[\(（].*$/, '').trim(),
     quantity: r.quantity || 0,
     price: r.price || 0,
   }));
+
+  // ถ้าหน้าวางบิลส่งรายการที่แก้แล้วมา (เช่น หัก NG) -> รวมยอดต่อสินค้าจากรายการนั้นแทน
+  if (Array.isArray(body.lines_override) && body.lines_override.length) {
+    const g: Record<string, any> = {};
+    for (const l of body.lines_override) {
+      const key = `${l.project || ''}|${l.part_number || ''}|${l.price || 0}`;
+      if (!g[key]) g[key] = { project: l.project || '', part_number: l.part_number || '', description: l.description || l.part_number || '', quantity: 0, price: l.price || 0 };
+      g[key].quantity += Number(l.quantity) || 0;
+    }
+    lines = Object.values(g).filter((l: any) => l.quantity > 0);
+    lines.sort((a: any, b: any) => String(a.project).localeCompare(String(b.project)) || String(a.part_number).localeCompare(String(b.part_number)));
+  }
   // ค่าขนส่ง (ถ้ากำหนดใน settings)
   const transport = parseFloat(cfg.invoice_transport_fee || '0');
   if (transport > 0) lines.push({ project: '', part_number: '', description: 'Transportation fee', quantity: 1, price: transport });
