@@ -60,7 +60,7 @@ router.post('/', (req, res) => {
   const overdue = prepare(`SELECT COUNT(*) as cnt FROM issues WHERE member_id = ? AND status != 'closed' AND due_date < date('now')`).get(member_id) as any;
   if (overdue.cnt > 0) return res.status(400).json({ error: `สมาชิกมีงานค้างเกินกำหนด ${overdue.cnt} ใบ` });
 
-  const pending = prepare(`SELECT COALESCE(SUM(quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i.id),0)),0) as total FROM issues i WHERE member_id = ? AND status != 'closed'`).get(member_id) as any;
+  const pending = prepare(`SELECT COALESCE(SUM(quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0)),0) as total FROM issues i WHERE member_id = ? AND status != 'closed'`).get(member_id) as any;
   const maxUnits = parseFloat(settings.max_pending_units || '500');
   if ((pending.total || 0) + parseFloat(quantity) > maxUnits) {
     return res.status(400).json({ error: `เบิกเกินเพดาน (คงค้าง ${pending.total} + ขอเบิก ${quantity} > ${maxUnits} หน่วย)` });
@@ -80,7 +80,7 @@ router.put('/:id', (req, res) => {
   if (!issued_at || !member_id || !product_id || !quantity) return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
 
   // จำนวนที่คืนแล้ว — ห้ามแก้จำนวนเบิกให้น้อยกว่าที่คืนไปแล้ว
-  const ret = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty),0) as total FROM returns WHERE issue_id = ?`).get(req.params.id) as any;
+  const ret = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(req.params.id) as any;
   if (parseFloat(quantity) < (ret.total || 0)) {
     return res.status(400).json({ error: `แก้จำนวนเบิกได้ไม่ต่ำกว่าจำนวนที่คืนแล้ว (${ret.total} หน่วย)` });
   }

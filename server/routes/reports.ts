@@ -33,7 +33,7 @@ router.get('/dashboard', (_req, res) => {
     SELECT p.id, p.name, p.unit, p.code,
       COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id),0) as total_received,
       COALESCE((SELECT SUM(quantity) FROM issues WHERE product_id = p.id),0) as total_issued,
-      COALESCE((SELECT SUM(i2.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i2.id),0))
+      COALESCE((SELECT SUM(i2.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i2.id),0))
         FROM issues i2 WHERE i2.product_id = p.id AND i2.status != 'closed'),0) as with_members,
       COALESCE((SELECT SUM(si.good_qty+si.defect_qty) FROM shipment_items si WHERE si.product_id = p.id),0) as total_shipped
     FROM products p WHERE p.active = 1
@@ -76,7 +76,7 @@ router.get('/performance', (req, res) => {
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_good_month,
       COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_defect_month,
       COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_ngcut_all,
-      COALESCE((SELECT SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i.id),0))
+      COALESCE((SELECT SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0))
         FROM issues i WHERE i.product_id=p.id AND i.status!='closed'),0) as with_members
     FROM products p WHERE p.active=1
   `).all(mk, mk, mk, mk) as any[];
@@ -207,8 +207,8 @@ router.get('/outstanding', (_req, res) => {
     SELECT i.id, i.code, i.issued_at, i.due_date, i.quantity, i.status,
       m.code as member_code, m.name as member_name, m.phone,
       p.name as product_name, p.unit,
-      COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i.id),0) as returned_total,
-      i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i.id),0) as remaining
+      COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0) as returned_total,
+      i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0) as remaining
     FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE i.status != 'closed'
     ORDER BY i.due_date ASC
@@ -226,7 +226,7 @@ router.get('/payroll', (req, res) => {
     SELECT m.id as member_id, m.code as member_code, m.name as member_name,
       m.bank_name, m.bank_account, p.name as product_name, p.unit, p.wage_per_unit,
       COALESCE(SUM(r.good_qty),0) as good_qty, COALESCE(SUM(r.defect_qty),0) as defect_qty,
-      COALESCE(SUM((r.good_qty + r.ng_factory) * p.wage_per_unit) + SUM(r.ng_cut) * p.wage_per_unit * ?,0) as wage
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit) + SUM(r.ng_cut) * p.wage_per_unit * ?,0) as wage
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.returned_at >= ? AND r.returned_at <= ?
     GROUP BY m.id, p.id ORDER BY m.code, p.name
@@ -234,7 +234,7 @@ router.get('/payroll', (req, res) => {
 
   const summary = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname, m.bank_name, m.bank_account,
-      COALESCE(SUM((r.good_qty + r.ng_factory) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?),0) as total_wage
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?),0) as total_wage
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.returned_at >= ? AND r.returned_at <= ?
     GROUP BY m.id ORDER BY m.code
@@ -269,7 +269,7 @@ router.get('/stock-reconcile', (_req, res) => {
       COALESCE((SELECT SUM(si.good_qty+si.defect_qty) FROM shipment_items si WHERE si.product_id = p.id),0) as total_shipped,
       COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id),0)
         - COALESCE((SELECT SUM(quantity) FROM issues WHERE product_id = p.id),0) as in_stock,
-      COALESCE((SELECT SUM(i2.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i2.id),0))
+      COALESCE((SELECT SUM(i2.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i2.id),0))
         FROM issues i2 WHERE i2.product_id=p.id AND i2.status != 'closed'),0) as with_members
     FROM products p WHERE p.active = 1
   `).all());
@@ -682,7 +682,7 @@ router.get('/payroll-monthly', (req, res) => {
   const rawMembers = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
       m.bank_name, m.bank_account,
-      COALESCE(SUM((r.good_qty + r.ng_factory) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
       COALESCE(SUM(r.ng_cut), 0) as ng_cut_qty,
       COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
     FROM returns r
@@ -755,7 +755,7 @@ router.get('/payroll-cumulative', (req, res) => {
   const rows = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
       r.pay_cycle as month,
-      COALESCE(SUM((r.good_qty + r.ng_factory) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
       COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
     FROM returns r
     JOIN issues i ON r.issue_id = i.id

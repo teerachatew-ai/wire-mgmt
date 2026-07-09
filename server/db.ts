@@ -297,6 +297,10 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!returnCols.includes('ng_factory')) {
     db.exec(`ALTER TABLE returns ADD COLUMN ng_factory REAL NOT NULL DEFAULT 0`);
   }
+  // งานหาย: บันทึกไว้เป็น record (จ่ายค่าแรงปกติ ไม่หักเงิน) — นับรวมในยอดคืนเพื่อปิดใบเบิกได้
+  if (!returnCols.includes('lost_qty')) {
+    db.exec(`ALTER TABLE returns ADD COLUMN lost_qty REAL NOT NULL DEFAULT 0`);
+  }
   save();
 
   // Backfill pay_cycle for existing returns (compute from returned_at)

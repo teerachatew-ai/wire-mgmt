@@ -35,6 +35,7 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
       ng_cut: ret.ng_cut ?? ret.defect_qty ?? 0,
       ng_factory: ret.ng_factory ?? 0,
       waste_qty: ret.waste_qty,
+      lost_qty: ret.lost_qty ?? 0,
       inspector: ret.inspector || '',
       notes: ret.notes || '',
     }
@@ -79,6 +80,10 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
           <div>
             <label className="label text-amber-600">งานเสีย — จากโรงงาน (จ่ายปกติ)</label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
+          </div>
+          <div>
+            <label className="label text-violet-600">หาย (จ่ายปกติ · บันทึกไว้)</label>
+            <input type="number" step="0.01" min="0" className="input" {...register('lost_qty')} />
           </div>
         </div>
         <div>
@@ -202,16 +207,16 @@ export default function Returns() {
   const remainOf = (i: any) => i.quantity - (i.returned_good + i.returned_defect + i.returned_waste);
   // ค่าเริ่มต้น = คืนครบ ไม่มีงานเสีย (งานดี = คงเหลือ) — hasDefect=false จะซ่อนช่องกรอกตัวเลข
   // เลือกใบเบิกแล้ว "คงคำค้นหาไว้" เพื่อเลือกใบถัดไปของคนเดียวกันได้เลย ไม่ต้องพิมพ์ใหม่
-  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, hasDefect: false }]); };
+  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }]); };
   const removeIssue = (id: number) => setLines(l => l.filter(x => x.issue.id !== id));
   const updateLine = (id: number, field: string, val: any) =>
     setLines(l => l.map(x => x.issue.id === id ? { ...x, [field]: val } : x));
   // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ=0)
   const toggleDefect = (i: any, on: boolean) =>
     setLines(l => l.map(x => x.issue.id === i.id
-      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0 })
+      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0 })
       : x));
-  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0);
+  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
 
   const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); setIssueDayFilter(''); reset(); };
 
@@ -223,7 +228,7 @@ export default function Returns() {
       for (const l of lines) {
         const res = await returnApi.create({
           issue_id: l.issue.id, returned_at: shared.returned_at,
-          good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0,
+          good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0,
           inspector: shared.inspector, notes: shared.notes,
         });
         if (res.defect_warning) warnings.push(`${l.issue.code}: ${res.defect_warning}`);
@@ -273,12 +278,13 @@ export default function Returns() {
               <th className="px-4 py-3 font-medium text-right text-rose-500">เสีย-ตัด</th>
               <th className="px-4 py-3 font-medium text-right text-amber-600">เสีย-โรงงาน</th>
               <th className="px-4 py-3 font-medium text-right">เศษ</th>
+              <th className="px-4 py-3 font-medium text-right text-violet-500">หาย</th>
               <th className="px-4 py-3 font-medium">ผู้ตรวจ</th>
               <th className="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={11} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={12} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {(returns_ as any[]).map((r: any) => (
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
@@ -290,6 +296,7 @@ export default function Returns() {
                 <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
                 <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
                 <td className="px-4 py-3 text-right text-gray-500">{r.waste_qty}</td>
+                <td className="px-4 py-3 text-right text-violet-600">{r.lost_qty > 0 ? r.lost_qty : '-'}</td>
                 <td className="px-4 py-3 text-gray-500 text-xs">{r.inspector || '-'}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -299,7 +306,7 @@ export default function Returns() {
                 </td>
               </tr>
             ))}
-            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={11} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={12} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>
@@ -418,6 +425,10 @@ export default function Returns() {
                           <div>
                             <label className="text-xs text-amber-600">เสีย — จากโรงงาน (จ่ายปกติ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-violet-600">หาย (จ่ายปกติ · บันทึกไว้)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.lost_qty} onChange={e => updateLine(l.issue.id, 'lost_qty', e.target.value)} />
                           </div>
                         </div>
                         <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
