@@ -4,8 +4,98 @@ import { reportApi } from '../api';
 import {
   DollarSign, Download, Users, TrendingUp,
   ChevronDown, ChevronUp, Loader2,
-  Wallet, Building2, FileText, RotateCcw, Save
+  Wallet, Building2, FileText, RotateCcw, Save, X, Eye
 } from 'lucide-react';
+
+const fmtQty = (n: number) => Number(n || 0).toLocaleString();
+
+// รายละเอียดรายคน: เบิกงานวันไหน ประเภทไหน กี่เส้น (เดือนที่เลือก)
+function MemberBreakdown({ member, month, onClose }: { member: any; month: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['member-history', member.member_id],
+    queryFn: () => reportApi.memberHistory(member.member_id),
+  });
+  const issues = ((data?.issues || []) as any[]).filter(i => String(i.issued_at || '').startsWith(month));
+  // สรุปรวมต่อประเภทสินค้า
+  const byProduct = Object.values(issues.reduce((a: any, i: any) => {
+    const k = i.product_name;
+    (a[k] ??= { name: k, qty: 0, good: 0, defect: 0 });
+    a[k].qty += Number(i.quantity) || 0;
+    a[k].good += Number(i.good_qty) || 0;
+    a[k].defect += Number(i.defect_qty) || 0;
+    return a;
+  }, {})) as any[];
+  const totQty = issues.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
+  const totGood = issues.reduce((s, i) => s + (Number(i.good_qty) || 0), 0);
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+          <div>
+            <h3 className="font-semibold text-gray-800">{member.member_name}{member.member_nickname && <span className="text-gray-400 font-normal"> ({member.member_nickname})</span>}</h3>
+            <p className="text-xs text-gray-500 mt-0.5">รายละเอียดการรับงาน — เดือน {month}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {isLoading ? (
+            <div className="py-10 text-center text-gray-400"><Loader2 size={22} className="animate-spin mx-auto" /></div>
+          ) : issues.length === 0 ? (
+            <div className="py-10 text-center text-gray-400">ไม่มีการเบิกงานในเดือนนี้</div>
+          ) : (
+            <>
+              {/* สรุปต่อประเภท */}
+              <div className="flex flex-wrap gap-2">
+                {byProduct.map((p: any) => (
+                  <span key={p.name} className="bg-blue-50 border border-blue-100 text-blue-800 text-xs px-3 py-1.5 rounded-lg">
+                    {p.name}: รับ <b>{fmtQty(p.qty)}</b> · คืนดี <b className="text-green-700">{fmtQty(p.good)}</b>
+                  </span>
+                ))}
+              </div>
+              {/* รายการเบิกแต่ละวัน */}
+              <table className="w-full text-sm">
+                <thead className="border-b text-xs text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">วันที่เบิก</th>
+                    <th className="px-3 py-2 text-left font-medium">ใบเบิก</th>
+                    <th className="px-3 py-2 text-left font-medium">ประเภทงาน</th>
+                    <th className="px-3 py-2 text-right font-medium text-blue-600">รับไป (เส้น)</th>
+                    <th className="px-3 py-2 text-right font-medium text-green-600">คืนดี</th>
+                    <th className="px-3 py-2 text-right font-medium text-rose-500">เสีย</th>
+                    <th className="px-3 py-2 text-right font-medium text-amber-600">ค้างคืน</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {issues.map((i: any) => {
+                    const rem = (Number(i.quantity) || 0) - (Number(i.good_qty) || 0) - (Number(i.defect_qty) || 0) - (Number(i.waste_qty) || 0);
+                    return (
+                      <tr key={i.id} className="border-b border-gray-50">
+                        <td className="px-3 py-2 text-gray-700">{String(i.issued_at || '').slice(0, 10)}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-blue-600">{i.code}</td>
+                        <td className="px-3 py-2 text-gray-700">{i.product_name}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-blue-700">{fmtQty(i.quantity)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-green-600">{fmtQty(i.good_qty)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-rose-500">{i.defect_qty > 0 ? fmtQty(i.defect_qty) : '-'}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-amber-600">{rem > 0 ? fmtQty(rem) : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-gray-50 font-semibold">
+                    <td colSpan={3} className="px-3 py-2 text-gray-700">รวม ({issues.length} ครั้ง)</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-blue-800">{fmtQty(totQty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-green-700">{fmtQty(totGood)}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ช่องกรอกค่าตอบแทนผู้บริหารรายเดือน (กำหนดเอง / ใช้อัตโนมัติ)
 function MgrCompInput({ mg, month, onSaved }: { mg: any; month: string; onSaved: () => void }) {
@@ -151,6 +241,7 @@ function MonthlyTab() {
   const [fetching, setFetching] = useState(false);
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
+  const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
 
   const load = async () => {
     setFetching(true);
@@ -282,11 +373,14 @@ function MonthlyTab() {
                   <tr><td colSpan={7} className="py-8 text-center text-gray-400">ไม่พบสมาชิกที่ค้นหา</td></tr>
                 )}
                 {data.members.filter(matchMember).map((m: any) => (
-                  <tr key={m.member_id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <tr key={m.member_id} className="border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer" onClick={() => setViewMember(m)} title="คลิกดูรายละเอียดการรับงานของเดือนนี้">
                     <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{m.member_code}</td>
                     <td className="px-4 py-3 font-medium text-gray-800">
-                      {m.member_name}
-                      {m.member_nickname && <span className="ml-1.5 text-xs text-gray-400">({m.member_nickname})</span>}
+                      <span className="inline-flex items-center gap-1.5">
+                        {m.member_name}
+                        {m.member_nickname && <span className="text-xs text-gray-400">({m.member_nickname})</span>}
+                        <Eye size={13} className="text-gray-300" />
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{m.bank_name || '-'}{m.bank_account ? ` / ${m.bank_account}` : ''}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-400">{m.ng_cut_qty > 0 ? m.ng_cut_qty.toLocaleString() : '-'}</td>
@@ -314,6 +408,7 @@ function MonthlyTab() {
           </div>
         </>
       )}
+      {viewMember && <MemberBreakdown member={viewMember} month={month} onClose={() => setViewMember(null)} />}
     </div>
   );
 }

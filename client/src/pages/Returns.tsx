@@ -139,6 +139,7 @@ export default function Returns() {
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [searchIssue, setSearchIssue] = useState('');
+  const [issueDayFilter, setIssueDayFilter] = useState('');   // filter ตามวันที่เบิก
   const [lines, setLines] = useState<any[]>([]); // { issue, good_qty, ng_cut, ng_factory, waste_qty }
   const [saving, setSaving] = useState(false);
   const [editingReturn, setEditingReturn] = useState<any>(null);
@@ -173,7 +174,17 @@ export default function Returns() {
           || (i.member_nickname ?? '').toLowerCase().includes(q);
       })
     : allOpenIssues
-  ).filter((i: any) => !lines.some(l => l.issue.id === i.id)); // ซ่อนใบที่เลือกแล้ว
+  )
+    .filter((i: any) => !issueDayFilter || String(i.issued_at || '').slice(0, 10) === issueDayFilter)  // filter วันที่เบิก
+    .filter((i: any) => !lines.some(l => l.issue.id === i.id))  // ซ่อนใบที่เลือกแล้ว
+    .sort((a: any, b: any) => String(b.issued_at || '').localeCompare(String(a.issued_at || '')));     // ใบเบิกล่าสุดขึ้นก่อน
+
+  // วันที่เบิกที่มีใบค้างอยู่ (ให้เลือกใน dropdown พร้อมจำนวนใบ)
+  const issueDays = Object.entries(allOpenIssues.reduce((a: any, i: any) => {
+    const d = String(i.issued_at || '').slice(0, 10);
+    if (d) a[d] = (a[d] || 0) + 1;
+    return a;
+  }, {})).sort((x, y) => y[0].localeCompare(x[0])) as [string, number][];
 
   const { register, handleSubmit, reset } = useForm<any>({
     defaultValues: { returned_at: new Date().toISOString().split('T')[0] }
@@ -192,7 +203,7 @@ export default function Returns() {
       : x));
   const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0);
 
-  const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); reset(); };
+  const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); setIssueDayFilter(''); reset(); };
 
   const submit = handleSubmit(async (shared: any) => {
     if (lines.length === 0) { setError('กรุณาเลือกใบเบิกอย่างน้อย 1 ใบ'); return; }
@@ -304,11 +315,24 @@ export default function Returns() {
                 <input type="date" className="input" {...register('returned_at', { required: true })} />
               </div>
 
-              {/* Add outstanding issues — search + list */}
+              {/* Add outstanding issues — search + date filter + list */}
               <div>
                 <label className="label">เพิ่มใบเบิกที่จะรับคืน ({filtered.length} ใบที่เลือกได้)</label>
-                <input className="input" placeholder="🔍 ค้นหา เลขที่ / ชื่อ-สกุล / ชื่อเล่น"
-                  value={searchIssue} onChange={e => setSearchIssue(e.target.value)} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input className="input" placeholder="🔍 ค้นหา เลขที่ / ชื่อ-สกุล / ชื่อเล่น"
+                    value={searchIssue} onChange={e => setSearchIssue(e.target.value)} />
+                  <select className={`input ${issueDayFilter ? '!border-blue-400 !bg-blue-50' : ''}`}
+                    value={issueDayFilter} onChange={e => setIssueDayFilter(e.target.value)}>
+                    <option value="">📅 วันที่เบิก — ทุกวัน</option>
+                    {issueDays.map(([d, n]) => <option key={d} value={d}>เบิกเมื่อ {fmtDate(d)} ({n} ใบ)</option>)}
+                  </select>
+                </div>
+                {issueDayFilter && (
+                  <p className="text-xs text-blue-600 mt-1 flex items-center gap-2">
+                    แสดงเฉพาะใบเบิกวันที่ {fmtDate(issueDayFilter)}
+                    <button type="button" className="underline text-gray-500 hover:text-gray-700" onClick={() => setIssueDayFilter('')}>ล้าง</button>
+                  </p>
+                )}
                 <div className="border rounded-lg mt-1 max-h-44 overflow-y-auto">
                   {filtered.length === 0 && (
                     <div className="px-3 py-5 text-center text-gray-400 text-sm">
