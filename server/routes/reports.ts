@@ -70,6 +70,8 @@ router.get('/performance', (req, res) => {
     SELECT p.id, p.code, p.name, p.unit, p.factory_price, p.wage_per_unit,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as shipped_good_all,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as shipped_good_month,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as recv_good_all,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as recv_good_month,
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_good_all,
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_good_month,
       COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_defect_month,
@@ -77,11 +79,12 @@ router.get('/performance', (req, res) => {
       COALESCE((SELECT SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty) FROM returns WHERE issue_id=i.id),0))
         FROM issues i WHERE i.product_id=p.id AND i.status!='closed'),0) as with_members
     FROM products p WHERE p.active=1
-  `).all(mk, mk, mk) as any[];
+  `).all(mk, mk, mk, mk) as any[];
 
   const rows = products.map((p: any) => {
-    const revenue_all   = p.shipped_good_all * p.factory_price;
-    const revenue_month = p.shipped_good_month * p.factory_price;
+    // รายรับคิดจาก "ยอดที่โรงงานรับจริง" (ถ้ายืนยันแล้ว) ให้ตรงกับใบแจ้งหนี้/ใบวางบิล
+    const revenue_all   = p.recv_good_all * p.factory_price;
+    const revenue_month = p.recv_good_month * p.factory_price;
     // ค่าจ้างตัดในภาพรวม คิดจาก "งานที่ส่งออก" (shipped × ค่าจ้าง/หน่วย) — เห็นกำไรขั้นต้นได้แม้ยังไม่บันทึกเบิก/รับคืน
     const wage_all      = p.shipped_good_all * p.wage_per_unit;
     const wage_month    = p.shipped_good_month * p.wage_per_unit;
@@ -142,7 +145,7 @@ router.get('/performance', (req, res) => {
   const finalNetAll = revAllVal - taxAll - wageAllVal - managerCompAll - expensesAll;
 
   // 6-month trend: revenue vs wage
-  const revByMonth  = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(si.good_qty*p.factory_price),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
+  const revByMonth  = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(COALESCE(si.received_qty, si.good_qty)*p.factory_price),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
   // ค่าตัดในกราฟ ใช้ฐานเดียวกับการ์ด = งานที่ส่งออก × ค่าจ้าง/หน่วย (ตามเดือนที่ส่งออก)
   const wageByMonth = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(si.good_qty*p.wage_per_unit),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
   const revMap  = Object.fromEntries(revByMonth.map(r => [r.month, r.v]));
