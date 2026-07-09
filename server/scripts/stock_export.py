@@ -28,9 +28,10 @@ ws.sheet_view.showGridLines = False
 if month:
     y, mm = month.split("-")
     subtitle = f"เดือน {TH_MONTH[int(mm)]} {int(y)+543} (แสดงเฉพาะยอดเคลื่อนไหวในเดือน)"
-    cols = [("สินค้า", "name", "text"), ("ยกมา", "carry_ready", "n"), ("รับเข้า", "received", "n"),
-            ("เบิกออก", "total_issued", "n"), ("คืนดี", "ret_good", "n"), ("คืนเสีย", "ret_defect", "n"),
-            ("เศษ", "ret_waste", "n"), ("ส่งออก", "shipped", "n"), ("ยกไป", "closing_ready", "n")]
+    cols = [("สินค้า", "name", "text"), ("ยกมาจากเดือนก่อนหน้า", "carry_ready", "n"), ("รับเข้า", "received", "n"),
+            ("เบิกออก", "total_issued", "n"), ("งานรอแจกจ่าย", "wait_distribute", "n"), ("งานดี", "ret_good", "n"),
+            ("NG จากการตัด", "ret_ngcut", "n"), ("NG จากโรงงาน", "ret_ngfac", "n"),
+            ("ยอดส่งโรงงาน", "shipped", "n"), ("ยอดยกไปเดือนถัดไป", "closing_ready", "n")]
 else:
     subtitle = "ยอดสะสมทั้งหมด"
     cols = [("สินค้า", "name", "text"), ("รับเข้า (สะสม)", "received", "n"), ("เบิกออก", "total_issued", "n"),

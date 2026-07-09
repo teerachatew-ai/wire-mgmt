@@ -120,14 +120,14 @@ function CheckBalance() {
         {filterBar}
         {recvDiffNote}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <FlowCard label="ยกมา (คงค้างในระบบ)" value={sum('carry_ready')} color="purple" icon={Package} sub="คลัง+กับสมาชิก+พร้อมส่ง" unit="" />
+          <FlowCard label="ยกมาจากเดือนก่อนหน้า" value={sum('carry_ready')} color="purple" icon={Package} sub="คลัง+กับสมาชิก+พร้อมส่ง" unit="" />
           <FlowCard label="รับเข้าเดือนนี้" value={totalRecv} color="blue" icon={ArrowDownToLine} sub="จากโรงงาน" unit="" />
           <FlowCard label="เบิกออกให้สมาชิก" value={totalIss} color="amber" icon={ArrowUpFromLine} sub="ในเดือนนี้" unit="" />
-          <FlowCard label="คืนงานดี" value={totalGood} color="green" icon={Package} sub="ในเดือนนี้" unit="" />
-          <FlowCard label="คืนงานเสีย" value={totalDefect} color="red" icon={AlertTriangle} sub="ในเดือนนี้" unit="" />
-          <FlowCard label="เศษคืน" value={totalWaste} color="gray" icon={Trash2} sub="ในเดือนนี้" unit="" />
-          <FlowCard label="ส่งออกโรงงาน" value={totalShip} color="amber" icon={Truck} sub="ในเดือนนี้" unit="" />
-          <FlowCard label="ยกไปเดือนหน้า (คงค้างในระบบ)" value={sum('closing_ready')} color="green" icon={Package} sub="รับเข้า−ส่งออก−เสีย สะสม" unit="" />
+          <FlowCard label="งานดี" value={totalGood} color="green" icon={Package} sub="คืนในเดือนนี้" unit="" />
+          <FlowCard label="NG จากการตัด" value={sum('ret_ngcut')} color="red" icon={AlertTriangle} sub="ในเดือนนี้" unit="" />
+          <FlowCard label="NG จากโรงงาน" value={sum('ret_ngfac')} color="amber" icon={AlertTriangle} sub="ในเดือนนี้" unit="" />
+          <FlowCard label="ยอดส่งโรงงาน" value={totalShip} color="amber" icon={Truck} sub="ในเดือนนี้" unit="" />
+          <FlowCard label="ยอดยกไปเดือนถัดไป" value={sum('closing_ready')} color="green" icon={Package} sub="ยกมา+รับเข้า−ส่งออก" unit="" />
         </div>
         <div className="card p-0 overflow-x-auto">
           <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
@@ -138,14 +138,15 @@ function CheckBalance() {
             <thead className="border-b bg-gray-50 text-xs text-gray-500">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">สินค้า</th>
-                <th className="px-3 py-3 text-right font-medium text-purple-500">ยกมา</th>
+                <th className="px-3 py-3 text-right font-medium text-purple-500 whitespace-normal leading-tight">ยกมาจาก<br />เดือนก่อนหน้า</th>
                 <th className="px-3 py-3 text-right font-medium text-blue-600">รับเข้า</th>
                 <th className="px-3 py-3 text-right font-medium text-amber-600">เบิกออก</th>
-                <th className="px-3 py-3 text-right font-medium text-green-600">คืนดี</th>
-                <th className="px-3 py-3 text-right font-medium text-orange-500">คืนเสีย</th>
-                <th className="px-3 py-3 text-right font-medium text-red-500">เศษ</th>
-                <th className="px-3 py-3 text-right font-medium text-amber-700">ส่งออก</th>
-                <th className="px-3 py-3 text-right font-medium text-green-700">ยกไป</th>
+                <th className="px-3 py-3 text-right font-medium text-cyan-600 whitespace-normal leading-tight">งานรอ<br />แจกจ่าย</th>
+                <th className="px-3 py-3 text-right font-medium text-green-600">งานดี</th>
+                <th className="px-3 py-3 text-right font-medium text-rose-500 whitespace-normal leading-tight">NG<br />จากการตัด</th>
+                <th className="px-3 py-3 text-right font-medium text-orange-500 whitespace-normal leading-tight">NG<br />จากโรงงาน</th>
+                <th className="px-3 py-3 text-right font-medium text-amber-700 whitespace-normal leading-tight">ยอดส่ง<br />โรงงาน</th>
+                <th className="px-3 py-3 text-right font-medium text-green-700 whitespace-normal leading-tight">ยอดยกไป<br />เดือนถัดไป</th>
               </tr>
             </thead>
             <tbody>
@@ -161,9 +162,10 @@ function CheckBalance() {
                   <td className="px-3 py-3 text-right text-purple-500">{fmt(p.carry_ready)}</td>
                   <td className="px-3 py-3 text-right font-semibold text-blue-700">{fmt(p.received)}</td>
                   <td className="px-3 py-3 text-right text-amber-600">{fmt(p.total_issued)}</td>
+                  <td className="px-3 py-3 text-right text-cyan-700">{fmt(p.wait_distribute)}</td>
                   <td className="px-3 py-3 text-right text-green-600">{fmt(p.ret_good)}</td>
-                  <td className="px-3 py-3 text-right text-orange-500">{fmt(p.ret_defect)}</td>
-                  <td className="px-3 py-3 text-right text-red-500">{fmt(p.ret_waste)}</td>
+                  <td className="px-3 py-3 text-right text-rose-500">{fmt(p.ret_ngcut)}</td>
+                  <td className="px-3 py-3 text-right text-orange-500">{fmt(p.ret_ngfac)}</td>
                   <td className="px-3 py-3 text-right text-amber-700">{fmt(p.shipped)}</td>
                   <td className="px-3 py-3 text-right font-bold text-green-700">{fmt(p.closing_ready)}</td>
                 </tr>
@@ -173,9 +175,10 @@ function CheckBalance() {
                 <td className="px-3 py-3 text-right text-purple-600">{fmt(sum('carry_ready'))}</td>
                 <td className="px-3 py-3 text-right text-blue-700">{fmt(totalRecv)}</td>
                 <td className="px-3 py-3 text-right text-amber-700">{fmt(totalIss)}</td>
+                <td className="px-3 py-3 text-right text-cyan-800">{fmt(sum('wait_distribute'))}</td>
                 <td className="px-3 py-3 text-right text-green-700">{fmt(totalGood)}</td>
-                <td className="px-3 py-3 text-right text-orange-600">{fmt(totalDefect)}</td>
-                <td className="px-3 py-3 text-right text-red-600">{fmt(totalWaste)}</td>
+                <td className="px-3 py-3 text-right text-rose-600">{fmt(sum('ret_ngcut'))}</td>
+                <td className="px-3 py-3 text-right text-orange-600">{fmt(sum('ret_ngfac'))}</td>
                 <td className="px-3 py-3 text-right text-amber-800">{fmt(totalShip)}</td>
                 <td className="px-3 py-3 text-right text-green-800">{fmt(sum('closing_ready'))}</td>
               </tr>
