@@ -201,7 +201,8 @@ export default function Returns() {
 
   const remainOf = (i: any) => i.quantity - (i.returned_good + i.returned_defect + i.returned_waste);
   // ค่าเริ่มต้น = คืนครบ ไม่มีงานเสีย (งานดี = คงเหลือ) — hasDefect=false จะซ่อนช่องกรอกตัวเลข
-  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, hasDefect: false }]); setSearchIssue(''); };
+  // เลือกใบเบิกแล้ว "คงคำค้นหาไว้" เพื่อเลือกใบถัดไปของคนเดียวกันได้เลย ไม่ต้องพิมพ์ใหม่
+  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, hasDefect: false }]); };
   const removeIssue = (id: number) => setLines(l => l.filter(x => x.issue.id !== id));
   const updateLine = (id: number, field: string, val: any) =>
     setLines(l => l.map(x => x.issue.id === id ? { ...x, [field]: val } : x));
@@ -337,10 +338,10 @@ export default function Returns() {
                     {issueDays.map(([d, n]) => <option key={d} value={d}>เบิกเมื่อ {fmtDate(d)} ({n} ใบ)</option>)}
                   </select>
                 </div>
-                {issueDayFilter && (
-                  <p className="text-xs text-blue-600 mt-1 flex items-center gap-2">
-                    แสดงเฉพาะใบเบิกวันที่ {fmtDate(issueDayFilter)}
-                    <button type="button" className="underline text-gray-500 hover:text-gray-700" onClick={() => setIssueDayFilter('')}>ล้าง</button>
+                {(issueDayFilter || searchIssue) && (
+                  <p className="text-xs text-blue-600 mt-1 flex items-center gap-2 flex-wrap">
+                    {searchIssue && <>ค้นหา "{searchIssue}" <button type="button" className="underline text-gray-500 hover:text-gray-700" onClick={() => setSearchIssue('')}>ล้างคำค้นหา</button></>}
+                    {issueDayFilter && <>เฉพาะวันที่เบิก {fmtDate(issueDayFilter)} <button type="button" className="underline text-gray-500 hover:text-gray-700" onClick={() => setIssueDayFilter('')}>ล้างวันที่</button></>}
                   </p>
                 )}
                 <div className="border rounded-lg mt-1 max-h-44 overflow-y-auto">
@@ -358,7 +359,7 @@ export default function Returns() {
                         <span className="min-w-0">
                           <span className="font-mono text-blue-600 text-xs">{i.code}</span>{' '}
                           <span className="font-medium">{i.member_name}</span>
-                          {i.member_nickname && <span className="text-gray-400">{' '}({i.member_nickname})</span>}
+                          {i.member_nickname && i.member_nickname !== i.member_name && <span className="text-gray-400">{' '}({i.member_nickname})</span>}
                           <span className="text-gray-500 block text-xs inline-flex items-center gap-1">{i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</span>
                           {i.issued_at && <span className="text-gray-400 block text-[11px]">📅 เบิกเมื่อ {fmtDate(i.issued_at)}</span>}
                         </span>
