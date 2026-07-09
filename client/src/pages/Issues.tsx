@@ -397,6 +397,7 @@ export default function Issues() {
   const [deleting, setDeleting] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [dayFilter, setDayFilter] = useState('');
+  const [search, setSearch] = useState('');
 
   const { data: issues = [], isLoading } = useQuery({
     queryKey: ['issues', statusFilter, dayFilter],
@@ -417,7 +418,15 @@ export default function Issues() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
-  const summary = Object.values((issues as any[]).reduce((a: any, i: any) => {
+  // ค้นหา: เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
+  const q = search.trim().toLowerCase();
+  const visibleIssues = (issues as any[]).filter((i: any) => !q
+    || String(i.code || '').toLowerCase().includes(q)
+    || String(i.member_name || '').toLowerCase().includes(q)
+    || String(i.member_nickname || '').toLowerCase().includes(q)
+    || String(i.product_name || '').toLowerCase().includes(q));
+
+  const summary = Object.values(visibleIssues.reduce((a: any, i: any) => {
     const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, qty: 0 }).qty += Number(i.quantity) || 0; return a;
   }, {})) as any[];
 
@@ -429,6 +438,7 @@ export default function Issues() {
           <h1 className="text-xl font-bold text-gray-800">ใบเบิกงาน</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <input className="input w-52 text-sm" placeholder="🔍 เลขใบเบิก / ชื่อ / ชื่อเล่น" value={search} onChange={e => setSearch(e.target.value)} />
           <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่" />
           {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           <select className="input w-36 text-sm" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
@@ -451,7 +461,7 @@ export default function Issues() {
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
         {isLoading && <div className="text-center text-gray-400 py-8">กำลังโหลด...</div>}
-        {(issues as any[]).map((i: any) => {
+        {visibleIssues.map((i: any) => {
           const returned = i.returned_good + i.returned_defect + i.returned_waste;
           const remaining = i.quantity - returned;
           const overdue = i.status !== 'closed' && i.due_date && i.due_date < new Date().toISOString().split('T')[0];
@@ -460,7 +470,7 @@ export default function Issues() {
               <div className="flex items-start justify-between">
                 <div>
                   <span className="font-mono text-xs text-blue-600 font-bold">{i.code}</span>
-                  <p className="font-semibold text-gray-800 mt-0.5">{i.member_name}</p>
+                  <p className="font-semibold text-gray-800 mt-0.5">{i.member_name}{i.member_nickname && <span className="text-xs text-gray-400 font-normal"> ({i.member_nickname})</span>}</p>
                   <p className="text-sm text-gray-500 inline-flex items-center gap-1.5">{i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</p>
                 </div>
                 <span className={statusClass[i.status]}>{statusLabel[i.status]}</span>
@@ -503,7 +513,8 @@ export default function Issues() {
           </thead>
           <tbody>
             {isLoading && <tr><td colSpan={9} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
-            {(issues as any[]).map((i: any) => {
+            {!isLoading && visibleIssues.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-gray-400">{q ? 'ไม่พบที่ค้นหา' : 'ยังไม่มีรายการ'}</td></tr>}
+            {visibleIssues.map((i: any) => {
               const returned = i.returned_good + i.returned_defect + i.returned_waste;
               const remaining = i.quantity - returned;
               const overdue = i.status !== 'closed' && i.due_date && i.due_date < new Date().toISOString().split('T')[0];
@@ -518,6 +529,7 @@ export default function Issues() {
                   <td className="px-4 py-3">
                     <span className="font-mono text-xs text-gray-500">{i.member_code}</span>{' '}
                     <span className="font-medium text-gray-800">{i.member_name}</span>
+                    {i.member_nickname && <span className="text-xs text-gray-400"> ({i.member_nickname})</span>}
                   </td>
                   <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{i.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}{i.product_name}</span></td>
                   <td className="px-4 py-3 text-right font-medium">{i.quantity} {i.unit}</td>

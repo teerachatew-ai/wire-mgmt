@@ -620,10 +620,17 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
   const [dayFilter, setDayFilter] = useState('');
   const readyProducts = products.filter(p => (p.available ?? 0) > 0);
 
-  const { data: shipments = [], isLoading } = useQuery({
+  const [shipSearch, setShipSearch] = useState('');
+  const { data: shipmentsRaw = [], isLoading } = useQuery({
     queryKey: ['shipments', dayFilter],
     queryFn: () => shipmentApi.list(dayFilter ? { date: dayFilter } : {}),
   });
+  // ค้นหา: เลขที่ใบส่ง / สินค้า / หมายเหตุ
+  const sq = shipSearch.trim().toLowerCase();
+  const shipments = (shipmentsRaw as any[]).filter((sh: any) => !sq
+    || String(sh.code || '').toLowerCase().includes(sq)
+    || String(sh.notes || '').toLowerCase().includes(sq)
+    || (sh.items || []).some((it: any) => String(it.product_name || '').toLowerCase().includes(sq)));
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => shipmentApi.delete(id),
@@ -689,7 +696,8 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
           <h3 className="font-semibold text-gray-700 text-sm flex items-center gap-2">
             <Truck size={15} className="text-gray-500" /> ประวัติการส่งออก
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <input className="input w-48 text-sm" placeholder="🔍 เลขที่ใบส่ง / สินค้า" value={shipSearch} onChange={e => setShipSearch(e.target.value)} />
             <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่ส่ง" />
             {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           </div>

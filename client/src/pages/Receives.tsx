@@ -79,7 +79,14 @@ export default function Receives() {
   const [error, setError] = useState('');
 
   const [dayFilter, setDayFilter] = useState('');
-  const { data: receives = [], isLoading } = useQuery({ queryKey: ['receives', dayFilter], queryFn: () => receiveApi.list({ date: dayFilter || undefined }) });
+  const [search, setSearch] = useState('');
+  const { data: receivesRaw = [], isLoading } = useQuery({ queryKey: ['receives', dayFilter], queryFn: () => receiveApi.list({ date: dayFilter || undefined }) });
+  // ค้นหา: เลขที่ใบรับ / เลขอ้างอิงโรงงาน / สินค้า
+  const rq = search.trim().toLowerCase();
+  const receives = (receivesRaw as any[]).filter((r: any) => !rq
+    || String(r.code || '').toLowerCase().includes(rq)
+    || String(r.factory_ref || '').toLowerCase().includes(rq)
+    || String(r.product_name || '').toLowerCase().includes(rq));
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
 
   const { register, handleSubmit, reset, setValue } = useForm<any>({
@@ -158,6 +165,7 @@ export default function Receives() {
           <h1 className="text-xl font-bold text-gray-800">รับของจากโรงงาน</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <input className="input w-52 text-sm" placeholder="🔍 เลขใบรับ / Ref / สินค้า" value={search} onChange={e => setSearch(e.target.value)} />
           <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่รับ" />
           {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setShowModal(true)}>

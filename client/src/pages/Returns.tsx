@@ -154,7 +154,16 @@ export default function Returns() {
   };
 
   const [dayFilter, setDayFilter] = useState('');
-  const { data: returns_ = [], isLoading } = useQuery({ queryKey: ['returns', dayFilter], queryFn: () => returnApi.list({ date: dayFilter || undefined }) });
+  const [search, setSearch] = useState('');
+  const { data: returnsRaw = [], isLoading } = useQuery({ queryKey: ['returns', dayFilter], queryFn: () => returnApi.list({ date: dayFilter || undefined }) });
+  // ค้นหา: เลขที่คืน / เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
+  const rq = search.trim().toLowerCase();
+  const returns_ = (returnsRaw as any[]).filter((r: any) => !rq
+    || String(r.code || '').toLowerCase().includes(rq)
+    || String(r.issue_code || '').toLowerCase().includes(rq)
+    || String(r.member_name || '').toLowerCase().includes(rq)
+    || String(r.member_nickname || '').toLowerCase().includes(rq)
+    || String(r.product_name || '').toLowerCase().includes(rq));
   const { data: openIssues = [] } = useQuery({
     queryKey: ['issues-open'],
     queryFn: () => issueApi.list({ status: 'pending' })
@@ -234,6 +243,7 @@ export default function Returns() {
           <h1 className="text-xl font-bold text-gray-800">รับคืนงาน</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <input className="input w-52 text-sm" placeholder="🔍 เลขที่คืน/ใบเบิก/ชื่อ/ชื่อเล่น" value={search} onChange={e => setSearch(e.target.value)} />
           <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่คืน" />
           {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
@@ -272,7 +282,7 @@ export default function Returns() {
                 <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
                 <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
-                <td className="px-4 py-3 text-gray-800">{r.member_name}</td>
+                <td className="px-4 py-3 text-gray-800">{r.member_name}{r.member_nickname && <span className="text-xs text-gray-400"> ({r.member_nickname})</span>}</td>
                 <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
                 <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
                 <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
