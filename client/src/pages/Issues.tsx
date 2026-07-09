@@ -429,6 +429,8 @@ export default function Issues() {
   const summary = Object.values(visibleIssues.reduce((a: any, i: any) => {
     const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, qty: 0 }).qty += Number(i.quantity) || 0; return a;
   }, {})) as any[];
+  // จำนวนสมาชิกที่มาเบิก (คนเดียวเบิกหลายชนิด/หลายใบ นับ 1)
+  const memberCount = new Set(visibleIssues.map((i: any) => i.member_id ?? i.member_code ?? i.member_name)).size;
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -456,7 +458,7 @@ export default function Issues() {
         </div>
       </div>
 
-      <DaySummary groups={summary} note={dayFilter || 'ทั้งหมด'} unitLabel="เบิก" />
+      <DaySummary groups={summary} note={dayFilter || 'ทั้งหมด'} unitLabel="เบิก" memberCount={memberCount} />
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">

@@ -257,7 +257,8 @@ export default function Returns() {
         groups={Object.values((returns_ as any[]).reduce((a: any, r: any) => {
           const k = r.product_name; (a[k] ??= { name: k, qty: 0 }).qty += Number(r.good_qty) || 0; return a;
         }, {})) as any[]}
-        note={dayFilter || 'ทั้งหมด'} unitLabel="งานดีคืน" />
+        note={dayFilter || 'ทั้งหมด'} unitLabel="งานดีคืน"
+        memberCount={new Set((returns_ as any[]).map((r: any) => r.member_name)).size} />
 
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm min-w-[860px]">
