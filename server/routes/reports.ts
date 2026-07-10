@@ -593,6 +593,8 @@ function computeStockFlow(m: string) {
       COALESCE((SELECT SUM(r.ng_factory) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${fRet}), 0) as ret_ngfac,
       COALESCE((SELECT SUM(quantity) FROM receives WHERE product_id = p.id${m ? ` AND received_at < '${nextMonthStart}'` : ''}), 0) as received_upto,
       COALESCE((SELECT SUM(quantity) FROM issues   WHERE product_id = p.id${m ? ` AND issued_at < '${nextMonthStart}'` : ''}), 0) as issued_upto,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${m ? ` AND s.shipped_at < '${nextMonthStart}'` : ''}), 0) as shipped_upto,
+      COALESCE((SELECT SUM(r.good_qty + r.defect_qty) FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${m ? ` AND r.returned_at < '${nextMonthStart}'` : ''}), 0) as returned_upto,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped,
       COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped_recorded,
       COALESCE((SELECT SUM(si.received_qty - si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND si.received_qty IS NOT NULL${fShip}), 0) as recv_diff${carrySel}
@@ -605,8 +607,10 @@ function computeStockFlow(m: string) {
       // ยอดคงเหลือ = รับเข้าสะสม − ส่งออกสะสม (เศษ/งานเสียเป็น byproduct ไม่หักจากยอดเส้น)
       const carry_ready = (p.carry_recv || 0) - (p.carry_ship || 0);                // ยกมาต้นเดือน (ทั้งระบบ)
       const closing_ready = carry_ready + (p.received - p.shipped);                 // ยกไปเดือนหน้า (ทั้งระบบ)
-      // งานรอแจกจ่าย = ในคลังรอแจกสมาชิก ณ สิ้นเดือนที่เลือก (รับเข้าสะสม − เบิกออกสะสม ถึงสิ้นเดือน)
-      const wait_distribute = (p.received_upto || 0) - (p.issued_upto || 0);
+      // งานรอแจกจ่าย = ในคลังรอแจกสมาชิก ณ สิ้นเดือนที่เลือก
+      // = รับเข้าสะสม − เบิกออกสะสม − ส่วนที่ส่งออกตรงจากคลังโดยไม่ผ่านเบิก/คืน (ส่งออกสะสม เกินกว่าที่คืนมาจากสมาชิกจริง)
+      const directShipped = Math.max(0, (p.shipped_upto || 0) - (p.returned_upto || 0));
+      const wait_distribute = Math.max(0, (p.received_upto || 0) - (p.issued_upto || 0) - directShipped);
       return { ...p, in_warehouse: null, with_members: null, stock_ready: null, balance: null, ok: true, carry_ready, closing_ready, wait_distribute };
     }
     const in_warehouse = p.received - p.total_issued;
