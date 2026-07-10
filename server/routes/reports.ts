@@ -596,39 +596,14 @@ function computeStockFlow(m: string) {
     FROM products p WHERE p.active = 1
   `).all() as any[];
 
-  // ── งานรอแจกจ่าย: คิดแบบทบรายเดือน ไม่ให้ติดลบ ──
-  // เดือนไหนแจกหมด (เบิก ≥ รับ) → เหลือ 0 แล้วเริ่มนับใหม่ · เดือนถัดไป = ของเหลือเดิม + รับ − เบิก
-  // วิธีนี้ล้างเศษค้างจากข้อมูลย้อนหลังช่วงที่ส่งออกโดยไม่ผ่านการเบิกออกไปเอง
-  const recvByMon = prepare(`SELECT product_id pid, substr(received_at,1,7) ym, COALESCE(SUM(quantity),0) q FROM receives GROUP BY product_id, substr(received_at,1,7)`).all() as any[];
-  const issByMon  = prepare(`SELECT product_id pid, substr(issued_at,1,7) ym, COALESCE(SUM(quantity),0) q FROM issues GROUP BY product_id, substr(issued_at,1,7)`).all() as any[];
-  const shipByMon = prepare(`SELECT si.product_id pid, substr(s.shipped_at,1,7) ym, COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty),0) q FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id GROUP BY si.product_id, substr(s.shipped_at,1,7)`).all() as any[];
-  const retByMon  = prepare(`SELECT i.product_id pid, substr(r.returned_at,1,7) ym, COALESCE(SUM(r.good_qty + r.defect_qty),0) q FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id, substr(r.returned_at,1,7)`).all() as any[];
-  const flowMap: Record<number, Record<string, { r: number; i: number; s: number; rt: number }>> = {};
-  const bucket = (pid: number, ym: string) => ((flowMap[pid] ??= {})[ym] ??= { r: 0, i: 0, s: 0, rt: 0 });
-  for (const r of recvByMon) bucket(r.pid, r.ym).r += r.q;
-  for (const r of issByMon)  bucket(r.pid, r.ym).i += r.q;
-  for (const r of shipByMon) bucket(r.pid, r.ym).s += r.q;
-  for (const r of retByMon)  bucket(r.pid, r.ym).rt += r.q;
-  const waitFor = (pid: number, uptoMonth: string) => {
-    const mm = flowMap[pid] || {};
-    const monthsList = Object.keys(mm).filter(x => x && (!uptoMonth || x <= uptoMonth)).sort();
-    let w = 0;
-    for (const x of monthsList) {
-      const b = mm[x];
-      // ส่งตรงจากคลังเดือนนั้น = ส่งออก เกินกว่าที่คืนมาจากสมาชิกในเดือนนั้น (ออกจากคลังโดยไม่ผ่านการเบิก)
-      const direct = Math.max(0, (b.s || 0) - (b.rt || 0));
-      w = Math.max(0, w + (b.r || 0) - (b.i || 0) - direct);
-    }
-    return w;
-  };
-
   const rows = products.map(p => {
     if (m) {
       // โหมดเดือน: ยอดเคลื่อนไหว + งานคงค้างในระบบ (ยกมา/ยกไป)
       // ยอดคงเหลือ = รับเข้าสะสม − ส่งออกสะสม (เศษ/งานเสียเป็น byproduct ไม่หักจากยอดเส้น)
       const carry_ready = (p.carry_recv || 0) - (p.carry_ship || 0);                // ยกมาต้นเดือน (ทั้งระบบ)
       const closing_ready = carry_ready + (p.received - p.shipped);                 // ยกไปเดือนหน้า (ทั้งระบบ)
-      const wait_distribute = waitFor(p.id, m);                                     // งานรอแจกจ่าย ณ สิ้นเดือนที่เลือก
+      // งานรอแจกจ่าย = รับเข้าเดือนนี้ − เบิกออกเดือนนี้ (ของที่รับเข้ามาในเดือนแต่ยังไม่ได้แจกให้สมาชิก)
+      const wait_distribute = Math.max(0, (p.received || 0) - (p.total_issued || 0));
       return { ...p, in_warehouse: null, with_members: null, stock_ready: null, balance: null, ok: true, carry_ready, closing_ready, wait_distribute };
     }
     // ภาพรวมสะสม: แยก "ส่งออกตรงจากคลัง" (ช่วงข้อมูลย้อนหลังที่ส่งโดยไม่ผ่านเบิก/คืน) ออกจากสต๊อคพร้อมส่ง
