@@ -601,14 +601,24 @@ function computeStockFlow(m: string) {
   // วิธีนี้ล้างเศษค้างจากข้อมูลย้อนหลังช่วงที่ส่งออกโดยไม่ผ่านการเบิกออกไปเอง
   const recvByMon = prepare(`SELECT product_id pid, substr(received_at,1,7) ym, COALESCE(SUM(quantity),0) q FROM receives GROUP BY product_id, substr(received_at,1,7)`).all() as any[];
   const issByMon  = prepare(`SELECT product_id pid, substr(issued_at,1,7) ym, COALESCE(SUM(quantity),0) q FROM issues GROUP BY product_id, substr(issued_at,1,7)`).all() as any[];
-  const flowMap: Record<number, Record<string, { r: number; i: number }>> = {};
-  for (const r of recvByMon) { ((flowMap[r.pid] ??= {})[r.ym] ??= { r: 0, i: 0 }).r += r.q; }
-  for (const r of issByMon)  { ((flowMap[r.pid] ??= {})[r.ym] ??= { r: 0, i: 0 }).i += r.q; }
+  const shipByMon = prepare(`SELECT si.product_id pid, substr(s.shipped_at,1,7) ym, COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty),0) q FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id GROUP BY si.product_id, substr(s.shipped_at,1,7)`).all() as any[];
+  const retByMon  = prepare(`SELECT i.product_id pid, substr(r.returned_at,1,7) ym, COALESCE(SUM(r.good_qty + r.defect_qty),0) q FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id, substr(r.returned_at,1,7)`).all() as any[];
+  const flowMap: Record<number, Record<string, { r: number; i: number; s: number; rt: number }>> = {};
+  const bucket = (pid: number, ym: string) => ((flowMap[pid] ??= {})[ym] ??= { r: 0, i: 0, s: 0, rt: 0 });
+  for (const r of recvByMon) bucket(r.pid, r.ym).r += r.q;
+  for (const r of issByMon)  bucket(r.pid, r.ym).i += r.q;
+  for (const r of shipByMon) bucket(r.pid, r.ym).s += r.q;
+  for (const r of retByMon)  bucket(r.pid, r.ym).rt += r.q;
   const waitFor = (pid: number, uptoMonth: string) => {
     const mm = flowMap[pid] || {};
     const monthsList = Object.keys(mm).filter(x => x && (!uptoMonth || x <= uptoMonth)).sort();
     let w = 0;
-    for (const x of monthsList) w = Math.max(0, w + (mm[x].r || 0) - (mm[x].i || 0));
+    for (const x of monthsList) {
+      const b = mm[x];
+      // ส่งตรงจากคลังเดือนนั้น = ส่งออก เกินกว่าที่คืนมาจากสมาชิกในเดือนนั้น (ออกจากคลังโดยไม่ผ่านการเบิก)
+      const direct = Math.max(0, (b.s || 0) - (b.rt || 0));
+      w = Math.max(0, w + (b.r || 0) - (b.i || 0) - direct);
+    }
     return w;
   };
 
