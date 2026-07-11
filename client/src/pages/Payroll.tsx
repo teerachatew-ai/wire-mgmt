@@ -9,24 +9,16 @@ import {
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
 
-// รายละเอียดรายคน: เบิกงานวันไหน ประเภทไหน กี่เส้น (เดือนที่เลือก)
+// รายละเอียดงานของสมาชิกใน "รอบจ่าย" (ตาม cut-off) — ยอดตรงกับค่าแรงที่แสดง
 function MemberBreakdown({ member, month, onClose }: { member: any; month: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({
-    queryKey: ['member-history', member.member_id],
-    queryFn: () => reportApi.memberHistory(member.member_id),
+    queryKey: ['member-paycycle', member.member_id, month],
+    queryFn: () => reportApi.memberPayCycle(member.member_id, month),
   });
-  const issues = ((data?.issues || []) as any[]).filter(i => String(i.issued_at || '').startsWith(month));
-  // สรุปรวมต่อประเภทสินค้า
-  const byProduct = Object.values(issues.reduce((a: any, i: any) => {
-    const k = i.product_name;
-    (a[k] ??= { name: k, qty: 0, good: 0, defect: 0 });
-    a[k].qty += Number(i.quantity) || 0;
-    a[k].good += Number(i.good_qty) || 0;
-    a[k].defect += Number(i.defect_qty) || 0;
-    return a;
-  }, {})) as any[];
-  const totQty = issues.reduce((s, i) => s + (Number(i.quantity) || 0), 0);
-  const totGood = issues.reduce((s, i) => s + (Number(i.good_qty) || 0), 0);
+  const rows: any[] = data?.rows || [];
+  const byProduct: any[] = data?.byProduct || [];
+  const totGood = rows.reduce((s, r) => s + (Number(r.good_qty) || 0), 0);
+  const totWage = rows.reduce((s, r) => s + (Number(r.wage) || 0), 0);
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -34,61 +26,63 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
         <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
           <div>
             <h3 className="font-semibold text-gray-800">{member.member_name}{member.member_nickname && <span className="text-gray-400 font-normal"> ({member.member_nickname})</span>}</h3>
-            <p className="text-xs text-gray-500 mt-0.5">รายละเอียดการรับงาน — เดือน {month}</p>
+            <p className="text-xs text-gray-500 mt-0.5">รายละเอียดงานในรอบจ่าย {monthLabel(month)} (ตามวัน cut-off)</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
           {isLoading ? (
             <div className="py-10 text-center text-gray-400"><Loader2 size={22} className="animate-spin mx-auto" /></div>
-          ) : issues.length === 0 ? (
-            <div className="py-10 text-center text-gray-400">ไม่มีการเบิกงานในเดือนนี้</div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center text-gray-400">ไม่มีงานในรอบจ่ายนี้</div>
           ) : (
             <>
               {/* สรุปต่อประเภท */}
               <div className="flex flex-wrap gap-2">
                 {byProduct.map((p: any) => (
-                  <span key={p.name} className="bg-blue-50 border border-blue-100 text-blue-800 text-xs px-3 py-1.5 rounded-lg">
-                    {p.name}: รับ <b>{fmtQty(p.qty)}</b> · คืนดี <b className="text-green-700">{fmtQty(p.good)}</b>
+                  <span key={p.name} className="bg-blue-50 border border-blue-100 text-blue-800 text-xs px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                    {p.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: p.color }} />}
+                    {p.name}: งานดี <b className="text-green-700">{fmtQty(p.good)}</b> · <b className="text-green-800">{fmt(p.wage)}฿</b>
                   </span>
                 ))}
               </div>
-              {/* รายการเบิกแต่ละวัน */}
+              {/* รายการรับคืนแต่ละครั้ง */}
               <table className="w-full text-sm">
                 <thead className="border-b text-xs text-gray-500">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">วันที่เบิก</th>
-                    <th className="px-3 py-2 text-left font-medium">ใบเบิก</th>
+                    <th className="px-3 py-2 text-left font-medium">วันที่คืน</th>
+                    <th className="px-3 py-2 text-left font-medium">เบิก / คืน</th>
                     <th className="px-3 py-2 text-left font-medium">ประเภทงาน</th>
-                    <th className="px-3 py-2 text-right font-medium text-blue-600">รับไป (เส้น)</th>
-                    <th className="px-3 py-2 text-right font-medium text-green-600">คืนดี</th>
-                    <th className="px-3 py-2 text-right font-medium text-rose-500">เสีย</th>
-                    <th className="px-3 py-2 text-right font-medium text-amber-600">ค้างคืน</th>
+                    <th className="px-3 py-2 text-right font-medium text-green-600">งานดี</th>
+                    <th className="px-3 py-2 text-right font-medium text-rose-500">NG ตัด</th>
+                    <th className="px-3 py-2 text-right font-medium text-green-700">ค่าแรง (บาท)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {issues.map((i: any) => {
-                    const rem = (Number(i.quantity) || 0) - (Number(i.good_qty) || 0) - (Number(i.defect_qty) || 0) - (Number(i.waste_qty) || 0);
-                    return (
-                      <tr key={i.id} className="border-b border-gray-50">
-                        <td className="px-3 py-2 text-gray-700">{String(i.issued_at || '').slice(0, 10)}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-blue-600">{i.code}</td>
-                        <td className="px-3 py-2 text-gray-700">{i.product_name}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-blue-700">{fmtQty(i.quantity)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-green-600">{fmtQty(i.good_qty)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-rose-500">{i.defect_qty > 0 ? fmtQty(i.defect_qty) : '-'}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-amber-600">{rem > 0 ? fmtQty(rem) : '-'}</td>
-                      </tr>
-                    );
-                  })}
+                  {rows.map((r: any) => (
+                    <tr key={r.id} className="border-b border-gray-50">
+                      <td className="px-3 py-2 text-gray-700">{String(r.returned_at || '').slice(0, 10)}</td>
+                      <td className="px-3 py-2 text-xs text-gray-500">
+                        <span className="font-mono text-blue-600">{r.issue_code}</span>
+                        {r.issued_at && <span className="block text-gray-400">เบิก {String(r.issued_at).slice(0, 10)}</span>}
+                      </td>
+                      <td className="px-3 py-2 text-gray-700 inline-flex items-center gap-1.5">
+                        {r.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: r.color }} />}{r.product_name}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-green-600">{fmtQty(r.good_qty)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-rose-500">{r.ng_cut > 0 ? fmtQty(r.ng_cut) : '-'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-green-700">{fmt(r.wage)}</td>
+                    </tr>
+                  ))}
                   <tr className="bg-gray-50 font-semibold">
-                    <td colSpan={3} className="px-3 py-2 text-gray-700">รวม ({issues.length} ครั้ง)</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-blue-800">{fmtQty(totQty)}</td>
+                    <td colSpan={3} className="px-3 py-2 text-gray-700">รวม ({rows.length} ครั้ง)</td>
                     <td className="px-3 py-2 text-right tabular-nums text-green-700">{fmtQty(totGood)}</td>
-                    <td colSpan={2}></td>
+                    <td></td>
+                    <td className="px-3 py-2 text-right tabular-nums text-green-800">{fmt(totWage)}</td>
                   </tr>
                 </tbody>
               </table>
+              <p className="text-[11px] text-gray-400">* ค่าแรงสุทธิในตารางหลักหักค่าปรับ NG-เกินเกณฑ์แล้ว และปัดขึ้นเต็มบาท</p>
             </>
           )}
         </div>
@@ -140,6 +134,7 @@ function downloadCSV(data: string, filename: string) {
 /* เปิดหน้าใบเซ็นรับเงิน (พิมพ์เป็น PDF ได้) */
 function openPayrollSignSheet(data: any, monthName: string) {
   const members = data.members || [];
+  const multiPage = members.length > 13;   // เกิน 1 หน้า A4 -> ไม่แสดงยอดรวมสมาชิก
   const rows = members.map((m: any, i: number) => `
     <tr>
       <td class="c">${i + 1}</td>
@@ -176,7 +171,7 @@ function openPayrollSignSheet(data: any, monthName: string) {
     </div>
     <div class="sheet">
       <h1>ใบเซ็นรับเงินค่าแรง — รอบจ่าย ${monthName}</h1>
-      <p class="sub">วิสาหกิจชุมชนตัดสายไฟ · จำนวนสมาชิก ${members.length} คน · ยอดรวม ${fmt(data.total_wage)} บาท</p>
+      <p class="sub">วิสาหกิจชุมชนตัดสายไฟ · จำนวนสมาชิก ${members.length} คน${multiPage ? '' : ` · ยอดรวม ${fmt(data.total_wage)} บาท`}</p>
       <table>
         <thead><tr>
           <th class="c">ลำดับ</th>
@@ -186,7 +181,7 @@ function openPayrollSignSheet(data: any, monthName: string) {
           <th class="note">หมายเหตุ</th>
         </tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr><td class="c"></td><td>รวมทั้งหมด</td><td class="r">${fmt(data.total_wage)}</td><td></td><td></td></tr></tfoot>
+        ${multiPage ? '' : `<tfoot><tr><td class="c"></td><td>รวมทั้งหมด</td><td class="r">${fmt(data.total_wage)}</td><td></td><td></td></tr></tfoot>`}
       </table>
       <div class="signline">
         <div><div class="dot"></div>ผู้จ่ายเงิน</div>

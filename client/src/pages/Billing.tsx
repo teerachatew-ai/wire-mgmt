@@ -35,6 +35,7 @@ export default function Billing() {
   const [invXlsx, setInvXlsx] = useState(false);
   const [invPdf, setInvPdf] = useState(false);
   const [rcptPdf, setRcptPdf] = useState(false);
+  const [rcptDate, setRcptDate] = useState('');   // วันที่รับเงินในใบเสร็จ (default = 20 เดือนถัดไป)
   const [showSupplier, setShowSupplier] = useState(false);
   const [dirty, setDirty] = useState(false);       // มีการแก้จำนวน/วันที่ที่ยังไม่บันทึกกลับ
   const [syncing, setSyncing] = useState(false);
@@ -62,6 +63,17 @@ export default function Billing() {
   }, [data]);
 
   const months: string[] = base?.months || data?.months || [];
+
+  // วันที่รับเงิน default = วันที่ 20 ของเดือนถัดไปจากเดือนที่วางบิล
+  const defaultRcptDate = (() => {
+    if (!month) return '';
+    const [y, mo] = month.split('-').map(Number);
+    const ny = mo === 12 ? y + 1 : y;
+    const nm = mo === 12 ? 1 : mo + 1;
+    return `${ny}-${String(nm).padStart(2, '0')}-20`;
+  })();
+  useEffect(() => { setRcptDate(defaultRcptDate); }, [month]);
+  const rcptDateVal = rcptDate || defaultRcptDate;
 
   const qc = useQueryClient();
   const updLine = (i: number, f: keyof Line, v: any) => {
@@ -167,7 +179,7 @@ export default function Billing() {
   const exportReceipt = async () => {
     setRcptPdf(true);
     try {
-      const blob = await reportApi.receiptExport({ month, lines_override: exportLines() }, 'pdf');
+      const blob = await reportApi.receiptExport({ month, date: rcptDateVal, lines_override: exportLines() }, 'pdf');
       download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.pdf`);
     } catch (e) {
       alert('สร้างใบเสร็จรับเงินไม่สำเร็จ');
@@ -236,7 +248,11 @@ export default function Billing() {
               <p className="text-xs text-gray-500 leading-relaxed">
                 ใบเสร็จรับเงินถึงลูกค้า — <b>ยอดเดียวกับใบแจ้งหนี้</b> (รวมทั้งเดือนต่อสินค้า) ออกเมื่อได้รับเงินแล้ว
               </p>
-              <div className="flex gap-2 pt-1">
+              <div className="flex items-end gap-2 pt-1 flex-wrap">
+                <div>
+                  <label className="text-[11px] text-gray-500 block mb-0.5">วันที่รับเงิน</label>
+                  <input type="date" className="input !min-h-[34px] !py-1 !px-2 text-xs w-36" value={rcptDateVal} onChange={e => setRcptDate(e.target.value)} />
+                </div>
                 <button className="btn-primary btn-sm flex items-center gap-2" onClick={exportReceipt} disabled={rcptPdf}>
                   {rcptPdf ? <Loader2 size={14} className="animate-spin" /> : <BadgeCheck size={14} />} PDF
                 </button>

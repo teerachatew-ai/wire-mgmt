@@ -264,6 +264,34 @@ router.get('/member-history/:memberId', (req, res) => {
   res.json({ issues, defect_summary: { ...ds, defect_pct } });
 });
 
+// รายละเอียดงานของสมาชิกใน "รอบจ่าย" (pay_cycle) หนึ่ง — ให้ตรงกับค่าแรงที่แสดง
+// รอบจ่ายคิดจากวันรับคืน + วัน cut-off (งานที่คืนปลายเดือนก่อนหลัง cut-off จะถูกนับเข้ารอบเดือนนี้)
+router.get('/member-paycycle/:memberId', (req, res) => {
+  const cycle = typeof req.query.cycle === 'string' && /^\d{4}-\d{2}$/.test(req.query.cycle) ? req.query.cycle : '';
+  if (!cycle) return res.json({ rows: [], byProduct: [] });
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const rows = prepare(`
+    SELECT r.id, r.code as return_code, r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.lost_qty, r.waste_qty,
+      i.code as issue_code, i.issued_at, p.name as product_name, p.unit, p.color, p.wage_per_unit,
+      ((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?) as wage
+    FROM returns r
+    JOIN issues i ON r.issue_id = i.id
+    JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle = ?
+    ORDER BY r.returned_at, i.code
+  `).all(defectWagePct, req.params.memberId, cycle) as any[];
+  // สรุปต่อประเภทงาน
+  const g: Record<string, any> = {};
+  for (const r of rows) {
+    const k = r.product_name;
+    (g[k] ??= { name: k, color: r.color, unit: r.unit, good: 0, wage: 0 });
+    g[k].good += Number(r.good_qty) || 0;
+    g[k].wage += Number(r.wage) || 0;
+  }
+  res.json({ rows, byProduct: Object.values(g) });
+});
+
 router.get('/stock-reconcile', (_req, res) => {
   res.json(prepare(`
     SELECT p.code, p.name, p.unit,
