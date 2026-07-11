@@ -117,7 +117,7 @@ function MgrCompInput({ mg, month, onSaved }: { mg: any; month: string; onSaved:
 }
 
 /* ─── helpers ─────────────────────────────────────────────── */
-const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 const monthLabel = (m: string) => {
   if (!m) return '';

@@ -239,7 +239,9 @@ router.get('/payroll', (req, res) => {
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.returned_at >= ? AND r.returned_at <= ?
     GROUP BY m.id ORDER BY m.code
-  `).all(defectWagePct, from, to);
+  `).all(defectWagePct, from, to) as any[];
+  // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
+  for (const s of summary) s.total_wage = Math.ceil(s.total_wage || 0);
 
   res.json({ detail, summary });
 });
@@ -704,7 +706,8 @@ router.get('/payroll-monthly', (req, res) => {
 
   const members = rawMembers.map((m: any) => {
     const ng_deduction = m.ng_excess_qty * ngPenaltyRate;   // 20฿ ต่อเส้นที่เกินเกณฑ์
-    return { ...m, ng_deduction, total_wage: m.gross_wage - ng_deduction };
+    // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
+    return { ...m, ng_deduction, total_wage: Math.ceil(m.gross_wage - ng_deduction) };
   });
 
   const total_wage = members.reduce((s: number, m: any) => s + m.total_wage, 0);
@@ -787,7 +790,7 @@ router.get('/payroll-cumulative', (req, res) => {
         months: []
       };
     }
-    const wage = row.gross_wage - (row.ng_excess_qty * ngPenaltyRate);
+    const wage = Math.ceil(row.gross_wage - (row.ng_excess_qty * ngPenaltyRate));   // ปัดขึ้นเต็มบาท
     memberMap[row.member_id].months.push({ month: row.month, wage });
     memberMap[row.member_id].total_wage += wage;
   }
