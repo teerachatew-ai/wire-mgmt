@@ -7,8 +7,8 @@ const router = Router();
 
 function payCycleFor(returnedAt: string): string {
   const cfg = prepare(`SELECT key, value FROM settings`).all() as any[];
-  const { holidays, overrides } = loadCutoffConfig(cfg);
-  return computePayCycle(returnedAt, holidays, overrides);
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(cfg);
+  return computePayCycle(returnedAt, holidays, overrides, cutoffDay);
 }
 
 function updateIssueStatus(issueId: number) {

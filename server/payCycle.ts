@@ -14,9 +14,15 @@ function isNonWorking(y: number, m: number, d: number, holidays: Set<string>): b
 }
 
 // เส้นตายของเดือน ym ("YYYY-MM")
-export function computeCutoff(ym: string, holidays: Set<string>, overrides: Record<string, string>): string {
+//  - override รายเดือน (cutoff_YYYY-MM) มาก่อนเสมอ
+//  - ถ้าตั้ง cutoffDay (1-31) ในตั้งค่า -> ใช้วันนั้นของเดือนตายตัว
+//  - ไม่ตั้ง -> วันทำการก่อนวันทำการสุดท้ายของเดือน (ค่าเดิม)
+export function computeCutoff(ym: string, holidays: Set<string>, overrides: Record<string, string>, cutoffDay?: number): string {
   if (overrides[ym]) return overrides[ym];
   const [y, m] = ym.split('-').map(Number);
+  if (cutoffDay && cutoffDay >= 1) {
+    return fmt(y, m, Math.min(cutoffDay, lastDayOfMonth(y, m)));
+  }
   let d = lastDayOfMonth(y, m);
   while (d >= 1 && isNonWorking(y, m, d, holidays)) d--;   // วันทำการสุดท้าย
   d--;                                                      // ถอยอีก 1 วัน
@@ -32,9 +38,9 @@ export function nextMonth(ym: string): string {
 }
 
 // รอบจ่ายของรายการรับคืน
-export function computePayCycle(returnedAt: string, holidays: Set<string>, overrides: Record<string, string>): string {
+export function computePayCycle(returnedAt: string, holidays: Set<string>, overrides: Record<string, string>, cutoffDay?: number): string {
   const ym = returnedAt.slice(0, 7);
-  const cutoff = computeCutoff(ym, holidays, overrides);
+  const cutoff = computeCutoff(ym, holidays, overrides, cutoffDay);
   return returnedAt.slice(0, 10) <= cutoff ? ym : nextMonth(ym);
 }
 
@@ -44,12 +50,16 @@ export function computePayCycle(returnedAt: string, holidays: Set<string>, overr
 export function loadCutoffConfig(settingsRows: { key: string; value: string }[]) {
   const holidays = new Set<string>();
   const overrides: Record<string, string> = {};
+  let cutoffDay: number | undefined;
   for (const s of settingsRows) {
     if (s.key === 'holidays' && s.value) {
       s.value.split(',').map(x => x.trim()).filter(Boolean).forEach(d => holidays.add(d));
+    } else if (s.key === 'pay_cutoff_day' && s.value) {
+      const n = parseInt(s.value, 10);
+      if (n >= 1 && n <= 31) cutoffDay = n;
     } else if (s.key.startsWith('cutoff_') && s.value) {
       overrides[s.key.replace('cutoff_', '')] = s.value.trim();
     }
   }
-  return { holidays, overrides };
+  return { holidays, overrides, cutoffDay };
 }

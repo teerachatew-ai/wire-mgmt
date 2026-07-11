@@ -306,13 +306,13 @@ CREATE TABLE IF NOT EXISTS managers (
   // Backfill pay_cycle for existing returns (compute from returned_at)
   {
     const cfgRows = (db.exec(`SELECT key, value FROM settings`)[0]?.values ?? []).map(r => ({ key: r[0] as string, value: r[1] as string }));
-    const { holidays, overrides } = loadCutoffConfig(cfgRows);
+    const { holidays, overrides, cutoffDay } = loadCutoffConfig(cfgRows);
     const rows = db.exec(`SELECT id, returned_at FROM returns WHERE pay_cycle IS NULL OR pay_cycle = ''`)[0];
     if (rows) {
       for (const v of rows.values) {
         const id = v[0]; const returnedAt = v[1] as string;
         if (!returnedAt) continue;
-        const pc = computePayCycle(returnedAt, holidays, overrides);
+        const pc = computePayCycle(returnedAt, holidays, overrides, cutoffDay);
         db.run(`UPDATE returns SET pay_cycle = ? WHERE id = ?`, [pc, id]);
       }
       save();

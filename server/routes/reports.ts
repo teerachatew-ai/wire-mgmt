@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
+import { computePayCycle, loadCutoffConfig } from '../payCycle';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -802,11 +803,32 @@ router.get('/settings', (_req, res) => {
   res.json(Object.fromEntries(rows.map(r => [r.key, r.value])));
 });
 
+// คำนวณ pay_cycle ของทุกรายการรับคืนใหม่ ตามตั้งค่าปัจจุบัน (เรียกหลังแก้วัน cut-off)
+function recomputeAllPayCycles() {
+  const cfg = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(cfg);
+  const rets = prepare(`SELECT id, returned_at FROM returns WHERE returned_at IS NOT NULL AND returned_at != ''`).all() as any[];
+  let n = 0;
+  for (const r of rets) {
+    const pc = computePayCycle(String(r.returned_at), holidays, overrides, cutoffDay);
+    prepare(`UPDATE returns SET pay_cycle = ? WHERE id = ?`).run(pc, r.id);
+    n++;
+  }
+  return n;
+}
+
 router.put('/settings', (req, res) => {
+  const affectsCutoff = Object.keys(req.body).some(k => k === 'pay_cutoff_day' || k === 'holidays' || k.startsWith('cutoff_'));
   for (const [key, value] of Object.entries(req.body)) {
     prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`).run(key, String(value));
   }
-  res.json({ ok: true });
+  let recomputed = 0;
+  if (affectsCutoff) recomputed = recomputeAllPayCycles();
+  res.json({ ok: true, recomputed });
+});
+
+router.post('/recompute-paycycles', (_req, res) => {
+  res.json({ ok: true, recomputed: recomputeAllPayCycles() });
 });
 
 export default router;

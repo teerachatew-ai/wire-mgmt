@@ -6,7 +6,7 @@ import CompensationStructure from '../components/CompensationStructure';
 
 export default function SettingsPage() {
   const qc = useQueryClient();
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState('');
   const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: reportApi.getSettings });
 
   const [form, setForm] = useState<any>({});
@@ -14,7 +14,12 @@ export default function SettingsPage() {
 
   const saveMut = useMutation({
     mutationFn: () => reportApi.saveSettings(current),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['settings'] }); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['settings'] });
+      qc.invalidateQueries({ queryKey: ['payroll-cumulative'] });
+      setSaved(r?.recomputed ? `บันทึกแล้ว · คำนวณรอบจ่ายใหม่ ${r.recomputed} รายการ` : 'บันทึกแล้ว');
+      setTimeout(() => setSaved(''), 3000);
+    }
   });
 
   if (isLoading) return <div className="p-8 text-gray-500">กำลังโหลด...</div>;
@@ -53,11 +58,30 @@ export default function SettingsPage() {
           <p className="text-xs text-gray-400 mt-1">หักจากสมาชิกเฉพาะเส้น NG-ตัด ที่เกิน % ยอมรับได้ของรุ่น (เข้ากลุ่ม)</p>
         </div>
 
+        {/* วัน Cut-off รอบจ่ายค่าแรงตัด */}
+        <div className="border-t pt-4">
+          <label className="label">วัน Cut-off รอบจ่ายค่าแรงตัด (วันที่ของเดือน)</label>
+          <input type="number" min="1" max="31" className="input" placeholder="เว้นว่าง = อัตโนมัติ (วันทำการก่อนวันสุดท้ายของเดือน)"
+            value={current.pay_cutoff_day || ''} onChange={e => set('pay_cutoff_day', e.target.value)} />
+          {(() => {
+            const day = parseInt(current.pay_cutoff_day || '', 10);
+            if (day >= 1 && day <= 31) {
+              const prev = day + 1;
+              return <p className="text-xs text-blue-600 mt-1">
+                รอบจ่าย 1 เดือน = ตั้งแต่ <b>วันที่ {prev} ของเดือนก่อน</b> ถึง <b>วันที่ {day} ของเดือนนี้</b> → นับเข้ารอบเดือนนี้
+                <br />งานที่คืนหลังวันที่ {day} จะเลื่อนไปรอบเดือนถัดไป
+              </p>;
+            }
+            return <p className="text-xs text-gray-400 mt-1">เว้นว่าง = ใช้ค่าอัตโนมัติเดิม (เส้นตาย = วันทำการก่อนวันทำการสุดท้ายของเดือน)</p>;
+          })()}
+          <p className="text-[11px] text-amber-600 mt-1">⚠️ เมื่อบันทึก ระบบจะคำนวณรอบจ่ายของรายการคืนทั้งหมดใหม่ตามวันที่ตั้ง</p>
+        </div>
+
         <div className="pt-2 flex items-center gap-3">
           <button className="btn-primary flex items-center gap-2" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             <Save size={15} /> {saveMut.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
           </button>
-          {saved && <span className="text-green-600 text-sm flex items-center gap-1"><CheckCircle size={14} /> บันทึกแล้ว</span>}
+          {saved && <span className="text-green-600 text-sm flex items-center gap-1"><CheckCircle size={14} /> {saved}</span>}
         </div>
       </div>
 

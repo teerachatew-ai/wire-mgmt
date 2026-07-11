@@ -233,6 +233,38 @@ function SummaryCards({ data }: { data: any }) {
   );
 }
 
+/* ─── Top 5 สมาชิกที่ได้เงินมากสุดของเดือน ─────────────────── */
+function Top5Earners({ members, month, onPick }: { members: any[]; month: string; onPick: (m: any) => void }) {
+  const top = [...(members || [])].sort((a, b) => (b.total_wage || 0) - (a.total_wage || 0)).slice(0, 5);
+  if (top.length === 0) return null;
+  const max = top[0].total_wage || 1;
+  const medal = ['🥇', '🥈', '🥉', '4.', '5.'];
+  return (
+    <div className="card p-0 overflow-hidden">
+      <div className="px-4 py-3 border-b bg-amber-50 flex items-center gap-2">
+        <TrendingUp size={15} className="text-amber-600" />
+        <h2 className="font-semibold text-amber-800 text-sm">Top 5 ค่าแรงสูงสุด — {monthLabel(month)}</h2>
+      </div>
+      <div className="p-4 space-y-2.5">
+        {top.map((m: any, i: number) => (
+          <button key={m.member_id} type="button" onClick={() => onPick(m)}
+            className="w-full flex items-center gap-3 text-left hover:bg-gray-50 rounded-lg px-2 py-1 -mx-2 transition-colors">
+            <span className="w-7 text-center text-sm shrink-0">{medal[i]}</span>
+            <span className="w-40 shrink-0 truncate text-sm font-medium text-gray-800">
+              {m.member_name}{m.member_nickname && <span className="text-gray-400 font-normal"> ({m.member_nickname})</span>}
+            </span>
+            <span className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+              <span className="block h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full"
+                style={{ width: `${Math.max(6, ((m.total_wage || 0) / max) * 100)}%` }} />
+            </span>
+            <span className="w-24 text-right text-sm font-bold text-green-700 shrink-0">{fmt(m.total_wage)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Tab 1: รายเดือน ─────────────────────────────────────── */
 function MonthlyTab() {
   const now = new Date();
@@ -294,6 +326,8 @@ function MonthlyTab() {
       {data && (
         <>
           <SummaryCards data={data} />
+
+          <Top5Earners members={data.members || []} month={data.month} onPick={setViewMember} />
 
           {/* Manager compensation breakdown */}
           {data.managers?.length > 0 && (
