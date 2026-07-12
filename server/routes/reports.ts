@@ -880,25 +880,48 @@ function buildPL(month: string) {
 router.post('/pl-export', (req, res) => {
   const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
   if (!month) return res.status(400).json({ error: 'month required' });
+  const wantPdf = req.query.format === 'pdf';
   const data = buildPL(month);
   const root = process.cwd();
   const script = path.join(root, 'server', 'scripts', 'pl_export.py');
+  const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-'));
   const dataFile = path.join(tmpDir, 'data.json');
   const xlsxFile = path.join(tmpDir, `pl-${month}.xlsx`);
+  const pdfFile = path.join(tmpDir, `pl-${month}.pdf`);
   const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
   fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+
+  const sendFile = (file: string, type: string, name: string) => {
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  };
+
   const py = spawn(PYTHON, [script, dataFile, xlsxFile], { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
   let errOut = '';
   py.stderr.on('data', (c) => { errOut += c.toString(); });
   py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
   py.on('close', (code) => {
     if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="pl-${month}.xlsx"`);
-    const stream = fs.createReadStream(xlsxFile);
-    stream.pipe(res);
-    stream.on('close', cleanup);
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `pl-${month}.xlsx`);
+
+    // แปลง xlsx -> pdf (Windows: Excel COM / Linux cloud: LibreOffice headless)
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
+    let psErr = '';
+    const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 90000);
+    ps.stderr.on('data', (c) => { psErr += c.toString(); });
+    ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
+    ps.on('close', () => {
+      clearTimeout(killTimer);
+      if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
+      sendFile(pdfFile, 'application/pdf', `pl-${month}.pdf`);
+    });
   });
 });
 

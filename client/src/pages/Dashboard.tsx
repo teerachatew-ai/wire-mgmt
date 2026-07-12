@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { reportApi, expenseApi, memberApi, managerApi } from '../api';
 import {
   Factory, Wallet, Sparkles, Truck, ShieldCheck, Clock,
-  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2
+  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText
 } from 'lucide-react';
 
 /* ── Monthly management expenses manager ── */
@@ -184,7 +184,7 @@ function TrendChart({ trend, selected, onSelect }: { trend: any[]; selected?: st
 export default function Dashboard() {
   const [period, setPeriod] = useState<'month' | 'all'>('month');
   const [selectedMonth, setSelectedMonth] = useState<string | undefined>(undefined); // undefined = เดือนปัจจุบัน
-  const [plBusy, setPlBusy] = useState(false);
+  const [plBusy, setPlBusy] = useState<'' | 'xlsx' | 'pdf'>('');
   const { data, isLoading } = useQuery({
     queryKey: ['performance', selectedMonth || 'current'],
     queryFn: () => reportApi.performance(selectedMonth),
@@ -222,17 +222,29 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
-          <button className="btn-secondary btn-sm flex items-center gap-1.5" disabled={plBusy}
+          <button className="btn-secondary btn-sm flex items-center gap-1.5" disabled={plBusy === 'xlsx'}
             onClick={async () => {
-              setPlBusy(true);
+              setPlBusy('xlsx');
               try {
                 const blob = await reportApi.plExport(data.month);
                 const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
                 a.download = `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`; a.click();
                 setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-              } catch { alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(false); }
+              } catch { alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(''); }
             }}>
-            {plBusy ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} รายงานเดือนนี้ (Excel)
+            {plBusy === 'xlsx' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} รายงาน Excel
+          </button>
+          <button className="btn-primary btn-sm flex items-center gap-1.5" disabled={plBusy === 'pdf'}
+            onClick={async () => {
+              setPlBusy('pdf');
+              try {
+                const blob = await reportApi.plExport(data.month, 'pdf');
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.pdf`; a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+              } catch { alert('สร้างรายงาน PDF ไม่สำเร็จ'); } finally { setPlBusy(''); }
+            }}>
+            {plBusy === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงาน PDF
           </button>
         </div>
       </div>
