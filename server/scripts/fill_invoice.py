@@ -19,8 +19,13 @@ if d.get("invoice_no"):
     except: ws["J5"] = d["invoice_no"]
 dt = d.get("date")
 if dt:
-    try:    ws["J6"] = datetime.datetime.strptime(dt[:10], "%Y-%m-%d")
-    except: ws["J6"] = dt
+    _dd = None
+    try:    _dd = datetime.datetime.strptime(dt[:10], "%Y-%m-%d")
+    except: _dd = None
+    ws["J6"] = _dd if _dd else dt
+    # วันที่ลงชื่อ "ผู้รับเงิน" (J41) เดิมเป็น =TODAY() -> ตั้งให้ตรงกับวันที่หัวบิล
+    if _dd is not None:
+        ws["J41"] = _dd
 
 # ป้าย "วันครบกำหนด / Due Date" (I9,I10) ตั้ง wrap ไว้แล้วถูกตัด -> หดให้พอดีช่อง เห็นครบ
 from openpyxl.styles import Alignment as _Al

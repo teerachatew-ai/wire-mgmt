@@ -29,6 +29,22 @@ function managerCompForMonth(month: string): any[] {
   });
 }
 
+// ค่าแรงสมาชิกรวมตาม "รอบจ่าย" (pay_cycle) — ตรงกับหน้าสรุปค่าแรง (หักปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคน)
+function payCycleWage(cycle: string | null): number {
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const rows = prepare(`
+    SELECT m.id,
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross,
+      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
+    ${cycle ? 'WHERE r.pay_cycle = ?' : ''}
+    GROUP BY m.id
+  `).all(...(cycle ? [defectWagePct, cycle] : [defectWagePct])) as any[];
+  return rows.reduce((s, r) => s + Math.ceil((r.gross || 0) - (r.ng_excess || 0) * ngPenaltyRate), 0);
+}
+
 router.get('/dashboard', (_req, res) => {
   const stock = prepare(`
     SELECT p.id, p.name, p.unit, p.code,
@@ -130,8 +146,9 @@ router.get('/performance', (req, res) => {
   const fcRevenueAll = fcRows.reduce((s, r) => s + r.ra * r.fp, 0);
   const fcWageAll = fcRows.reduce((s, r) => s + r.ra * r.wp, 0);
 
-  const wageMonthVal = sum('wage_month');
-  const wageAllVal = sum('wage_all');
+  // ค่าแรงจ่ายสมาชิก อิงตาม "รอบจ่าย" (cut-off) ให้ตรงกับหน้าสรุปค่าแรง
+  const wageMonthVal = payCycleWage(thisMonth);
+  const wageAllVal = payCycleWage(null);
   const revMonthVal = sum('revenue_month');
   const revAllVal = sum('revenue_all');
   // ค่าตอบแทนผู้บริหาร: เดือนนี้ = ตามที่กำหนดรายเดือน (หรืออัตโนมัติ) · สะสม = รวมทุกเดือนที่มีการส่งออก
@@ -147,17 +164,15 @@ router.get('/performance', (req, res) => {
 
   // 6-month trend: revenue vs wage
   const revByMonth  = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(COALESCE(si.received_qty, si.good_qty)*p.factory_price),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
-  // ค่าตัดในกราฟ ใช้ฐานเดียวกับการ์ด = งานที่ส่งออก × ค่าจ้าง/หน่วย (ตามเดือนที่ส่งออก)
-  const wageByMonth = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(si.good_qty*p.wage_per_unit),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
+  // ค่าตัดในกราฟ = ค่าแรงตามรอบจ่าย (cut-off) ให้ตรงกับการ์ด/หน้าสรุปค่าแรง
   const revMap  = Object.fromEntries(revByMonth.map(r => [r.month, r.v]));
-  const wageMap = Object.fromEntries(wageByMonth.map(r => [r.month, r.v]));
   const trend: any[] = [];
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const revenue = revMap[m] || 0;
-    const wage = wageMap[m] || 0;
+    const wage = payCycleWage(m);
     trend.push({ month: m, revenue, wage, profit: revenue - wage });
   }
 
@@ -165,10 +180,10 @@ router.get('/performance', (req, res) => {
     month: thisMonth,
     revenue_month: sum('revenue_month'),
     revenue_all: sum('revenue_all'),
-    wage_month: sum('wage_month'),
-    wage_all: sum('wage_all'),
-    profit_month: sum('revenue_month') - sum('wage_month'),
-    profit_all: sum('revenue_all') - sum('wage_all'),
+    wage_month: wageMonthVal,
+    wage_all: wageAllVal,
+    profit_month: revMonthVal - wageMonthVal,
+    profit_all: revAllVal - wageAllVal,
     quality_month_pct: (q.g + q.d) > 0 ? (q.g / (q.g + q.d)) * 100 : 0,
     defect_month_pct:  (q.g + q.d) > 0 ? (q.d / (q.g + q.d)) * 100 : 0,
     quality_all_pct:   (qAll.g + qAll.d) > 0 ? (qAll.g / (qAll.g + qAll.d)) * 100 : 0,
@@ -181,8 +196,8 @@ router.get('/performance', (req, res) => {
     withholding_tax_pct: withholdingTaxPct,
     expenses_month: expensesMonth,
     expenses_all: expensesAll,
-    net_profit_month: (sum('revenue_month') - sum('wage_month')) - expensesMonth,
-    net_profit_all: (sum('revenue_all') - sum('wage_all')) - expensesAll,
+    net_profit_month: (revMonthVal - wageMonthVal) - expensesMonth,
+    net_profit_all: (revAllVal - wageAllVal) - expensesAll,
     // ตัวหัก + กำไรสุทธิสุดท้าย
     tax_month: taxMonth,
     tax_all: taxAll,
