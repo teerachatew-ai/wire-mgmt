@@ -37,6 +37,24 @@ export function nextMonth(ym: string): string {
   return `${y}-${pad(m)}`;
 }
 
+export function prevMonth(ym: string): string {
+  let [y, m] = ym.split('-').map(Number);
+  m--; if (m < 1) { m = 12; y--; }
+  return `${y}-${pad(m)}`;
+}
+
+// ช่วงวันที่ของ "รอบจ่าย" (pay cycle) หนึ่งเดือน: วันถัดจากเส้นตายเดือนก่อน ถึง เส้นตายเดือนนี้
+// ใช้กรองรายรับ/ยอดส่งออกให้อยู่ในช่วงเวลาเดียวกับที่ใช้คิดค่าแรง (cut-off)
+export function payCycleWindow(ym: string, holidays: Set<string>, overrides: Record<string, string>, cutoffDay?: number): { start: string; end: string } {
+  const end = computeCutoff(ym, holidays, overrides, cutoffDay);
+  const prevCutoff = computeCutoff(prevMonth(ym), holidays, overrides, cutoffDay);
+  const [py, pm, pd] = prevCutoff.split('-').map(Number);
+  const d = new Date(py, pm - 1, pd);
+  d.setDate(d.getDate() + 1);
+  const start = fmt(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  return { start, end };
+}
+
 // รอบจ่ายของรายการรับคืน
 export function computePayCycle(returnedAt: string, holidays: Set<string>, overrides: Record<string, string>, cutoffDay?: number): string {
   const ym = returnedAt.slice(0, 7);

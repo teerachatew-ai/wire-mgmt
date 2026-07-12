@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { computePayCycle, loadCutoffConfig } from '../payCycle';
+import { computePayCycle, loadCutoffConfig, payCycleWindow } from '../payCycle';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -11,11 +11,14 @@ const router = Router();
 // Windows ใช้ "python", Linux (cloud) ใช้ "python3"
 const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
 
-// รายได้จาก Amphenol ของเดือน (ยอดรับจริงถ้ามี × ราคาโรงงาน)
+// รายได้จาก Amphenol ของ "รอบจ่าย" (cut-off) เดือนนี้ (ยอดรับจริงถ้ามี × ราคาโรงงาน)
+// ใช้ช่วงวันที่เดียวกับที่คิดค่าแรง ให้กำไรขั้นต้น/ค่าตอบแทนผู้บริหาร (% ของรายรับ) เทียบช่วงเวลาเดียวกัน
 function monthRevenueOf(month: string): number {
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(prepare(`SELECT key, value FROM settings`).all() as any[]);
+  const { start, end } = payCycleWindow(month, holidays, overrides, cutoffDay);
   return (prepare(`SELECT COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) * p.factory_price),0) v
     FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id
-    WHERE s.shipped_at LIKE ?`).get(`${month}%`) as any).v || 0;
+    WHERE s.shipped_at > ? AND s.shipped_at <= ?`).get(start, end) as any).v || 0;
 }
 // ค่าตอบแทนผู้บริหารของเดือน — ถ้ากำหนดเองใน manager_month ใช้ค่านั้น มิฉะนั้นคิดอัตโนมัติ
 function managerCompForMonth(month: string): any[] {
@@ -81,22 +84,25 @@ router.get('/performance', (req, res) => {
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
   const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
   const withholdingTaxPct = parseFloat(cfg.withholding_tax_percent || '3');
+  // ช่วงวันที่ของ "รอบจ่าย" (cut-off) เดือนนี้ — ใช้กรองรายรับ/ยอดส่งออกให้อยู่ช่วงเวลาเดียวกับค่าแรง
+  const { holidays: cutHolidays, overrides: cutOverrides, cutoffDay } = loadCutoffConfig(prepare(`SELECT key, value FROM settings`).all() as any[]);
+  const { start: cycleStart, end: cycleEnd } = payCycleWindow(thisMonth, cutHolidays, cutOverrides, cutoffDay);
 
-  // Per-product money performance
+  // Per-product money performance — ยอดของ "เดือนนี้" = ตามช่วงรอบจ่าย (cut-off) ไม่ใช่เดือนปฏิทิน
   const products = prepare(`
     SELECT p.id, p.code, p.name, p.unit, p.factory_price, p.wage_per_unit,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as shipped_good_all,
-      COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as shipped_good_month,
+      COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at > ? AND s.shipped_at <= ?),0) as shipped_good_month,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as recv_good_all,
-      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as recv_good_month,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at > ? AND s.shipped_at <= ?),0) as recv_good_month,
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_good_all,
-      COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_good_month,
-      COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_defect_month,
+      COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_good_month,
+      COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_defect_month,
       COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_ngcut_all,
       COALESCE((SELECT SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0))
         FROM issues i WHERE i.product_id=p.id AND i.status!='closed'),0) as with_members
     FROM products p WHERE p.active=1
-  `).all(mk, mk, mk, mk) as any[];
+  `).all(cycleStart, cycleEnd, cycleStart, cycleEnd, thisMonth, thisMonth) as any[];
 
   const rows = products.map((p: any) => {
     // รายรับคิดจาก "ยอดที่โรงงานรับจริง" (ถ้ายืนยันแล้ว) ให้ตรงกับใบแจ้งหนี้/ใบวางบิล
@@ -113,8 +119,8 @@ router.get('/performance', (req, res) => {
   });
   const sum = (k: string) => rows.reduce((s: number, r: any) => s + (r[k] || 0), 0);
 
-  // Quality
-  const q    = prepare(`SELECT COALESCE(SUM(good_qty),0) g, COALESCE(SUM(defect_qty),0) d FROM returns WHERE returned_at LIKE ?`).get(mk) as any;
+  // Quality — ตามรอบจ่าย (cut-off) เดียวกับค่าแรง
+  const q    = prepare(`SELECT COALESCE(SUM(good_qty),0) g, COALESCE(SUM(defect_qty),0) d FROM returns WHERE pay_cycle = ?`).get(thisMonth) as any;
   const qAll = prepare(`SELECT COALESCE(SUM(good_qty),0) g, COALESCE(SUM(defect_qty),0) d FROM returns`).get() as any;
 
   // Operational
@@ -122,7 +128,7 @@ router.get('/performance', (req, res) => {
   const overdue       = (prepare(`SELECT COUNT(*) c FROM issues WHERE status!='closed' AND due_date<?`).get(today) as any).c;
   const pendingIssues = (prepare(`SELECT COUNT(*) c FROM issues WHERE status!='closed'`).get() as any).c;
   const membersWork   = (prepare(`SELECT COUNT(DISTINCT member_id) c FROM issues WHERE status!='closed'`).get() as any).c;
-  const shippedMonth  = (prepare(`SELECT COALESCE(SUM(si.good_qty+si.defect_qty),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE s.shipped_at LIKE ?`).get(mk) as any).v;
+  const shippedMonth  = (prepare(`SELECT COALESCE(SUM(si.good_qty+si.defect_qty),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE s.shipped_at > ? AND s.shipped_at <= ?`).get(cycleStart, cycleEnd) as any).v;
   const activeMembers = (prepare(`SELECT COUNT(*) c FROM members WHERE status='active'`).get() as any).c;
   // แยกค่าใช้จ่าย: จ่ายให้สมาชิก/ผู้บริหาร → นับรวมค่าตอบแทนผู้บริหาร · ที่เหลือ (general) → ค่าบริหารจัดการ
   const expToCompMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager')`).get(thisMonth) as any).v;
@@ -167,16 +173,13 @@ router.get('/performance', (req, res) => {
   const finalNetMonth = revMonthVal - taxMonth - wageMonthVal - managerCompMonth - expensesMonth;
   const finalNetAll = revAllVal - taxAll - wageAllVal - managerCompAll - expensesAll;
 
-  // 6-month trend: revenue vs wage
-  const revByMonth  = prepare(`SELECT strftime('%Y-%m', s.shipped_at) month, COALESCE(SUM(COALESCE(si.received_qty, si.good_qty)*p.factory_price),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id GROUP BY month`).all() as any[];
-  // ค่าตัดในกราฟ = ค่าแรงตามรอบจ่าย (cut-off) ให้ตรงกับการ์ด/หน้าสรุปค่าแรง
-  const revMap  = Object.fromEntries(revByMonth.map(r => [r.month, r.v]));
+  // 6-month trend: รายรับ + ค่าแรง คิดตามรอบจ่าย (cut-off) เดียวกันทั้งคู่ ให้เทียบช่วงเวลาเดียวกัน
   const trend: any[] = [];
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const revenue = revMap[m] || 0;
+    const revenue = monthRevenueOf(m);
     const wage = payCycleWage(m);
     trend.push({ month: m, revenue, wage, profit: revenue - wage });
   }
