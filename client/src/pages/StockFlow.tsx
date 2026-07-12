@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { reportApi, shipmentApi, productApi, ocrApi } from '../api';
@@ -50,12 +50,20 @@ function monthOptions() {
 
 /* ─── Tab 1: Check & Balance + month movement ────────────── */
 function CheckBalance() {
-  const [month, setMonth] = useState(''); // '' = ทั้งหมด
+  const now = new Date();
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`); // ค่าเริ่มต้น = เดือนล่าสุด
+  const [pickedMonth, setPickedMonth] = useState(false);   // ผู้ใช้เลือกเองแล้วหรือยัง
   const monthly = !!month;
   const { data, isLoading } = useQuery({
     queryKey: ['stock-flow', month || 'all'],
     queryFn: () => reportApi.stockFlow(month || undefined),
   });
+  // ถ้าเดือนปัจจุบันไม่มีข้อมูล ให้เด้งไปเดือนล่าสุดที่มีข้อมูล (ครั้งแรกเท่านั้น)
+  useEffect(() => {
+    if (!pickedMonth && data?.months?.length && !data.months.includes(month)) {
+      setMonth(data.months[0]);
+    }
+  }, [data, pickedMonth]);
   const products: any[] = data?.products || [];
   const sum = (k: string) => products.reduce((s, p) => s + (p[k] || 0), 0);
   const totalRecv = sum('received');
@@ -99,8 +107,8 @@ function CheckBalance() {
     <div className="card flex flex-wrap items-end gap-3">
       <div>
         <label className="label">เดือน</label>
-        <select className="input w-44 text-sm" value={month} onChange={e => setMonth(e.target.value)}>
-          <option value="">ภาพรวม</option>
+        <select className="input w-44 text-sm" value={month} onChange={e => { setPickedMonth(true); setMonth(e.target.value); }}>
+          <option value="">ภาพรวม (สะสมทั้งหมด)</option>
           {availMonths.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
         </select>
       </div>

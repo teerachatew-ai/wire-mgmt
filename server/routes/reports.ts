@@ -124,8 +124,11 @@ router.get('/performance', (req, res) => {
   const membersWork   = (prepare(`SELECT COUNT(DISTINCT member_id) c FROM issues WHERE status!='closed'`).get() as any).c;
   const shippedMonth  = (prepare(`SELECT COALESCE(SUM(si.good_qty+si.defect_qty),0) v FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE s.shipped_at LIKE ?`).get(mk) as any).v;
   const activeMembers = (prepare(`SELECT COUNT(*) c FROM members WHERE status='active'`).get() as any).c;
-  const expensesMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ?`).get(thisMonth) as any).v;
-  const expensesAll = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses`).get() as any).v;
+  // แยกค่าใช้จ่าย: จ่ายให้สมาชิก/ผู้บริหาร → นับรวมค่าตอบแทนผู้บริหาร · ที่เหลือ (general) → ค่าบริหารจัดการ
+  const expToCompMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager')`).get(thisMonth) as any).v;
+  const expToCompAll   = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE paid_to_type IN ('member','manager')`).get() as any).v;
+  const expensesMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(thisMonth) as any).v;
+  const expensesAll = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE (paid_to_type IS NULL OR paid_to_type='general')`).get() as any).v;
 
   // ประมาณการเดือนนี้ = งานที่มีอยู่พร้อมทำ = ยอดยกมาต้นเดือน (คงค้างในระบบจากเดือนก่อน) + รับเข้าในเดือนนี้
   // ยอดยกมา = รับเข้าสะสม − ส่งออกสะสม − สูญเสียสะสม (ก่อนเริ่มเดือน)  [สอดคล้องกับหน้าตรวจสอบสต้อค]
@@ -151,10 +154,12 @@ router.get('/performance', (req, res) => {
   const wageAllVal = payCycleWage(null);
   const revMonthVal = sum('revenue_month');
   const revAllVal = sum('revenue_all');
-  // ค่าตอบแทนผู้บริหาร: เดือนนี้ = ตามที่กำหนดรายเดือน (หรืออัตโนมัติ) · สะสม = รวมทุกเดือนที่มีการส่งออก
-  const managerCompMonth = managerCompForMonth(thisMonth).reduce((s, m) => s + (m.computed || 0), 0);
+  // ค่าตอบแทนผู้บริหาร: เดือนนี้ = ตามที่กำหนดรายเดือน (หรืออัตโนมัติ) + ค่าใช้จ่ายที่จ่ายให้สมาชิก/ผู้บริหาร · สะสม = รวมทุกเดือน
+  const managerCompBaseMonth = managerCompForMonth(thisMonth).reduce((s, m) => s + (m.computed || 0), 0);
   const shipMonths = (prepare(`SELECT DISTINCT strftime('%Y-%m', shipped_at) m FROM shipments WHERE shipped_at IS NOT NULL AND shipped_at != ''`).all() as any[]).map(r => r.m);
-  const managerCompAll = shipMonths.reduce((s, m) => s + managerCompForMonth(m).reduce((a, x) => a + (x.computed || 0), 0), 0);
+  const managerCompBaseAll = shipMonths.reduce((s, m) => s + managerCompForMonth(m).reduce((a, x) => a + (x.computed || 0), 0), 0);
+  const managerCompMonth = managerCompBaseMonth + expToCompMonth;
+  const managerCompAll = managerCompBaseAll + expToCompAll;
   const taxRate = withholdingTaxPct / 100;
   const taxMonth = revMonthVal * taxRate;
   const taxAll = revAllVal * taxRate;
@@ -842,6 +847,59 @@ router.get('/payroll-cumulative', (req, res) => {
   const allMonths = [...new Set(rows.map((r: any) => r.month))].sort();
 
   res.json({ members: Object.values(memberMap), all_months: allMonths });
+});
+
+// สรุปรายรับรายจ่าย (P&L) ของเดือน — สำหรับ export เป็นรายงาน Excel
+function buildPL(month: string) {
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const taxRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
+  const revenue = monthRevenueOf(month);
+  const wage = payCycleWage(month);
+  const gross = revenue - wage;
+  const tax = revenue * taxRate;
+  const managerLines = managerCompForMonth(month).map((m: any) => ({ name: m.name, role: m.role || '', computed: m.computed || 0 }));
+  const managerBase = managerLines.reduce((s, m) => s + m.computed, 0);
+  const compExpLines = prepare(`SELECT description, paid_to_type, paid_to_name, amount FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager') ORDER BY id`).all(month) as any[];
+  const compExpTotal = compExpLines.reduce((s, e) => s + (e.amount || 0), 0);
+  const generalExpLines = prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[];
+  const generalExpTotal = generalExpLines.reduce((s, e) => s + (e.amount || 0), 0);
+  const managerComp = managerBase + compExpTotal;
+  const net = revenue - tax - wage - managerComp - generalExpTotal;
+  return {
+    month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
+    revenue, wage, gross, tax,
+    manager_base: managerBase, manager_lines: managerLines,
+    comp_exp_total: compExpTotal, comp_exp_lines: compExpLines,
+    manager_comp: managerComp,
+    general_exp_total: generalExpTotal, general_exp_lines: generalExpLines,
+    net,
+    org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
+  };
+}
+
+router.post('/pl-export', (req, res) => {
+  const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
+  if (!month) return res.status(400).json({ error: 'month required' });
+  const data = buildPL(month);
+  const root = process.cwd();
+  const script = path.join(root, 'server', 'scripts', 'pl_export.py');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pl-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `pl-${month}.xlsx`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+  const py = spawn(PYTHON, [script, dataFile, xlsxFile], { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="pl-${month}.xlsx"`);
+    const stream = fs.createReadStream(xlsxFile);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  });
 });
 
 router.get('/settings', (_req, res) => {

@@ -1,22 +1,45 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { reportApi, expenseApi } from '../api';
+import { reportApi, expenseApi, memberApi, managerApi } from '../api';
 import {
   Factory, Wallet, Sparkles, Truck, ShieldCheck, Clock,
-  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt
+  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2
 } from 'lucide-react';
 
 /* ── Monthly management expenses manager ── */
 function ExpensesManager({ month }: { month: string }) {
   const qc = useQueryClient();
   const { data: list = [] } = useQuery({ queryKey: ['expenses', month], queryFn: () => expenseApi.list(month) });
+  const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => memberApi.list() });
+  const { data: managers = [] } = useQuery({ queryKey: ['managers'], queryFn: () => managerApi.list() });
   const [desc, setDesc] = useState('');
   const [amt, setAmt] = useState('');
+  const [payTo, setPayTo] = useState('general');   // 'general' | 'member:<id>' | 'manager:<id>'
   const refresh = () => { qc.invalidateQueries({ queryKey: ['expenses', month] }); qc.invalidateQueries({ queryKey: ['performance'] }); };
-  const add = useMutation({ mutationFn: () => expenseApi.create({ month, description: desc, amount: amt }), onSuccess: () => { setDesc(''); setAmt(''); refresh(); } });
+  const buildPayload = () => {
+    if (payTo.startsWith('member:')) {
+      const id = Number(payTo.split(':')[1]);
+      const mm = (members as any[]).find((x: any) => x.id === id);
+      return { paid_to_type: 'member', paid_to_id: id, paid_to_name: mm ? mm.name : '' };
+    }
+    if (payTo.startsWith('manager:')) {
+      const id = Number(payTo.split(':')[1]);
+      const mg = (managers as any[]).find((x: any) => x.id === id);
+      return { paid_to_type: 'manager', paid_to_id: id, paid_to_name: mg ? mg.name : '' };
+    }
+    return { paid_to_type: 'general', paid_to_id: null, paid_to_name: null };
+  };
+  const add = useMutation({
+    mutationFn: () => expenseApi.create({ month, description: desc, amount: amt, ...buildPayload() }),
+    onSuccess: () => { setDesc(''); setAmt(''); setPayTo('general'); refresh(); }
+  });
   const del = useMutation({ mutationFn: (id: number) => expenseApi.delete(id), onSuccess: refresh });
   const total = (list as any[]).reduce((s, e) => s + e.amount, 0);
   const fmt2 = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const recipientLabel = (e: any) =>
+    e.paid_to_type === 'member' ? `👤 ${e.paid_to_name || 'สมาชิก'}`
+      : e.paid_to_type === 'manager' ? `👔 ${e.paid_to_name || 'ผู้บริหาร'}`
+        : '';
 
   return (
     <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
@@ -29,7 +52,10 @@ function ExpensesManager({ month }: { month: string }) {
         {(list as any[]).length === 0 && <p className="text-sm text-slate-400 text-center py-2">ยังไม่มีรายการ</p>}
         {(list as any[]).map((e: any) => (
           <div key={e.id} className="flex items-center gap-2 text-sm border-b border-slate-50 pb-2">
-            <span className="flex-1 text-slate-700">{e.description || '(ไม่มีคำอธิบาย)'}</span>
+            <span className="flex-1 text-slate-700">
+              {e.description || '(ไม่มีคำอธิบาย)'}
+              {recipientLabel(e) && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{recipientLabel(e)}</span>}
+            </span>
             <span className="tabular-nums font-medium text-orange-700">฿{fmt2(e.amount)}</span>
             <button className="text-gray-300 hover:text-red-500" onClick={() => del.mutate(e.id)}><Trash2 size={14} /></button>
           </div>
@@ -37,11 +63,21 @@ function ExpensesManager({ month }: { month: string }) {
         {/* add form */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <input className="input flex-1 !min-h-[40px] !py-2 min-w-[140px]" placeholder="รายการ เช่น ค่าน้ำมัน, ค่าไฟ" value={desc} onChange={e => setDesc(e.target.value)} />
-          <input type="number" step="0.01" className="input w-32 !min-h-[40px] !py-2" placeholder="จำนวน" value={amt} onChange={e => setAmt(e.target.value)} />
+          <select className="input !min-h-[40px] !py-2 w-44 text-sm" value={payTo} onChange={e => setPayTo(e.target.value)}>
+            <option value="general">จ่ายทั่วไป (ไม่ระบุ)</option>
+            <optgroup label="— ผู้บริหาร —">
+              {(managers as any[]).map((mg: any) => <option key={`mg${mg.id}`} value={`manager:${mg.id}`}>👔 {mg.name}</option>)}
+            </optgroup>
+            <optgroup label="— สมาชิก —">
+              {(members as any[]).map((mm: any) => <option key={`m${mm.id}`} value={`member:${mm.id}`}>👤 {mm.name}{mm.nickname ? ` (${mm.nickname})` : ''}</option>)}
+            </optgroup>
+          </select>
+          <input type="number" step="0.01" className="input w-28 !min-h-[40px] !py-2" placeholder="จำนวน" value={amt} onChange={e => setAmt(e.target.value)} />
           <button className="btn-primary btn-sm" disabled={!amt || add.isPending} onClick={() => add.mutate()}>
             <Plus size={15} /> เพิ่ม
           </button>
         </div>
+        <p className="text-[11px] text-slate-400">💡 ถ้าเลือกจ่ายให้สมาชิก/ผู้บริหาร ยอดจะถูกนับรวมใน "ค่าตอบแทนผู้บริหาร" ของภาพรวมโดยอัตโนมัติ</p>
         {total > 0 && (
           <div className="flex justify-between pt-2 border-t border-slate-100 text-sm font-semibold">
             <span className="text-slate-600">รวมค่าใช้จ่ายเดือนนี้</span>
@@ -148,6 +184,7 @@ function TrendChart({ trend, selected, onSelect }: { trend: any[]; selected?: st
 export default function Dashboard() {
   const [period, setPeriod] = useState<'month' | 'all'>('month');
   const [selectedMonth, setSelectedMonth] = useState<string | undefined>(undefined); // undefined = เดือนปัจจุบัน
+  const [plBusy, setPlBusy] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['performance', selectedMonth || 'current'],
     queryFn: () => reportApi.performance(selectedMonth),
@@ -175,14 +212,28 @@ export default function Dashboard() {
           <p className="text-xs tracking-wide uppercase text-slate-400">วิสาหกิจชุมชนตัดสายไฟ</p>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-800 mt-0.5">ภาพรวมผลประกอบการ</h1>
         </div>
-        {/* Period toggle */}
-        <div className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
-          {([['month', `เดือน ${monthLabel(data.month)}`], ['all', 'สะสมทั้งหมด']] as const).map(([k, lbl]: any) => (
-            <button key={k} onClick={() => setPeriod(k)}
-              className={`px-4 py-1.5 rounded-lg font-medium transition-all ${period === k ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              {lbl}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Period toggle */}
+          <div className="inline-flex rounded-xl bg-slate-100 p-1 text-sm">
+            {([['month', `เดือน ${monthLabel(data.month)}`], ['all', 'สะสมทั้งหมด']] as const).map(([k, lbl]: any) => (
+              <button key={k} onClick={() => setPeriod(k)}
+                className={`px-4 py-1.5 rounded-lg font-medium transition-all ${period === k ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+          <button className="btn-secondary btn-sm flex items-center gap-1.5" disabled={plBusy}
+            onClick={async () => {
+              setPlBusy(true);
+              try {
+                const blob = await reportApi.plExport(data.month);
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`; a.click();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+              } catch { alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(false); }
+            }}>
+            {plBusy ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} รายงานเดือนนี้ (Excel)
+          </button>
         </div>
       </div>
 

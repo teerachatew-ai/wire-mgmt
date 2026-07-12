@@ -301,6 +301,11 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!returnCols.includes('lost_qty')) {
     db.exec(`ALTER TABLE returns ADD COLUMN lost_qty REAL NOT NULL DEFAULT 0`);
   }
+  // ค่าใช้จ่ายบริหารจัดการ: ระบุผู้รับเงินได้ (general/member/manager) — ถ้าจ่ายให้สมาชิก/ผู้บริหาร นับรวมค่าตอบแทนผู้บริหาร
+  const expCols = db.exec(`PRAGMA table_info(expenses)`)[0]?.values.map(r => r[1]) ?? [];
+  if (!expCols.includes('paid_to_type')) db.exec(`ALTER TABLE expenses ADD COLUMN paid_to_type TEXT`);       // 'general' | 'member' | 'manager'
+  if (!expCols.includes('paid_to_id'))   db.exec(`ALTER TABLE expenses ADD COLUMN paid_to_id INTEGER`);
+  if (!expCols.includes('paid_to_name')) db.exec(`ALTER TABLE expenses ADD COLUMN paid_to_name TEXT`);
   save();
 
   // Backfill pay_cycle for existing returns (compute from returned_at)
