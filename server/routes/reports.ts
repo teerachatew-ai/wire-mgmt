@@ -806,6 +806,116 @@ router.get('/payroll-monthly', (req, res) => {
   });
 });
 
+// ── รายงานเบิกงาน/ส่งงานรายบุคคล (PDF รวมทุกคนในไฟล์เดียว) ─────────────────
+// รวมรายการรับคืนของแต่ละคนที่ถูกจ่ายค่าแรงในรอบนี้ (r.pay_cycle = month) เรียงตามวันที่
+// พร้อมยอดที่คืนหลังเส้นตัดยอด (เส้นตาย) ของเดือนนี้ ซึ่งถูกยกไปจ่ายรอบเดือนถัดไปโดยอัตโนมัติ
+function buildPayrollDetail(month: string) {
+  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const cfg = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
+  const cutoff = computeCutoff(month, holidays, overrides, cutoffDay);
+  const nextM = nextMonth(month);
+
+  const rawMembers = prepare(`
+    SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
+      m.bank_name, m.bank_account,
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
+      COALESCE(SUM(r.ng_cut), 0) as ng_cut_qty,
+      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
+    WHERE r.pay_cycle = ?
+    GROUP BY m.id ORDER BY m.code
+  `).all(defectWagePct, month) as any[];
+
+  const detailRowsStmt = prepare(`
+    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
+      p.name as product_name, p.color, p.unit, p.wage_per_unit,
+      r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle = ?
+    ORDER BY r.returned_at, r.id
+  `);
+  const carryRowsStmt = prepare(`
+    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
+      p.name as product_name, p.color, p.unit, p.wage_per_unit,
+      r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.returned_at > ? AND r.returned_at LIKE ?
+    ORDER BY r.returned_at, r.id
+  `);
+
+  const lineWage = (r: any) => (r.good_qty + r.ng_factory + r.lost_qty) * r.wage_per_unit + r.ng_cut * r.wage_per_unit * defectWagePct;
+
+  const members = rawMembers.map((m: any) => {
+    const ng_deduction = m.ng_excess_qty * ngPenaltyRate;
+    const total_wage = Math.ceil(m.gross_wage - ng_deduction);
+    const rows = (detailRowsStmt.all(m.member_id, month) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
+    const carryRaw = (carryRowsStmt.all(m.member_id, cutoff, `${month}%`) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
+    const carry_subtotal = carryRaw.reduce((s, r) => s + r.wage, 0);
+    return {
+      ...m, ng_deduction, total_wage, rows,
+      carry_rows: carryRaw, carry_subtotal,
+    };
+  });
+
+  return {
+    month, cutoff, next_month: nextM,
+    org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
+    ng_penalty_rate: ngPenaltyRate,
+    members,
+    total_wage: members.reduce((s: number, m: any) => s + m.total_wage, 0),
+  };
+}
+
+router.post('/payroll-detail-export', (req, res) => {
+  const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
+  if (!month) return res.status(400).json({ error: 'month required' });
+  const wantPdf = req.query.format === 'pdf';
+  const data = buildPayrollDetail(month);
+  const root = process.cwd();
+  const script = path.join(root, 'server', 'scripts', 'payroll_detail_export.py');
+  const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'payroll-detail-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `payroll-detail-${month}.xlsx`);
+  const pdfFile = path.join(tmpDir, `payroll-detail-${month}.pdf`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+
+  const sendFile = (file: string, type: string, name: string) => {
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  };
+
+  const py = spawn(PYTHON, [script, dataFile, xlsxFile], { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `payroll-detail-${month}.xlsx`);
+
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
+    let psErr = '';
+    const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 120000);
+    ps.stderr.on('data', (c) => { psErr += c.toString(); });
+    ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
+    ps.on('close', () => {
+      clearTimeout(killTimer);
+      if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
+      sendFile(pdfFile, 'application/pdf', `payroll-detail-${month}.pdf`);
+    });
+  });
+});
+
 // ── Cross-Check ค่าแรง & เงินกันข้ามเดือน ─────────────────────────────────
 // กระทบยอดค่าแรง 2 วิธี (วางบิล/ส่งออก  vs  ใบเบิก/รับคืน) ให้ตรงกันเป๊ะ + คำนวณเงินกันข้ามเดือน
 router.get('/wage-reconcile', (req, res) => {

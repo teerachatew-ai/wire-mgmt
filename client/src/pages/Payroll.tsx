@@ -258,11 +258,23 @@ function MonthlyTab() {
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
+  const [detailBusy, setDetailBusy] = useState(false);
 
   const load = async () => {
     setFetching(true);
     try { setData(await reportApi.payrollMonthly(month)); }
     finally { setFetching(false); }
+  };
+
+  const downloadPayrollDetail = async () => {
+    setDetailBusy(true);
+    try {
+      const blob = await reportApi.payrollDetailExport(month, 'pdf');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `รายงานเบิกงาน-ส่งงาน-${month}.pdf`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch { alert('สร้างรายงานไม่สำเร็จ'); }
+    finally { setDetailBusy(false); }
   };
 
   const matchMember = (m: any) => {
@@ -297,6 +309,11 @@ function MonthlyTab() {
           <button className="btn-secondary flex items-center gap-2"
             onClick={() => openPayrollSignSheet(data, monthLabel(data.month))}>
             <FileText size={14} /> พิมพ์ใบเซ็นรับเงิน (PDF)
+          </button>
+        )}
+        {data?.members?.length > 0 && (
+          <button className="btn-secondary flex items-center gap-2" disabled={detailBusy} onClick={downloadPayrollDetail}>
+            {detailBusy ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงานเบิกงาน/ส่งงานรายบุคคล (PDF)
           </button>
         )}
         <p className="w-full text-xs text-gray-400 mt-1">
