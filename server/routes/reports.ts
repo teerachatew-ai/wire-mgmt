@@ -835,7 +835,7 @@ function buildPayrollDetail(month: string) {
       r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
-    ORDER BY r.returned_at, r.id
+    ORDER BY i.issued_at, r.id
   `);
   const carryRowsStmt = prepare(`
     SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
@@ -843,7 +843,7 @@ function buildPayrollDetail(month: string) {
       r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.returned_at > ? AND r.returned_at LIKE ?
-    ORDER BY r.returned_at, r.id
+    ORDER BY i.issued_at, r.id
   `);
 
   const lineWage = (r: any) => (r.good_qty + r.ng_factory + r.lost_qty) * r.wage_per_unit + r.ng_cut * r.wage_per_unit * defectWagePct;
