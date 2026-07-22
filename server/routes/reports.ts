@@ -806,6 +806,73 @@ router.get('/payroll-monthly', (req, res) => {
   });
 });
 
+// ── Cross-Check ค่าแรง & เงินกันข้ามเดือน ─────────────────────────────────
+// กระทบยอดค่าแรง 2 วิธี (วางบิล/ส่งออก  vs  ใบเบิก/รับคืน) ให้ตรงกันเป๊ะ + คำนวณเงินกันข้ามเดือน
+router.get('/wage-reconcile', (req, res) => {
+  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
+    ? req.query.month : new Date().toISOString().substring(0, 7);
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const monthStart = `${m}-01`;
+  const nextStart = `${nextMonth(m)}-01`;
+  const mk = `${m}%`;
+
+  const rows = prepare(`
+    SELECT p.id, p.name, p.color, p.unit, p.wage_per_unit as wage,
+      -- คืนงานดี ตามรอบจ่าย (payroll / pay_cycle)
+      COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_good_cyc,
+      COALESCE((SELECT SUM(r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngfac_cyc,
+      COALESCE((SELECT SUM(r.lost_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_lost_cyc,
+      COALESCE((SELECT SUM(r.ng_cut)     FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngcut_cyc,
+      -- คืนงานดี ตามวันปฏิทิน (physical, ใช้กระทบกับสต๊อก)
+      COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at>=? AND r.returned_at<?),0) as ret_good_cal,
+      -- ส่งออกงานดี ตามเดือนปฏิทิน (billing) — ยอดโรงงานรับจริงถ้ามี
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as ship_good_cal,
+      -- สต๊อกงานดี (คืนแล้วรอส่ง) ก่อนเริ่มเดือน / สิ้นเดือน
+      COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at<?),0) as ret_good_bef,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at<?),0) as ship_good_bef,
+      COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at<?),0) as ret_good_upto,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at<?),0) as ship_good_upto
+    FROM products p WHERE p.active=1
+  `).all(m, m, m, m, monthStart, nextStart, mk, monthStart, monthStart, nextStart, nextStart) as any[];
+
+  const products = rows.map((p: any) => {
+    const wage = p.wage || 0;
+    const fg_open = p.ret_good_bef - p.ship_good_bef;         // สต๊อกงานดี ต้นเดือน (คืน−ส่ง สะสม)
+    const fg_close = p.ret_good_upto - p.ship_good_upto;      // สต๊อกงานดี สิ้นเดือน
+    const dFG = fg_close - fg_open;                            // = ret_good_cal − ship_good_cal (เอกลักษณ์ทางกายภาพ)
+    const wage_billed = p.ship_good_cal * wage;               // A
+    const wage_dFG = dFG * wage;                               // ΔFG
+    const wage_timing = (p.ret_good_cyc - p.ret_good_cal) * wage;  // T (เหลื่อมรอบตัดยอด)
+    const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * defectWagePct; // X
+    const wage_payroll = wage_billed + wage_dFG + wage_timing + wage_extra;  // B (gross)
+    const reserve_open = Math.max(0, fg_open) * wage;
+    const reserve_close = Math.max(0, fg_close) * wage;       // เงินกันข้ามเดือน (ต่อสินค้า)
+    return {
+      id: p.id, name: p.name, color: p.color, unit: p.unit, wage,
+      ret_good_cyc: p.ret_good_cyc, ship_good_cal: p.ship_good_cal,
+      fg_open, fg_close, dFG,
+      wage_billed, wage_dFG, wage_timing, wage_extra, wage_payroll,
+      reserve_open, reserve_close,
+    };
+  });
+
+  const sum = (k: string) => products.reduce((s, p: any) => s + (p[k] || 0), 0);
+  res.json({
+    month: m,
+    products,
+    totals: {
+      wage_billed: sum('wage_billed'),        // A — ค่าแรงตามยอดวางบิล/ส่งออก
+      wage_dFG: sum('wage_dFG'),              // ΔFG — งานคืนแล้วยังไม่ส่ง (เปลี่ยนแปลง)
+      wage_timing: sum('wage_timing'),        // T — เหลื่อมรอบตัดยอด
+      wage_extra: sum('wage_extra'),          // X — งานเสียโรงงาน/หาย
+      wage_payroll: sum('wage_payroll'),      // B — ค่าแรงที่ต้องจ่ายสมาชิกรอบนี้ (gross)
+      reserve_open: sum('reserve_open'),      // เงินกันยกมา
+      reserve_close: sum('reserve_close'),    // เงินกันยกไป (ต้องถือข้ามเดือน)
+    },
+  });
+});
+
 // กำหนดค่าตอบแทนผู้บริหารรายเดือน (override) — ส่ง amount=null/'' เพื่อกลับไปใช้ค่าอัตโนมัติ
 router.put('/manager-month', (req, res) => {
   const { month, manager_id, amount } = req.body || {};

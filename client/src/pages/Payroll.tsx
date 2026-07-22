@@ -4,7 +4,7 @@ import { reportApi } from '../api';
 import {
   DollarSign, Download, Users, TrendingUp,
   ChevronDown, ChevronUp, Loader2,
-  Wallet, Building2, FileText, RotateCcw, Save, X, Eye
+  Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank
 } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
@@ -616,13 +616,132 @@ function CumulativeTab() {
   );
 }
 
+/* ─── Tab 3: Cross-Check ค่าแรง & เงินกันข้ามเดือน ─────────── */
+function WageReconcileTab() {
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [month, setMonth] = useState(defaultMonth);
+  const { data, isLoading } = useQuery({ queryKey: ['wage-reconcile', month], queryFn: () => reportApi.wageReconcile(month) });
+  const t = data?.totals;
+  const money = (n: number) => `฿${fmt(n || 0)}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-end gap-4">
+        <div>
+          <label className="label">รอบจ่าย (เดือน)</label>
+          <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
+        </div>
+        <p className="text-xs text-gray-500 pb-2 max-w-md">
+          กระทบยอดค่าแรง 2 วิธี — คิดจาก "ยอดส่งออก/วางบิล" เทียบกับ "ยอดคืนงานของสมาชิก" ให้ตรงกันเป๊ะ
+          และคำนวณเงินที่ต้อง<b>กันไว้จ่ายค่าแรงข้ามเดือน</b>
+        </p>
+      </div>
+
+      {isLoading || !t ? (
+        <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>
+      ) : (
+        <>
+          {/* เงินกันข้ามเดือน (Reserve) */}
+          <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="p-2 rounded-xl bg-amber-100 text-amber-600"><PiggyBank size={18} /></span>
+              <span className="text-sm font-semibold text-amber-800">เงินกันไว้จ่ายค่าแรงเดือนถัดไป (ยกไป)</span>
+            </div>
+            <p className="text-3xl md:text-[34px] font-bold text-amber-700 tabular-nums leading-none">{money(t.reserve_close)}</p>
+            <p className="text-xs text-amber-700/80 mt-2">
+              = มูลค่าค่าแรงของ<b>งานที่สมาชิกตัดเสร็จคืนมาแล้ว แต่ยังไม่ได้ส่งออก/วางบิล</b> ณ สิ้นเดือน
+              <br />⚠️ เงินก้อนนี้เป็นของสมาชิก — <b>ห้ามนำไปแบ่งกำไร/จ่ายผู้บริหาร/ลงทุน</b> ต้องถือไว้จ่ายเดือนถัดไป
+            </p>
+            <div className="mt-3 pt-3 border-t border-amber-200/70 flex flex-wrap gap-x-6 gap-y-1 text-xs text-amber-700">
+              <span>เงินกันยกมา (ต้นเดือน): <b>{money(t.reserve_open)}</b></span>
+              <span>เปลี่ยนแปลงเดือนนี้: <b className={t.reserve_close - t.reserve_open >= 0 ? 'text-rose-600' : 'text-green-700'}>
+                {t.reserve_close - t.reserve_open >= 0 ? '+' : ''}{fmt(t.reserve_close - t.reserve_open)}</b></span>
+            </div>
+          </div>
+
+          {/* สมการกระทบยอด */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-4 py-3 border-b bg-slate-50 flex items-center gap-2">
+              <Scale size={15} className="text-slate-600" />
+              <span className="font-semibold text-slate-700 text-sm">กระทบยอดค่าแรง — {monthLabel(month)}</span>
+            </div>
+            <div className="p-4 space-y-1.5 text-sm">
+              {[
+                ['ค่าแรงตามยอดส่งออก / วางบิล (เดือนนี้)', t.wage_billed, 'text-green-700', 'A · โรงงานจ่ายเงินตามยอดนี้'],
+                ['+ งานคืนแล้วยังไม่ได้ส่ง (สต๊อกงานดีเปลี่ยนแปลง)', t.wage_dFG, 'text-amber-700', 'สมาชิกตัดคืนมา แต่ของยังค้างสต๊อก'],
+                ['+ เหลื่อมรอบตัดยอด (ปลายเดือน)', t.wage_timing, 'text-blue-700', 'งานคืนช่วงคาบเกี่ยววันตัดยอด'],
+                ['+ ค่าแรงงานเสีย-โรงงาน / งานหาย (จ่ายปกติ)', t.wage_extra, 'text-violet-700', 'จ่ายค่าแรงแต่ไม่มียอดส่งรองรับ'],
+              ].map(([label, val, color, note]: any) => (
+                <div key={label} className="flex items-center justify-between gap-2 py-1">
+                  <div className="min-w-0">
+                    <span className="text-gray-700">{label}</span>
+                    <span className="block text-[11px] text-gray-400">{note}</span>
+                  </div>
+                  <span className={`tabular-nums font-semibold shrink-0 ${color}`}>{val < 0 ? '−' : ''}{money(Math.abs(val))}</span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-2 pt-2.5 mt-1.5 border-t-2 border-slate-200">
+                <span className="font-bold text-slate-800">= ค่าแรงที่ต้องจ่ายสมาชิกรอบนี้</span>
+                <span className="tabular-nums font-bold text-slate-900 text-lg">{money(t.wage_payroll)}</span>
+              </div>
+              <p className="text-[11px] text-gray-400 pt-1">* ยอดนี้ตรงกับหน้า "สรุปรายเดือน" (ก่อนหักค่าปรับ NG-เกินเกณฑ์)</p>
+            </div>
+          </div>
+
+          {/* ตารางแยกตามสินค้า */}
+          <div className="card p-0 overflow-x-auto">
+            <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
+              <span className="font-semibold text-gray-700 text-sm">แยกตามชนิดสายไฟ — สต๊อกงานดีค้าง & เงินกันข้ามเดือน</span>
+            </div>
+            <table className="w-full text-sm whitespace-nowrap">
+              <thead className="border-b bg-gray-50 text-xs text-gray-500">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-medium">สายไฟ</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-green-600">คืนงานดี (รอบนี้)</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-amber-700">ส่งออก (เดือนนี้)</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-orange-600 whitespace-normal leading-tight">สต๊อกงานดี<br />ค้าง (ยกไป)</th>
+                  <th className="px-3 py-2.5 text-right font-medium">ค่าแรง/หน่วย</th>
+                  <th className="px-3 py-2.5 text-right font-medium text-amber-700 whitespace-normal leading-tight">เงินกันไว้<br />(ยกไป)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.products as any[]).filter((p: any) => p.ret_good_cyc || p.ship_good_cal || p.fg_close).map((p: any) => (
+                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="px-3 py-2.5">
+                      <span className="inline-flex items-center gap-1.5">
+                        {p.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                        <span className="text-gray-800">{p.name}</span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-green-700">{fmtQty(p.ret_good_cyc)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{fmtQty(p.ship_good_cal)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-orange-700">{p.fg_close > 0 ? fmtQty(p.fg_close) : '-'}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{p.wage}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-700">{p.reserve_close > 0 ? money(p.reserve_close) : '-'}</td>
+                  </tr>
+                ))}
+                <tr className="bg-amber-50 border-t font-semibold">
+                  <td className="px-3 py-2.5 text-gray-700" colSpan={5}>รวมเงินกันข้ามเดือน</td>
+                  <td className="px-3 py-2.5 text-right text-amber-800 text-base">{money(t.reserve_close)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main page ───────────────────────────────────────────── */
 export default function Payroll() {
-  const [tab, setTab] = useState<'monthly' | 'cumulative'>('monthly');
+  const [tab, setTab] = useState<'monthly' | 'cumulative' | 'reconcile'>('monthly');
 
   const tabs = [
     { key: 'monthly', label: 'สรุปรายเดือน', icon: DollarSign },
     { key: 'cumulative', label: 'ยอดสะสมรายบุคคล', icon: TrendingUp },
+    { key: 'reconcile', label: 'กระทบยอด & เงินกัน', icon: Scale },
   ] as const;
 
   return (
@@ -655,6 +774,7 @@ export default function Payroll() {
       <div>
         {tab === 'monthly' && <MonthlyTab />}
         {tab === 'cumulative' && <CumulativeTab />}
+        {tab === 'reconcile' && <WageReconcileTab />}
       </div>
     </div>
   );
