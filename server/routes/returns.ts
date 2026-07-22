@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepare, nextCode } from '../db';
+import { prepare, nextDateCode } from '../db';
 import { computePayCycle, loadCutoffConfig } from '../payCycle';
 import { userOf } from '../reqUser';
 
@@ -54,7 +54,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
   }
 
-  const code = nextCode('RT', 'returns');
+  const code = nextDateCode('RT', 'returns', returned_at);
   const payCycle = payCycleFor(returned_at);
   const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, wQty, lQty, inspector || null, notes || null, payCycle, userOf(req));

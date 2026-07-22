@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepare, nextCode } from '../db';
+import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
 
 const router = Router();
@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   const { received_at, product_id, quantity, factory_ref, notes } = req.body;
   if (!received_at || !product_id || !quantity) return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
-  const code = nextCode('RC', 'receives');
+  const code = nextDateCode('RC', 'receives', received_at);
   const result = prepare(`INSERT INTO receives (code, received_at, product_id, quantity, factory_ref, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(code, received_at, product_id, quantity, factory_ref || null, notes || null, userOf(req));
   res.json(prepare(`SELECT r.*, p.name as product_name, p.unit FROM receives r JOIN products p ON r.product_id = p.id WHERE r.id = ?`).get(result.lastInsertRowid));

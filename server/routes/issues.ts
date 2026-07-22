@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepare, nextCode } from '../db';
+import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
 
 const router = Router();
@@ -66,7 +66,7 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: `เบิกเกินเพดาน (คงค้าง ${pending.total} + ขอเบิก ${quantity} > ${maxUnits} หน่วย)` });
   }
 
-  const code = nextCode('IS', 'issues');
+  const code = nextDateCode('IS', 'issues', issued_at);
   const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(code, issued_at, member_id, product_id, quantity, due_date || null, notes || null, userOf(req));
 

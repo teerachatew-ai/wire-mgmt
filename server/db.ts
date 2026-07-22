@@ -87,9 +87,10 @@ function prepare(sql: string) {
   return {
     run(...params: any[]) {
       db.run(sql, params);
-      save();
-      // get last insert rowid
+      // ต้องอ่าน last_insert_rowid() ก่อนเรียก save() เสมอ — db.export() ที่อยู่ใน save()
+      // ทำให้ค่า last_insert_rowid() ของ connection ถูกรีเซ็ตเป็น 0 ถ้าอ่านหลัง save()
       const [[lastId]] = db.exec('SELECT last_insert_rowid()')[0]?.values || [[0]];
+      save();
       return { lastInsertRowid: lastId as number };
     },
     get(...params: any[]) {
@@ -345,6 +346,27 @@ CREATE TABLE IF NOT EXISTS managers (
   setInterval(backupDaily, 6 * 60 * 60 * 1000); // เช็คทุก 6 ชม. (สร้างไฟล์วันละ 1 ครั้ง)
 
   return { prepare, exec };
+}
+
+// รหัสอิงวันที่ของเอกสารจริง (ไม่ใช่วันที่บันทึก) เช่น IS260722-01, IS260722-02 (ใบที่ 2 ของวันนั้น)
+// ใช้กับเอกสารที่มี "วันที่" สื่อความหมาย: รับของ/เบิกงาน/รับคืน/ส่งของ
+export function nextDateCode(prefix: string, table: string, docDate: string, field: string = 'code'): string {
+  const d = new Date(docDate);
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const datePart = `${yy}${mm}${dd}`;
+  const dayPrefix = `${prefix}${datePart}-`;
+  const res = db.exec(`SELECT ${field} FROM ${table} WHERE ${field} LIKE '${dayPrefix}%'`);
+  const codes = (res[0]?.values ?? []).map(r => String(r[0]));
+  const re = new RegExp(`^${dayPrefix}(\\d+)$`);
+  let maxNum = 0;
+  for (const c of codes) { const mNum = re.exec(c); if (mNum) maxNum = Math.max(maxNum, Number(mNum[1])); }
+  const used = new Set(codes);
+  let num = maxNum + 1;
+  let code = `${dayPrefix}${String(num).padStart(2, '0')}`;
+  while (used.has(code)) { num++; code = `${dayPrefix}${String(num).padStart(2, '0')}`; }
+  return code;
 }
 
 export function nextCode(prefix: string, table: string, field: string = 'code'): string {
