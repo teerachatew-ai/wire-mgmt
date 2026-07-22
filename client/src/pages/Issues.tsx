@@ -122,19 +122,16 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
   const setMaxStock = (s: any) => Math.min(...s.products.map((p: any) => stockOf(p.id)));
 
   const onSubmit = async (formData: any) => {
-    // สร้างรายการที่จะเบิก (product_id + quantity) จากโหมดที่เลือก
-    let toCreate: { product_id: any; quantity: any }[] = [];
-    if (mode === 'set') {
-      for (const s of sets) {
-        const q = parseFloat(setQty[s.key]);
-        if (q > 0) for (const p of s.products) toCreate.push({ product_id: p.id, quantity: q });
-      }
-      if (toCreate.length === 0) { setError('กรุณากรอกจำนวนของชุดที่ต้องการเบิกอย่างน้อย 1 ชุด'); return; }
-    } else {
-      const valid = lines.filter(l => l.product_id && l.quantity);
-      if (valid.length === 0) { setError('กรุณาเลือกสินค้าและจำนวนอย่างน้อย 1 รายการ'); return; }
-      toCreate = valid.map(l => ({ product_id: l.product_id, quantity: l.quantity }));
+    // รวมรายการที่จะเบิกจากทั้ง 2 โหมด — สลับแท็บดูได้ แต่ข้อมูลที่กรอกไว้ทั้งคู่จะถูกบันทึกพร้อมกันเสมอ
+    const toCreate: { product_id: any; quantity: any }[] = [];
+    for (const s of sets) {
+      const q = parseFloat(setQty[s.key]);
+      if (q > 0) for (const p of s.products) toCreate.push({ product_id: p.id, quantity: q });
     }
+    for (const l of lines.filter(l => l.product_id && l.quantity)) {
+      toCreate.push({ product_id: l.product_id, quantity: l.quantity });
+    }
+    if (toCreate.length === 0) { setError('กรุณากรอกจำนวนอย่างน้อย 1 รายการ (เบิกเป็นชุด หรือ เบิกแยกชิ้น)'); return; }
     setLoading(true); setError('');
     try {
       for (const it of toCreate) await issueApi.create({ ...formData, product_id: it.product_id, quantity: it.quantity });
@@ -161,9 +158,9 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
           <MemberSelect members={members} value={memberId} onChange={(id) => setValue('member_id', id, { shouldValidate: true })} activeOnly />
         </div>
 
-        {/* เลือกรูปแบบการเบิก */}
+        {/* เลือกรูปแบบการเบิก — สลับดูได้ทั้งสองแบบ กรอกไว้ทั้งคู่ก็บันทึกพร้อมกันตอนกดสร้างใบเบิก */}
         <div>
-          <label className="label">รูปแบบการเบิก</label>
+          <label className="label">รูปแบบการเบิก <span className="font-normal text-gray-400">(สลับแท็บได้ กรอกทั้งสองแบบพร้อมกันได้)</span></label>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setMode('set')}
               className={`rounded-xl border-2 p-3 text-left transition ${mode === 'set' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'}`}>
@@ -237,20 +234,33 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
 
-        {/* สรุป */}
-        {mode === 'set' && setCount > 0 && (
-          <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800">
-            <p className="font-semibold mb-1">สรุปที่จะสร้าง:</p>
-            {sets.filter(s => parseFloat(setQty[s.key]) > 0).map(s => (
-              <p key={s.key}>• {setLabel(s)}: {s.products.map((p: any) => `${p.name} ${Number(setQty[s.key]).toLocaleString()}`).join(', ')}</p>
-            ))}
+        {/* สรุป — แสดงรวมทั้ง 2 โหมด (ไม่ว่ากำลังเปิดแท็บไหนอยู่ ข้อมูลที่กรอกไว้จะถูกบันทึกทั้งหมด) */}
+        {(setCount > 0 || singleCount > 0) && (
+          <div className="space-y-2">
+            {setCount > 0 && (
+              <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800">
+                <p className="font-semibold mb-1">📦 เบิกเป็นชุด:</p>
+                {sets.filter(s => parseFloat(setQty[s.key]) > 0).map(s => (
+                  <p key={s.key}>• {setLabel(s)}: {s.products.map((p: any) => `${p.name} ${Number(setQty[s.key]).toLocaleString()}`).join(', ')}</p>
+                ))}
+              </div>
+            )}
+            {singleCount > 0 && (
+              <div className="bg-emerald-50 rounded-xl p-3 text-sm text-emerald-800">
+                <p className="font-semibold mb-1">✂️ เบิกแยกชิ้น:</p>
+                {lines.filter(l => l.product_id && l.quantity).map((l, idx) => {
+                  const p = activeProducts.find((x: any) => String(x.id) === String(l.product_id));
+                  return <p key={idx}>• {p ? `${colorDot(p.color)}${p.name}` : l.product_id}: {Number(l.quantity).toLocaleString()}</p>;
+                })}
+              </div>
+            )}
           </div>
         )}
 
         <div className="flex gap-2 justify-end pt-1">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'กำลังสร้าง...' : `สร้างใบเบิก (${mode === 'set' ? setCount : singleCount} รายการ)`}
+            {loading ? 'กำลังสร้าง...' : `สร้างใบเบิก (${setCount + singleCount} รายการ)`}
           </button>
         </div>
       </form>
