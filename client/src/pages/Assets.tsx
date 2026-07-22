@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { assetApi } from '../api';
 import { Boxes, Plus, X, Edit2, Trash2, Coins, Loader2 } from 'lucide-react';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -115,9 +116,17 @@ export default function Assets() {
           <Boxes size={20} className="text-blue-600" />
           <h1 className="text-xl font-bold text-gray-800">สินทรัพย์ / การลงทุน</h1>
         </div>
-        <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setEditing(null); setModal('add'); }}>
-          <Plus size={16} /> เพิ่มสินทรัพย์
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportExcelButton filename="สินทรัพย์และการลงทุน" rows={assets.map(a => ({
+            'สินทรัพย์': a.name, 'วันที่ซื้อ': a.purchase_date || '', 'ราคาซื้อ': a.price,
+            'เจ้าของออกก่อน': a.owner_advanced ? 'ใช่' : 'ไม่ใช่',
+            'คืนแล้ว': a.owner_advanced ? a.repaid : '', 'คงเหลือ': a.owner_advanced ? a.remaining : '',
+            'หมายเหตุ': a.note || '',
+          }))} />
+          <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setEditing(null); setModal('add'); }}>
+            <Plus size={16} /> เพิ่มสินทรัพย์
+          </button>
+        </div>
       </div>
 
       {/* สรุป */}

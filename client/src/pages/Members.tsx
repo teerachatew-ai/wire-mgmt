@@ -2,27 +2,19 @@ import { useState, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { memberApi, ocrApi, smartcardApi, reportApi } from '../api';
-import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History, Download } from 'lucide-react';
+import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History } from 'lucide-react';
+import ExportExcelButton from '../components/ExportExcelButton';
 
-/* Export members list to CSV (UTF-8 BOM → opens cleanly in Excel) */
-function exportMembersCSV(members: any[]) {
-  const headers = ['รหัส', 'ชื่อ-สกุล', 'ชื่อเล่น', 'เลขบัตรประชาชน', 'เบอร์โทร', 'ที่อยู่', 'ธนาคาร', 'เลขบัญชี', 'สถานะ', 'เกรด', 'งานเสียเกิน3%(ครั้ง)', 'จำนวนงาน', 'PDPA', 'วันที่ลงทะเบียน'];
-  const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const rows = members.map(m => [
-    m.code, m.name, m.nickname || '', m.id_card || '', m.phone || '', m.address || '',
-    m.bank_name || '', m.bank_account || '',
-    m.status === 'active' ? 'ใช้งาน' : 'พักงาน',
-    m.grade || '', m.ng_count ?? 0, m.batch_count ?? 0,
-    m.pdpa_consent ? 'ยินยอม' : 'ยังไม่ยินยอม', m.registered_at || ''
-  ].map(esc).join(','));
-  const csv = '﻿' + [headers.map(esc).join(','), ...rows].join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `รายชื่อสมาชิก-${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+/* แปลงรายชื่อสมาชิกเป็นแถวสำหรับ export Excel */
+function membersToRows(members: any[]) {
+  return members.map(m => ({
+    'รหัส': m.code, 'ชื่อ-สกุล': m.name, 'ชื่อเล่น': m.nickname || '',
+    'เลขบัตรประชาชน': m.id_card || '', 'เบอร์โทร': m.phone || '', 'ที่อยู่': m.address || '',
+    'ธนาคาร': m.bank_name || '', 'เลขบัญชี': m.bank_account || '',
+    'สถานะ': m.status === 'active' ? 'ใช้งาน' : 'พักงาน',
+    'เกรด': m.grade || '', 'งานเสียเกิน3%(ครั้ง)': m.ng_count ?? 0, 'จำนวนงาน': m.batch_count ?? 0,
+    'PDPA': m.pdpa_consent ? 'ยินยอม' : 'ยังไม่ยินยอม', 'วันที่ลงทะเบียน': m.registered_at || '',
+  }));
 }
 
 /* ── Performance grade badge ── */
@@ -591,11 +583,7 @@ export default function Members() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-800">ทะเบียนสมาชิก</h1>
         <div className="flex items-center gap-2">
-          <button className="btn-secondary btn-sm flex items-center gap-2"
-            onClick={() => exportMembersCSV(data as any[])}
-            disabled={(data as any[]).length === 0}>
-            <Download size={16} /> <span className="hidden sm:inline">ดาวน์โหลด</span> Excel
-          </button>
+          <ExportExcelButton filename={`รายชื่อสมาชิก-${new Date().toISOString().split('T')[0]}`} rows={membersToRows(data as any[])} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={openAdd}>
             <UserPlus size={16} /> เพิ่มสมาชิก
           </button>

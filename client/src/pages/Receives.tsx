@@ -5,6 +5,7 @@ import { receiveApi, productApi, ocrApi } from '../api';
 import { colorDot } from '../colorDot';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
+import ExportExcelButton from '../components/ExportExcelButton';
 import { Plus, X, ArrowDownToLine, Trash2, Edit2, ScanLine, Upload, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 
 function Modal({ title, onClose, children }: any) {
@@ -251,6 +252,10 @@ export default function Receives() {
           <input className="input w-52 text-sm" placeholder="🔍 เลขใบรับ / Ref / สินค้า" value={search} onChange={e => setSearch(e.target.value)} />
           <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่รับ" />
           {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <ExportExcelButton filename="รับของจากโรงงาน" rows={(receives as any[]).map(r => ({
+            'เลขที่รับ': r.code, 'วันที่': r.received_at, 'สินค้า': r.product_name, 'จำนวน': r.quantity, 'หน่วย': r.unit,
+            'เลขเอกสารโรงงาน': r.factory_ref || '', 'หมายเหตุ': r.notes || '', 'ผู้บันทึก': r.created_by || '',
+          }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setShowModal(true)}>
             <Plus size={16} /> บันทึกรับของ
           </button>

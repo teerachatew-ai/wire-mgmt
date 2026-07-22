@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { productApi } from '../api';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 // แสดงราคาทศนิยมสูงสุด 4 ตำแหน่ง (ตัดศูนย์ท้าย)
 const price = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -156,9 +157,16 @@ export default function Products() {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">ประเภทงาน / สินค้า</h1>
-        <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setEditing(null); setModal('add'); }}>
-          <Plus size={16} /> เพิ่มรุ่นสายไฟ
-        </button>
+        <div className="flex items-center gap-2">
+          <ExportExcelButton filename="ประเภทสินค้า" rows={(data as any[]).map(p => ({
+            'รหัส': p.code, 'โครงการ': p.project || '', 'ชื่อสินค้า': p.name, 'รายละเอียด': p.description || '',
+            'หน่วย': p.unit, 'ราคาโรงงาน/หน่วย': p.factory_price, 'ค่าแรง/หน่วย': p.wage_per_unit,
+            '%ยอมรับงานเสีย': p.defect_tolerance, 'สถานะ': p.active ? 'ใช้งาน' : 'ปิดใช้งาน',
+          }))} />
+          <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setEditing(null); setModal('add'); }}>
+            <Plus size={16} /> เพิ่มรุ่นสายไฟ
+          </button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-x-auto">

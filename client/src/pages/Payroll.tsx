@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import {
-  DollarSign, Download, Users, TrendingUp,
+  DollarSign, Users, TrendingUp,
   ChevronDown, ChevronUp, Loader2,
   Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank
 } from 'lucide-react';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
 
@@ -119,18 +120,6 @@ const monthLabel = (m: string) => {
   const names = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
   return `${names[parseInt(mo) - 1]} ${parseInt(y) + 543}`;
 };
-function toCSV(rows: any[]) {
-  if (!rows.length) return '';
-  const headers = Object.keys(rows[0]);
-  return [headers.join(','), ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))].join('\n');
-}
-function downloadCSV(data: string, filename: string) {
-  const blob = new Blob(['﻿' + data], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
 /* เปิดหน้าใบเซ็นรับเงิน (พิมพ์เป็น PDF ได้) */
 function openPayrollSignSheet(data: any, monthName: string) {
   const members = data.members || [];
@@ -296,16 +285,13 @@ function MonthlyTab() {
           {fetching ? <><Loader2 size={14} className="animate-spin" /> กำลังคำนวณ...</> : 'คำนวณ'}
         </button>
         {data?.members?.length > 0 && (
-          <button className="btn-secondary flex items-center gap-2" onClick={() => {
-            const rows = data.members.map((m: any) => ({
-              เดือน: data.month, รหัส: m.member_code, ชื่อ: m.member_name,
-              ธนาคาร: m.bank_name || '', เลขบัญชี: m.bank_account || '',
-              ค่าแรงรวม: m.total_wage.toFixed(2)
-            }));
-            downloadCSV(toCSV(rows), `payroll-${month}.csv`);
-          }}>
-            <Download size={14} /> Export CSV
-          </button>
+          <ExportExcelButton filename={`ค่าแรงรายเดือน-${data.month}`} label="Export Excel" rows={data.members.map((m: any) => ({
+            'เดือน': data.month, 'รหัส': m.member_code, 'ชื่อ': m.member_name, 'ชื่อเล่น': m.member_nickname || '',
+            'ธนาคาร': m.bank_name || '', 'เลขบัญชี': m.bank_account || '',
+            'จำนวนที่ตัด (แยกชนิด)': (m.products || []).map((p: any) => `${p.name} ${fmtQty(p.qty)}`).join(' / '),
+            'NG ตัด': m.ng_cut_qty, 'เกินเกณฑ์': m.ng_excess_qty, 'ถูกหัก(บาท)': m.ng_deduction,
+            'ค่าแรงสุทธิ(บาท)': m.total_wage,
+          }))} />
         )}
         {data?.members?.length > 0 && (
           <button className="btn-secondary flex items-center gap-2"
@@ -503,18 +489,13 @@ function CumulativeTab() {
         m.member_code.toLowerCase().includes(q))
     : allMembers;
 
-  const exportCumulative = () => {
-    if (!allMembers.length) return;
-    const rows: any[] = [];
-    for (const m of allMembers) {
-      const monthMap = Object.fromEntries(m.months.map((x: any) => [x.month, x.wage]));
-      const row: any = { รหัส: m.member_code, ชื่อ: m.member_name };
-      for (const mo of allMonths) row[mo] = (monthMap[mo] || 0).toFixed(2);
-      row['รวมทั้งหมด'] = m.total_wage.toFixed(2);
-      rows.push(row);
-    }
-    downloadCSV(toCSV(rows), `payroll-cumulative.csv`);
-  };
+  const cumulativeRows = allMembers.map((m: any) => {
+    const monthMap = Object.fromEntries(m.months.map((x: any) => [x.month, x.wage]));
+    const row: any = { 'รหัส': m.member_code, 'ชื่อ': m.member_name };
+    for (const mo of allMonths) row[mo] = Number((monthMap[mo] || 0).toFixed(2));
+    row['รวมทั้งหมด'] = Number(m.total_wage.toFixed(2));
+    return row;
+  });
 
   return (
     <div className="space-y-4">
@@ -528,9 +509,7 @@ function CumulativeTab() {
             onChange={e => setSearch(e.target.value)}
           />
           {allMembers.length > 0 && (
-            <button className="btn-secondary flex items-center gap-2 shrink-0" onClick={exportCumulative}>
-              <Download size={14} /> Export CSV
-            </button>
+            <ExportExcelButton filename="ค่าแรงสะสม" label="Export Excel" rows={cumulativeRows} />
           )}
         </div>
       </div>

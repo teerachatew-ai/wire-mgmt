@@ -6,6 +6,7 @@ import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2 } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -462,6 +463,14 @@ export default function Issues() {
           <button className="btn-secondary btn-sm" onClick={() => openPrint(`/print?blank=1&count=10`)}>
             <FileText size={16} /> พิมพ์ฟอร์มเปล่า
           </button>
+          <ExportExcelButton filename="ใบเบิกงาน" rows={visibleIssues.map((i: any) => ({
+            'เลขใบเบิก': i.code, 'วันที่เบิก': i.issued_at, 'กำหนดคืน': i.due_date || '',
+            'รหัสสมาชิก': i.member_code, 'ชื่อสมาชิก': i.member_name, 'ชื่อเล่น': i.member_nickname || '',
+            'สินค้า': i.product_name, 'จำนวนเบิก': i.quantity, 'หน่วย': i.unit,
+            'คืนดี': i.returned_good, 'คืนเสีย': i.returned_defect, 'เศษคืน': i.returned_waste,
+            'คงเหลือ': i.quantity - (i.returned_good + i.returned_defect + i.returned_waste),
+            'สถานะ': statusLabel[i.status] || i.status, 'ผู้บันทึก': i.created_by || '',
+          }))} />
           <button className="btn-primary btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={18} /> สร้างใบเบิก
           </button>

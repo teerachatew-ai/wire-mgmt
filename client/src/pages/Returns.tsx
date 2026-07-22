@@ -137,6 +137,7 @@ function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
 }
 
 import DaySummary from '../components/DaySummary';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 export default function Returns() {
   const qc = useQueryClient();
@@ -252,6 +253,12 @@ export default function Returns() {
           <input className="input w-52 text-sm" placeholder="🔍 เลขที่คืน/ใบเบิก/ชื่อ/ชื่อเล่น" value={search} onChange={e => setSearch(e.target.value)} />
           <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่คืน" />
           {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <ExportExcelButton filename="รับคืนงาน" rows={(returns_ as any[]).map(r => ({
+            'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
+            'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
+            'งานดี': r.good_qty, 'เสีย-ตัด': r.ng_cut ?? r.defect_qty, 'เสีย-โรงงาน': r.ng_factory ?? 0,
+            'เศษ': r.waste_qty, 'หาย': r.lost_qty ?? 0, 'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
+          }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
             <Plus size={16} /> บันทึกรับคืน
           </button>
@@ -271,6 +278,7 @@ export default function Returns() {
             <tr className="text-left text-xs text-gray-500">
               <th className="px-4 py-3 font-medium">เลขที่คืน</th>
               <th className="px-4 py-3 font-medium">อ้างใบเบิก</th>
+              <th className="px-4 py-3 font-medium">วันที่เบิก</th>
               <th className="px-4 py-3 font-medium">วันที่คืน</th>
               <th className="px-4 py-3 font-medium">สมาชิก</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
@@ -284,11 +292,12 @@ export default function Returns() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={12} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={13} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {(returns_ as any[]).map((r: any) => (
               <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs">{r.issued_at ? fmtDate(r.issued_at) : '-'}</td>
                 <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
                 <td className="px-4 py-3 text-gray-800">{r.member_name}{r.member_nickname && <span className="text-xs text-gray-400"> ({r.member_nickname})</span>}</td>
                 <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
@@ -306,7 +315,7 @@ export default function Returns() {
                 </td>
               </tr>
             ))}
-            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={12} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={13} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>

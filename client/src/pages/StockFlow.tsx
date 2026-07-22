@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
+import ExportExcelButton from '../components/ExportExcelButton';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -711,6 +712,13 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             <input className="input w-48 text-sm" placeholder="🔍 เลขที่ใบส่ง / สินค้า" value={shipSearch} onChange={e => setShipSearch(e.target.value)} />
             <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่ส่ง" />
             {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+            <ExportExcelButton filename="ประวัติส่งงานออกโรงงาน" rows={(shipments as any[]).flatMap((sh: any) =>
+              (sh.items || []).map((it: any) => ({
+                'เลขที่ใบส่ง': sh.code, 'วันที่ส่ง': sh.shipped_at, 'สินค้า': it.product_name,
+                'งานดี': it.good_qty, 'งานเสีย': it.defect_qty, 'รับจริง(โรงงาน)': it.received_qty ?? '',
+                'หมายเหตุ': sh.notes || '', 'ผู้บันทึก': sh.created_by || '',
+              }))
+            )} />
           </div>
         </div>
         <DaySummary
