@@ -84,6 +84,7 @@ export const reportApi = {
   plExport: (month: string, format?: 'pdf') => api.post('/reports/pl-export', { month }, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
   getSettings: () => api.get('/reports/settings').then(r => r.data),
   saveSettings: (data: any) => api.put('/reports/settings', data).then(r => r.data),
+  cutoffSchedule: () => api.get('/reports/cutoff-schedule').then(r => r.data),
 };
 
 export const ocrApi = {

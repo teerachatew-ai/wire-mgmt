@@ -388,6 +388,7 @@ function MonthlyTab() {
                   <th className="px-4 py-3 font-medium">รหัส</th>
                   <th className="px-4 py-3 font-medium">ชื่อ</th>
                   <th className="px-4 py-3 font-medium">ธนาคาร / เลขบัญชี</th>
+                  <th className="px-4 py-3 font-medium">จำนวนที่ตัด (แยกชนิด)</th>
                   <th className="px-4 py-3 font-medium text-right text-gray-400">NG ตัด (เส้น)</th>
                   <th className="px-4 py-3 font-medium text-right text-rose-500">เกินเกณฑ์ (เส้น)</th>
                   <th className="px-4 py-3 font-medium text-right text-rose-500">ถูกหัก (บาท)</th>
@@ -396,10 +397,10 @@ function MonthlyTab() {
               </thead>
               <tbody>
                 {data.members.length === 0 && (
-                  <tr><td colSpan={7} className="py-8 text-center text-gray-400">ไม่มีข้อมูลในเดือนนี้</td></tr>
+                  <tr><td colSpan={8} className="py-8 text-center text-gray-400">ไม่มีข้อมูลในเดือนนี้</td></tr>
                 )}
                 {data.members.length > 0 && data.members.filter(matchMember).length === 0 && (
-                  <tr><td colSpan={7} className="py-8 text-center text-gray-400">ไม่พบสมาชิกที่ค้นหา</td></tr>
+                  <tr><td colSpan={8} className="py-8 text-center text-gray-400">ไม่พบสมาชิกที่ค้นหา</td></tr>
                 )}
                 {data.members.filter(matchMember).map((m: any) => (
                   <tr key={m.member_id} className="border-b border-gray-50 hover:bg-blue-50/40 cursor-pointer" onClick={() => setViewMember(m)} title="คลิกดูรายละเอียดการรับงานของเดือนนี้">
@@ -412,6 +413,19 @@ function MonthlyTab() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{m.bank_name || '-'}{m.bank_account ? ` / ${m.bank_account}` : ''}</td>
+                    <td className="px-4 py-3">
+                      {(m.products || []).length === 0 ? <span className="text-gray-300 text-xs">-</span> : (
+                        <div className="flex flex-wrap gap-1">
+                          {m.products.map((p: any) => (
+                            <span key={p.name} className="inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5 text-xs whitespace-nowrap">
+                              {p.color && <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                              <span className="text-gray-600">{p.name}</span>
+                              <b className="text-gray-800">{fmtQty(p.qty)}</b>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-400">{m.ng_cut_qty > 0 ? m.ng_cut_qty.toLocaleString() : '-'}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-rose-500 font-medium">{m.ng_excess_qty > 0 ? m.ng_excess_qty.toLocaleString() : '-'}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-rose-500">{m.ng_deduction > 0 ? `-${fmt(m.ng_deduction)}` : '-'}</td>

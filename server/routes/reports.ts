@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { computePayCycle, loadCutoffConfig } from '../payCycle';
+import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth } from '../payCycle';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -750,10 +750,27 @@ router.get('/payroll-monthly', (req, res) => {
     GROUP BY m.id ORDER BY m.code
   `).all(defectWagePct, month) as any[];
 
+  // จำนวนสายไฟแต่ละชนิดที่ตัด (งานดี) ต่อสมาชิก ในรอบจ่ายนี้ — ใช้แสดงในตารางค่าแรง
+  const productRows = prepare(`
+    SELECT m.id as member_id, p.name as product_name, p.color, p.unit,
+      COALESCE(SUM(r.good_qty), 0) as qty
+    FROM returns r
+    JOIN issues i ON r.issue_id = i.id
+    JOIN members m ON i.member_id = m.id
+    JOIN products p ON i.product_id = p.id
+    WHERE r.pay_cycle = ? AND r.good_qty > 0
+    GROUP BY m.id, p.id
+    ORDER BY p.name
+  `).all(month) as any[];
+  const productsByMember: Record<number, any[]> = {};
+  for (const r of productRows) {
+    (productsByMember[r.member_id] ??= []).push({ name: r.product_name, color: r.color, unit: r.unit, qty: r.qty });
+  }
+
   const members = rawMembers.map((m: any) => {
     const ng_deduction = m.ng_excess_qty * ngPenaltyRate;   // 20฿ ต่อเส้นที่เกินเกณฑ์
     // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
-    return { ...m, ng_deduction, total_wage: Math.ceil(m.gross_wage - ng_deduction) };
+    return { ...m, ng_deduction, total_wage: Math.ceil(m.gross_wage - ng_deduction), products: productsByMember[m.member_id] || [] };
   });
 
   const total_wage = members.reduce((s: number, m: any) => s + m.total_wage, 0);
@@ -926,6 +943,26 @@ router.post('/pl-export', (req, res) => {
 router.get('/settings', (_req, res) => {
   const rows = prepare(`SELECT key, value FROM settings`).all() as any[];
   res.json(Object.fromEntries(rows.map(r => [r.key, r.value])));
+});
+
+// ตารางรอบจ่าย (cut-off) รายเดือน — วันเริ่ม/สิ้นสุดของแต่ละเดือน (ยาวไม่เท่ากันได้ถ้ากำหนดเอง)
+// วันเริ่มของแต่ละเดือน = วันถัดจากวันสิ้นสุดของเดือนก่อนหน้าเสมอ (กันช่วงวันตกหล่น/ทับซ้อนกัน)
+router.get('/cutoff-schedule', (req, res) => {
+  const cfg = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(cfg);
+  const monthsBack = 4, monthsFwd = 2;
+  const now = new Date();
+  const months: string[] = [];
+  for (let i = -monthsBack; i <= monthsFwd; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  const schedule = months.map(m => {
+    const end = computeCutoff(m, holidays, overrides, cutoffDay);
+    const { start } = payCycleWindow(m, holidays, overrides, cutoffDay);
+    return { month: m, start, end, overridden: !!overrides[m] };
+  });
+  res.json({ schedule, default_cutoff_day: cutoffDay ?? null });
 });
 
 // คำนวณ pay_cycle ของทุกรายการรับคืนใหม่ ตามตั้งค่าปัจจุบัน (เรียกหลังแก้วัน cut-off)
