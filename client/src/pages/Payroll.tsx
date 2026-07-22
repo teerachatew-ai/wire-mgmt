@@ -432,14 +432,39 @@ function MonthlyTab() {
                     <td className="px-4 py-3 text-right font-bold text-green-700">{fmt(m.total_wage)}</td>
                   </tr>
                 ))}
-                {data.members.length > 0 && (
-                  <tr className="bg-green-50 border-t font-semibold">
-                    <td colSpan={4} className="px-4 py-3 text-green-800">รวมทั้งหมด ({data.members.length} คน){search && ` — แสดง ${data.members.filter(matchMember).length} คน`}</td>
-                    <td className="px-4 py-3"></td>
-                    <td className="px-4 py-3 text-right text-rose-600">{data.total_ng_deduction > 0 ? `-${fmt(data.total_ng_deduction)}` : '-'}</td>
-                    <td className="px-4 py-3 text-right text-green-800">{fmt(data.total_wage)}</td>
-                  </tr>
-                )}
+                {data.members.length > 0 && (() => {
+                  const visible = data.members.filter(matchMember);
+                  // รวมจำนวนที่ตัดแต่ละชนิด ของทุกคนที่แสดงอยู่ ในรอบ cut-off นี้
+                  const totalsByProduct: Record<string, any> = {};
+                  for (const m of visible) {
+                    for (const p of (m.products || [])) {
+                      (totalsByProduct[p.name] ??= { name: p.name, color: p.color, unit: p.unit, qty: 0 }).qty += p.qty;
+                    }
+                  }
+                  const totalProducts = Object.values(totalsByProduct);
+                  return (
+                    <tr className="bg-green-50 border-t font-semibold">
+                      <td colSpan={3} className="px-4 py-3 text-green-800">รวมทั้งหมด ({data.members.length} คน){search && ` — แสดง ${visible.length} คน`}</td>
+                      <td className="px-4 py-3">
+                        {totalProducts.length === 0 ? null : (
+                          <div className="flex flex-wrap gap-1">
+                            {totalProducts.map((p: any) => (
+                              <span key={p.name} className="inline-flex items-center gap-1 bg-white border border-green-200 rounded-full px-2 py-0.5 text-xs whitespace-nowrap">
+                                {p.color && <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                                <span className="text-green-700">{p.name}</span>
+                                <b className="text-green-900">{fmtQty(p.qty)}</b>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3 text-right text-rose-600">{data.total_ng_deduction > 0 ? `-${fmt(data.total_ng_deduction)}` : '-'}</td>
+                      <td className="px-4 py-3 text-right text-green-800">{fmt(data.total_wage)}</td>
+                    </tr>
+                  );
+                })()}
               </tbody>
             </table>
             </div>
