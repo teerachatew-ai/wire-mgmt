@@ -100,9 +100,22 @@ for m in d["members"]:
     for pw in m.get("product_wages", []):
         distinct_products.setdefault(pw["name"], pw.get("color"))
 
+def color_priority(hexc):
+    # ลำดับที่ต้องการ: ขาวก่อน -> ชมพู/แดง -> เขียวไว้ขวาสุด -> สีอื่นๆ
+    if not hexc:
+        return 9
+    r, g, b = int(hexc[0:2], 16), int(hexc[2:4], 16), int(hexc[4:6], 16)
+    if r > 200 and g > 200 and b > 200:
+        return 0
+    if g > r and g > b:
+        return 2
+    if r >= g and r >= b:
+        return 1
+    return 3
+
 def color_sort_key(name):
     hexc = hexcolor(distinct_products[name])
-    return (hexc or "ZZZZZZ", code_num(name), name)
+    return (color_priority(hexc), hexc or "ZZZZZZ", code_num(name), name)
 
 product_order = sorted(distinct_products.keys(), key=color_sort_key)
 
@@ -144,11 +157,15 @@ def write_pivot_table(ws, row, rows_list):
     row += 1
 
     date_agg = {}
+    col_totals = {n: 0 for n in product_order}
+    wage_total = 0.0
     for r in rows_list:
         dt = r["issued_at"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0})
         e["qty"][r["product_name"]] = e["qty"].get(r["product_name"], 0) + r["good_qty"]
         e["wage"] += r["wage"]
+        col_totals[r["product_name"]] = col_totals.get(r["product_name"], 0) + r["good_qty"]
+        wage_total += r["wage"]
 
     for dt in sorted(date_agg.keys()):
         e = date_agg[dt]
@@ -162,7 +179,16 @@ def write_pivot_table(ws, row, rows_list):
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
         ws.row_dimensions[row].height = 16
         row += 1
-    return row
+
+    # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — จำนวนที่ตัดรวมของสายไฟแต่ละเส้น + ค่าแรงรวม ──
+    cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=9.5, bold=True), align=R, border=box)
+    for ci, n in enumerate(product_order, start=2):
+        col = get_column_letter(ci)
+        cell(ws, f"{col}{row}", col_totals.get(n, 0), font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=NUM_Z)
+    cell(ws, f"{LAST_P_LETTER}{row}", wage_total, font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+    ws.row_dimensions[row].height = 18
+    row += 1
+    return row, col_totals, wage_total
 
 LAST_P = n_prod + 2  # วันที่เบิก + สินค้าแต่ละชนิด + ค่าแรง
 LAST_P_LETTER = get_column_letter(LAST_P)
@@ -202,6 +228,7 @@ for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
 ws0.row_dimensions[hdr_row].height = 24
 
 row = hdr_row + 1
+grand_qty = {n: 0 for n in product_order}
 for m in d["members"]:
     pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
     vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
@@ -214,10 +241,17 @@ for m in d["members"]:
         fmt = NUM_Z if is_prod_col else (MONEY_Z if is_total_col else None)
         cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
              align=(R if (is_prod_col or is_total_col) else L), border=box, fmt=fmt)
+    for n in product_order:
+        grand_qty[n] += pw_map.get(n, {}).get("qty", 0)
     ws0.row_dimensions[row].height = 17
     row += 1
 
-cell(ws0, f"{get_column_letter(FIXED_COLS0 + n_prod)}{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+# ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — จำนวนที่ตัดรวมของสายไฟแต่ละเส้นทั้งเดือน + ค่าแรงรวมทั้งหมด ──
+ws0.merge_cells(f"A{row}:C{row}")
+cell(ws0, f"A{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+for ci, n in enumerate(product_order, start=FIXED_COLS0 + 1):
+    col = get_column_letter(ci)
+    cell(ws0, f"{col}{row}", grand_qty.get(n, 0), font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
 cell(ws0, f"{last_col_letter}{row}", d["total_wage"], font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = 20
 
@@ -250,12 +284,7 @@ for m in d["members"]:
          font=Font(name=FONT, size=9.5, color=GREY), align=L)
 
     row = 7
-    row = write_pivot_table(ws, row, m["rows"])
-
-    ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-    cell(ws, f"A{row}", "รวมค่าแรง (ก่อนหัก NG เกินเกณฑ์)", font=Font(name=FONT, size=10, bold=True), align=R, border=box)
-    cell(ws, f"{LAST_P_LETTER}{row}", m["gross_wage"], font=Font(name=FONT, size=10, bold=True), align=R, fmt=MONEY, border=box)
-    row += 1
+    row, _col_totals, _wage_total = write_pivot_table(ws, row, m["rows"])
 
     if m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
@@ -276,11 +305,7 @@ for m in d["members"]:
              font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=AMBER, align=LW)
         ws.row_dimensions[row].height = 28
         row += 1
-        row = write_pivot_table(ws, row, m["carry_rows"])
-        ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-        cell(ws, f"A{row}", f'ยอดยกไปจ่ายเดือน {month_th(d["next_month"])}', font=Font(name=FONT, size=10, bold=True, color=AMBER), align=R, border=box)
-        cell(ws, f"{LAST_P_LETTER}{row}", m["carry_subtotal"], font=Font(name=FONT, size=10, bold=True, color=AMBER), align=R, fmt=MONEY, border=box)
-        row += 1
+        row, _carry_col_totals, _carry_wage_total = write_pivot_table(ws, row, m["carry_rows"])
 
     # ── ช่องเซ็นรับเงิน ──
     row += 2
