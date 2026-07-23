@@ -96,8 +96,8 @@ def write_table_header(ws, row):
 
 def write_table_rows(ws, row, rows):
     for r in rows:
-        swatch = hexcolor(r.get("color")) or "E5E7EB"
-        cell(ws, f"A{row}", None, fill=swatch, border=box)
+        swatch = hexcolor(r.get("color")) or "9CA3AF"
+        cell(ws, f"A{row}", "●", font=Font(name=FONT, size=13, color=swatch), align=C, border=box)
         vals = [date_th(r["issued_at"]), r["product_name"], r["good_qty"], r["wage"]]
         for i, v in enumerate(vals):
             ci = i + 2
@@ -132,11 +132,12 @@ for name in product_order:
         lbl = f"{lbl} ({prefix})"
     product_label[name] = lbl
 
-# ── ชีตสรุปรวม (หน้าแรก) — รหัส/ชื่อ/ธนาคาร + แยกยอดค่าแรงตามชนิดสายไฟ + รวมสุทธิ ──
+# ── ชีตสรุปรวม (หน้าแรก) — รหัส/ชื่อ + แยกยอดค่าแรงตามชนิดสายไฟ + รวมสุทธิ ──
 ws0 = wb.create_sheet(safe_sheet_name("สรุปรวม", used_names))
 ws0.sheet_view.showGridLines = False
 n_prod = len(product_order)
-last_col = 5 + n_prod + 1  # รหัส..เลขบัญชี (5) + สินค้าแต่ละชนิด + ค่าแรงสุทธิ
+FIXED_COLS0 = 3  # รหัส, ชื่อ-สกุล, ชื่อเล่น
+last_col = FIXED_COLS0 + n_prod + 1  # + สินค้าแต่ละชนิด + ค่าแรงสุทธิ
 last_col_letter = get_column_letter(last_col)
 ws0.merge_cells(f"A1:{last_col_letter}1")
 cell(ws0, "A1", d.get("org_name", ""), font=Font(name=FONT, size=13, bold=True, color=NAVY), align=C)
@@ -147,14 +148,14 @@ cell(ws0, "A3", f"เส้นตัดยอด (cut-off): {date_th(d['cutoff']
 ws0.row_dimensions[1].height = 22
 
 hdr_row = 5
-headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น", "ธนาคาร", "เลขบัญชี"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
-widths0 = [9, 24, 13, 15, 15] + [13] * n_prod + [18]
+headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
+widths0 = [9, 26, 15] + [13] * n_prod + [18]
 for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
     col = get_column_letter(ci)
     ws0.column_dimensions[col].width = w
-    is_prod_col = 6 <= ci <= 5 + n_prod
+    is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
     if is_prod_col:
-        pname = product_order[ci - 6]
+        pname = product_order[ci - FIXED_COLS0 - 1]
         hexc = hexcolor(distinct_products[pname]) or "9CA3AF"
         fill, txt = hexc, contrast_text(hexc)
     else:
@@ -165,18 +166,18 @@ ws0.row_dimensions[hdr_row].height = 24
 row = hdr_row + 1
 for m in d["members"]:
     pw_map = {pw["name"]: pw["wage"] for pw in m.get("product_wages", [])}
-    vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-", m.get("bank_name") or "-", m.get("bank_account") or "-"]
+    vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
     vals += [pw_map.get(n, 0) for n in product_order]
     vals += [m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
-        is_money_col = ci > 5
+        is_money_col = ci > FIXED_COLS0
         cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
              align=(R if is_money_col else L), border=box, fmt=(MONEY_Z if is_money_col else None))
     ws0.row_dimensions[row].height = 17
     row += 1
 
-cell(ws0, f"{get_column_letter(5 + n_prod)}{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+cell(ws0, f"{get_column_letter(FIXED_COLS0 + n_prod)}{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
 cell(ws0, f"{last_col_letter}{row}", d["total_wage"], font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = 20
 
