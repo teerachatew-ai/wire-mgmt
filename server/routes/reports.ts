@@ -877,6 +877,65 @@ function buildPayrollDetail(month: string) {
   };
 }
 
+// ── ตรวจสอบยอดรายบุคคล (กันโกง) ────────────────────────────────────────
+// เช็คความผิดปกติของยอดคืนงานแต่ละคนในรอบจ่ายหนึ่งๆ: ยอดต่อวันสูงผิดปกติเทียบกับค่าเฉลี่ยของตัวเอง
+// หมายเหตุ: ตรวจจับ "รูปแบบ" ที่น่าสงสัยเท่านั้น ไม่ได้พิสูจน์ยืนยันตัวตนจริง — ใช้ประกอบการตรวจสอบเพิ่มเติม (เช่น โทรสอบถามสมาชิก)
+router.get('/member-reconcile', (req, res) => {
+  const month = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)
+    ? req.query.month : new Date().toISOString().substring(0, 7);
+
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+
+  const rows = prepare(`
+    SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname, m.phone,
+      r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty,
+      ((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?) as wage
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
+    WHERE r.pay_cycle = ?
+    ORDER BY m.code, r.returned_at
+  `).all(defectWagePct, month) as any[];
+
+  const byMember: Record<number, any> = {};
+  for (const r of rows) {
+    const mm = (byMember[r.member_id] ??= {
+      member_id: r.member_id, member_code: r.member_code, member_name: r.member_name,
+      member_nickname: r.member_nickname, phone: r.phone,
+      total_good: 0, total_ng: 0, total_waste: 0, total_lost: 0, total_wage: 0,
+      days: {} as Record<string, number>,
+    });
+    mm.total_good += r.good_qty;
+    mm.total_ng += r.ng_cut + r.ng_factory;
+    mm.total_waste += r.waste_qty;
+    mm.total_lost += r.lost_qty;
+    mm.total_wage += r.wage;
+    mm.days[r.returned_at] = (mm.days[r.returned_at] || 0) + r.good_qty;
+  }
+
+  const SPIKE_MULTIPLIER = 3;   // วันที่คืนงานมากกว่าค่าเฉลี่ยของตัวเองเกินกี่เท่าถึงจะถือว่าผิดปกติ
+  const MIN_DAYS_FOR_FLAG = 3;  // ต้องมีข้อมูลอย่างน้อยกี่วันถึงจะเริ่มเช็ค (กันเคสข้อมูลน้อยเกินไปจนตีความผิด)
+
+  const members = Object.values(byMember).map((mm: any) => {
+    const dayEntries = Object.entries(mm.days) as [string, number][];
+    const activeDays = dayEntries.length;
+    const avgPerDay = activeDays ? mm.total_good / activeDays : 0;
+    let maxDay = { date: '', qty: 0 };
+    for (const [dt, qty] of dayEntries) if (qty > maxDay.qty) maxDay = { date: dt, qty };
+    const spikeRatio = avgPerDay > 0 ? maxDay.qty / avgPerDay : 0;
+    const flag_spike = activeDays >= MIN_DAYS_FOR_FLAG && spikeRatio >= SPIKE_MULTIPLIER;
+    return {
+      member_id: mm.member_id, member_code: mm.member_code, member_name: mm.member_name,
+      member_nickname: mm.member_nickname, phone: mm.phone,
+      total_good: mm.total_good, total_ng: mm.total_ng, total_waste: mm.total_waste, total_lost: mm.total_lost,
+      total_wage: Math.ceil(mm.total_wage),
+      active_days: activeDays, avg_per_day: avgPerDay,
+      max_day_qty: maxDay.qty, max_day_date: maxDay.date, spike_ratio: spikeRatio, flag_spike,
+    };
+  }).sort((a: any, b: any) => (b.flag_spike ? 1 : 0) - (a.flag_spike ? 1 : 0) || a.member_code.localeCompare(b.member_code));
+
+  res.json({ month, spike_multiplier: SPIKE_MULTIPLIER, members, flagged_count: members.filter((m: any) => m.flag_spike).length });
+});
+
 router.post('/payroll-detail-export', (req, res) => {
   const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
   if (!month) return res.status(400).json({ error: 'month required' });

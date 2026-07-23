@@ -4,12 +4,20 @@ import { reportApi } from '../api';
 import {
   DollarSign, Users, TrendingUp,
   ChevronDown, ChevronUp, Loader2,
-  Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank
+  Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank, ShieldAlert, Phone
 } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
 import { downloadBlob } from '../utils/downloadBlob';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
+
+// วันที่แบบสั้น dd/mm/yyyy (พ.ศ.)
+function fmtDate(s: string) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}`;
+}
 
 // รายละเอียดงานของสมาชิกใน "รอบจ่าย" (ตาม cut-off) — ยอดตรงกับค่าแรงที่แสดง
 function MemberBreakdown({ member, month, onClose }: { member: any; month: string; onClose: () => void }) {
@@ -734,14 +742,99 @@ function WageReconcileTab() {
   );
 }
 
+/* ─── Tab 4: ตรวจสอบยอดรายบุคคล (กันโกง) ───────────────────── */
+function MemberCheckTab() {
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [month, setMonth] = useState(defaultMonth);
+  const { data, isLoading } = useQuery({ queryKey: ['member-reconcile', month], queryFn: () => reportApi.memberReconcile(month) });
+  const members: any[] = data?.members || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-end gap-4">
+        <div>
+          <label className="label">รอบจ่าย (เดือน)</label>
+          <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
+        </div>
+        <p className="text-xs text-gray-500 pb-2 max-w-lg">
+          เช็คยอดคืนงานรายวันของแต่ละคน เทียบกับค่าเฉลี่ยของตัวเอง — ถ้าวันไหนคืนมากผิดปกติ (เกิน {data?.spike_multiplier || 3} เท่าของค่าเฉลี่ย)
+          จะติดธง ⚠️ ให้ตรวจสอบเพิ่มเติม (เช่น โทรสอบถามสมาชิกโดยตรงตามเบอร์ที่ลงทะเบียนไว้) — เป็นการช่วยจับความผิดปกติเบื้องต้น ไม่ได้ยืนยันตัวตน 100%
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>
+      ) : members.length === 0 ? (
+        <div className="py-12 text-center text-gray-400">ยังไม่มีข้อมูลค่าแรงรอบนี้</div>
+      ) : (
+        <>
+          {data.flagged_count > 0 && (
+            <div className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 flex items-center gap-3">
+              <span className="p-2 rounded-xl bg-rose-100 text-rose-600 shrink-0"><ShieldAlert size={18} /></span>
+              <p className="text-sm text-rose-800">
+                พบ <b>{data.flagged_count} คน</b> ที่มีวันคืนงานสูงผิดปกติเทียบกับค่าเฉลี่ยของตัวเอง — ดูแถวที่มีเครื่องหมาย ⚠️ ด้านล่าง
+              </p>
+            </div>
+          )}
+
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead className="bg-gray-50 border-b text-xs text-gray-500">
+                  <tr className="text-left">
+                    <th className="px-3 py-2.5"></th>
+                    <th className="px-3 py-2.5">รหัส</th>
+                    <th className="px-3 py-2.5">ชื่อ-สกุล</th>
+                    <th className="px-3 py-2.5">เบอร์โทร</th>
+                    <th className="px-3 py-2.5 text-right">จำนวนวันที่คืนงาน</th>
+                    <th className="px-3 py-2.5 text-right">เฉลี่ย/วัน</th>
+                    <th className="px-3 py-2.5 text-right">มากสุด/วัน</th>
+                    <th className="px-3 py-2.5">วันที่มากสุด</th>
+                    <th className="px-3 py-2.5 text-right">เทียบเฉลี่ย</th>
+                    <th className="px-3 py-2.5 text-right">ค่าแรงรวม</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((m: any) => (
+                    <tr key={m.member_id} className={`border-b border-gray-50 ${m.flag_spike ? 'bg-rose-50/60' : ''}`}>
+                      <td className="px-3 py-2.5">{m.flag_spike && <ShieldAlert size={15} className="text-rose-600" />}</td>
+                      <td className="px-3 py-2.5 text-gray-500">{m.member_code}</td>
+                      <td className="px-3 py-2.5 font-medium text-gray-800">
+                        {m.member_name}{m.member_nickname && <span className="text-gray-400 font-normal"> ({m.member_nickname})</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-500">
+                        {m.phone ? <span className="inline-flex items-center gap-1"><Phone size={12} />{m.phone}</span> : '-'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{m.active_days}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{fmtQty(Math.round(m.avg_per_day))}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${m.flag_spike ? 'text-rose-600' : ''}`}>{fmtQty(m.max_day_qty)}</td>
+                      <td className="px-3 py-2.5 text-gray-500">{m.max_day_date ? fmtDate(m.max_day_date) : '-'}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums ${m.flag_spike ? 'text-rose-600 font-bold' : 'text-gray-400'}`}>
+                        {m.spike_ratio > 0 ? `${m.spike_ratio.toFixed(1)}×` : '-'}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-green-700">{fmt(m.total_wage)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main page ───────────────────────────────────────────── */
 export default function Payroll() {
-  const [tab, setTab] = useState<'monthly' | 'cumulative' | 'reconcile'>('monthly');
+  const [tab, setTab] = useState<'monthly' | 'cumulative' | 'reconcile' | 'membercheck'>('monthly');
 
   const tabs = [
     { key: 'monthly', label: 'สรุปรายเดือน', icon: DollarSign },
     { key: 'cumulative', label: 'ยอดสะสมรายบุคคล', icon: TrendingUp },
     { key: 'reconcile', label: 'กระทบยอด & เงินกัน', icon: Scale },
+    { key: 'membercheck', label: 'ตรวจสอบรายบุคคล', icon: ShieldAlert },
   ] as const;
 
   return (
@@ -775,6 +868,7 @@ export default function Payroll() {
         {tab === 'monthly' && <MonthlyTab />}
         {tab === 'cumulative' && <CumulativeTab />}
         {tab === 'reconcile' && <WageReconcileTab />}
+        {tab === 'membercheck' && <MemberCheckTab />}
       </div>
     </div>
   );
