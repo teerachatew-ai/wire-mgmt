@@ -5,6 +5,7 @@ import {
   Factory, Wallet, Sparkles, Truck, ShieldCheck, Clock,
   AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText
 } from 'lucide-react';
+import { downloadBlob } from '../utils/downloadBlob';
 
 /* ── Monthly management expenses manager ── */
 function ExpensesManager({ month }: { month: string }) {
@@ -227,9 +228,7 @@ export default function Dashboard() {
               setPlBusy('xlsx');
               try {
                 const blob = await reportApi.plExport(data.month);
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-                a.download = `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`; a.click();
-                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`);
               } catch { alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(''); }
             }}>
             {plBusy === 'xlsx' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} รายงาน Excel
@@ -239,9 +238,7 @@ export default function Dashboard() {
               setPlBusy('pdf');
               try {
                 const blob = await reportApi.plExport(data.month, 'pdf');
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-                a.download = `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.pdf`; a.click();
-                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.pdf`);
               } catch { alert('สร้างรายงาน PDF ไม่สำเร็จ'); } finally { setPlBusy(''); }
             }}>
             {plBusy === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงาน PDF

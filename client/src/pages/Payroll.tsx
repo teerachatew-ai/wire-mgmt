@@ -7,6 +7,7 @@ import {
   Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank
 } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
+import { downloadBlob } from '../utils/downloadBlob';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
 
@@ -258,7 +259,7 @@ function MonthlyTab() {
   const [data, setData] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
-  const [detailBusy, setDetailBusy] = useState(false);
+  const [detailBusy, setDetailBusy] = useState('');
 
   const load = async () => {
     setFetching(true);
@@ -266,15 +267,13 @@ function MonthlyTab() {
     finally { setFetching(false); }
   };
 
-  const downloadPayrollDetail = async () => {
-    setDetailBusy(true);
+  const downloadPayrollDetail = async (format: 'pdf' | 'xlsx') => {
+    setDetailBusy(format);
     try {
-      const blob = await reportApi.payrollDetailExport(month, 'pdf');
-      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-      a.download = `รายงานเบิกงาน-ส่งงาน-${month}.pdf`; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined);
+      downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`);
     } catch { alert('สร้างรายงานไม่สำเร็จ'); }
-    finally { setDetailBusy(false); }
+    finally { setDetailBusy(''); }
   };
 
   const matchMember = (m: any) => {
@@ -312,8 +311,13 @@ function MonthlyTab() {
           </button>
         )}
         {data?.members?.length > 0 && (
-          <button className="btn-secondary flex items-center gap-2" disabled={detailBusy} onClick={downloadPayrollDetail}>
-            {detailBusy ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงานเบิกงาน/ส่งงานรายบุคคล (PDF)
+          <button className="btn-secondary flex items-center gap-2" disabled={!!detailBusy} onClick={() => downloadPayrollDetail('pdf')}>
+            {detailBusy === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงานเบิกงาน/ส่งงานรายบุคคล (PDF)
+          </button>
+        )}
+        {data?.members?.length > 0 && (
+          <button className="btn-secondary flex items-center gap-2" disabled={!!detailBusy} onClick={() => downloadPayrollDetail('xlsx')}>
+            {detailBusy === 'xlsx' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงานเบิกงาน/ส่งงานรายบุคคล (Excel)
           </button>
         )}
         <p className="w-full text-xs text-gray-400 mt-1">

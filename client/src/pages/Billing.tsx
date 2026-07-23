@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, BadgeCheck, X } from 'lucide-react';
+import { downloadBlob } from '../utils/downloadBlob';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -135,13 +136,7 @@ export default function Billing() {
     setSavedMsg('บันทึกข้อมูลผู้วางบิลแล้ว'); setTimeout(() => setSavedMsg(''), 2000);
   };
 
-  const download = (blob: Blob, name: string) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  };
+  const download = downloadBlob;
 
   // แถวที่ส่งไปทำเอกสาร: จำนวน = จำนวนคิดเงิน (รับจริง − NG×อัตราหัก)
   const exportLines = () => lines.map(l => ({ ...l, quantity: Math.round(billQty(l, ngRate) * 100) / 100 }));
