@@ -854,11 +854,12 @@ function buildPayrollDetail(month: string) {
     const rows = (detailRowsStmt.all(m.member_id, month) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
     const carryRaw = (carryRowsStmt.all(m.member_id, cutoff, `${month}%`) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
     const carry_subtotal = carryRaw.reduce((s, r) => s + r.wage, 0);
-    // ยอดค่าแรงแยกตามชนิดสายไฟ (เฉพาะรอบจ่ายนี้) — ใช้แสดงเป็นคอลัมน์แยกในตารางสรุปรวม
-    const productAgg: Record<string, { name: string; color: string; wage: number }> = {};
+    // ยอดค่าแรง/จำนวนที่ตัด แยกตามชนิดสายไฟ (เฉพาะรอบจ่ายนี้) — ใช้แสดงเป็นคอลัมน์แยกในตารางสรุปรวม
+    const productAgg: Record<string, { name: string; color: string; wage: number; qty: number }> = {};
     for (const r of rows) {
-      if (!productAgg[r.product_name]) productAgg[r.product_name] = { name: r.product_name, color: r.color, wage: 0 };
+      if (!productAgg[r.product_name]) productAgg[r.product_name] = { name: r.product_name, color: r.color, wage: 0, qty: 0 };
       productAgg[r.product_name].wage += r.wage;
+      productAgg[r.product_name].qty += r.good_qty;
     }
     return {
       ...m, ng_deduction, total_wage, rows,

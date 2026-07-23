@@ -52,6 +52,7 @@ def short_label(name):
 FONT = "Tahoma"
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
+NUM_Z = '#,##0;-#,##0;"-"'
 MONEY = '#,##0.00;[Red](#,##0.00)'
 MONEY_Z = '#,##0.00;[Red](#,##0.00);"-"'
 thin = Side(style="thin", color="D8DEE9")
@@ -113,20 +114,38 @@ def write_table_rows(ws, row, rows):
 
 used_names = set()
 
-# ── รวบรวมรายชื่อสินค้าทั้งหมด (เรียงตามชื่อ) สำหรับตารางสรุปแยกยอดค่าแรงตามชนิดสายไฟ ──
+def code_num(name):
+    prefix = (name or "").split(" (")[0].strip()
+    mm = re.search(r'-(\d+)', prefix)
+    if mm:
+        return mm.group(1)
+    mm = re.search(r'(\d+)', prefix)
+    return mm.group(1) if mm else ""
+
+# ── รวบรวมรายชื่อสินค้าทั้งหมด จัดกลุ่มตามสี (สีเดียวกันอยู่ติดกัน) แล้วเรียงตามรหัสในกลุ่มนั้น ──
 distinct_products = {}
 for m in d["members"]:
     for pw in m.get("product_wages", []):
         distinct_products.setdefault(pw["name"], pw.get("color"))
-product_order = sorted(distinct_products.keys())
+
+def color_sort_key(name):
+    hexc = hexcolor(distinct_products[name])
+    return (hexc or "ZZZZZZ", code_num(name), name)
+
+product_order = sorted(distinct_products.keys(), key=color_sort_key)
+
+def base_label(name):
+    lbl = short_label(name)
+    code = code_num(name)
+    return f"{lbl} {code}".strip() if code else lbl
 
 label_freq = {}
 for name in product_order:
-    lbl = short_label(name)
+    lbl = base_label(name)
     label_freq[lbl] = label_freq.get(lbl, 0) + 1
 product_label = {}
 for name in product_order:
-    lbl = short_label(name)
+    lbl = base_label(name)
     if label_freq[lbl] > 1:
         prefix = name.split(" (")[0].strip()
         lbl = f"{lbl} ({prefix})"
@@ -165,15 +184,17 @@ ws0.row_dimensions[hdr_row].height = 24
 
 row = hdr_row + 1
 for m in d["members"]:
-    pw_map = {pw["name"]: pw["wage"] for pw in m.get("product_wages", [])}
+    pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
     vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
-    vals += [pw_map.get(n, 0) for n in product_order]
+    vals += [pw_map.get(n, {}).get("qty", 0) for n in product_order]
     vals += [m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
-        is_money_col = ci > FIXED_COLS0
+        is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
+        is_total_col = ci == last_col
+        fmt = NUM_Z if is_prod_col else (MONEY_Z if is_total_col else None)
         cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
-             align=(R if is_money_col else L), border=box, fmt=(MONEY_Z if is_money_col else None))
+             align=(R if (is_prod_col or is_total_col) else L), border=box, fmt=fmt)
     ws0.row_dimensions[row].height = 17
     row += 1
 
