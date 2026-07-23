@@ -28,10 +28,32 @@ def date_th(iso):
     y, m, dd = parts
     return f"{dd}/{m}/{int(y) + 543}"
 
+def hexcolor(c):
+    if not c:
+        return None
+    c = str(c).lstrip("#").strip()
+    if len(c) == 3:
+        c = "".join(ch * 2 for ch in c)
+    if len(c) == 6 and all(ch in "0123456789abcdefABCDEF" for ch in c):
+        return c.upper()
+    return None
+
+def contrast_text(hexc):
+    if not hexc:
+        return "111827"
+    r, g, b = int(hexc[0:2], 16), int(hexc[2:4], 16), int(hexc[4:6], 16)
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    return "111827" if lum > 160 else "FFFFFF"
+
+def short_label(name):
+    mm = re.search(r"\(([^)]+)\)", name or "")
+    return mm.group(1) if mm else (name or "-")
+
 FONT = "Tahoma"
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
 MONEY = '#,##0.00;[Red](#,##0.00)'
+MONEY_Z = '#,##0.00;[Red](#,##0.00);"-"'
 thin = Side(style="thin", color="D8DEE9")
 box = Border(left=thin, right=thin, top=thin, bottom=thin)
 
@@ -59,9 +81,9 @@ R = Alignment(horizontal="right", vertical="center")
 L = Alignment(horizontal="left", vertical="center")
 C = Alignment(horizontal="center", vertical="center")
 
-# ── ตารางรายละเอียด (ชีตรายบุคคล): วันที่เบิก, สินค้า, จำนวน, ค่าแรง — 4 คอลัมน์ (A-D) ──
-COLS = ["วันที่เบิก", "สินค้า", "จำนวน", "ค่าแรง (บาท)"]
-WIDTHS = [14, 34, 12, 16]
+# ── ตารางรายละเอียด (ชีตรายบุคคล): สวอตช์สี, วันที่เบิก, สินค้า, จำนวน, ค่าแรง — 5 คอลัมน์ (A-E) ──
+COLS = ["", "วันที่เบิก", "สินค้า", "จำนวน", "ค่าแรง (บาท)"]
+WIDTHS = [3, 13, 32, 11, 15]
 
 def write_table_header(ws, row):
     for ci, (h, w) in enumerate(zip(COLS, WIDTHS), start=1):
@@ -74,11 +96,14 @@ def write_table_header(ws, row):
 
 def write_table_rows(ws, row, rows):
     for r in rows:
+        swatch = hexcolor(r.get("color")) or "E5E7EB"
+        cell(ws, f"A{row}", None, fill=swatch, border=box)
         vals = [date_th(r["issued_at"]), r["product_name"], r["good_qty"], r["wage"]]
-        for ci, v in enumerate(vals, start=1):
+        for i, v in enumerate(vals):
+            ci = i + 2
             col = get_column_letter(ci)
-            is_money = ci == 4
-            is_num = ci == 3
+            is_money = ci == 5
+            is_num = ci == 4
             cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=10, color="111827"),
                  align=(R if (is_num or is_money) else L), border=box,
                  fmt=(MONEY if is_money else (NUM if is_num else None)))
@@ -88,46 +113,79 @@ def write_table_rows(ws, row, rows):
 
 used_names = set()
 
-# ── ชีตสรุปรวม (หน้าแรก) ──
+# ── รวบรวมรายชื่อสินค้าทั้งหมด (เรียงตามชื่อ) สำหรับตารางสรุปแยกยอดค่าแรงตามชนิดสายไฟ ──
+distinct_products = {}
+for m in d["members"]:
+    for pw in m.get("product_wages", []):
+        distinct_products.setdefault(pw["name"], pw.get("color"))
+product_order = sorted(distinct_products.keys())
+
+label_freq = {}
+for name in product_order:
+    lbl = short_label(name)
+    label_freq[lbl] = label_freq.get(lbl, 0) + 1
+product_label = {}
+for name in product_order:
+    lbl = short_label(name)
+    if label_freq[lbl] > 1:
+        prefix = name.split(" (")[0].strip()
+        lbl = f"{lbl} ({prefix})"
+    product_label[name] = lbl
+
+# ── ชีตสรุปรวม (หน้าแรก) — รหัส/ชื่อ/ธนาคาร + แยกยอดค่าแรงตามชนิดสายไฟ + รวมสุทธิ ──
 ws0 = wb.create_sheet(safe_sheet_name("สรุปรวม", used_names))
 ws0.sheet_view.showGridLines = False
-ws0.merge_cells("A1:F1")
+n_prod = len(product_order)
+last_col = 5 + n_prod + 1  # รหัส..เลขบัญชี (5) + สินค้าแต่ละชนิด + ค่าแรงสุทธิ
+last_col_letter = get_column_letter(last_col)
+ws0.merge_cells(f"A1:{last_col_letter}1")
 cell(ws0, "A1", d.get("org_name", ""), font=Font(name=FONT, size=13, bold=True, color=NAVY), align=C)
-ws0.merge_cells("A2:F2")
+ws0.merge_cells(f"A2:{last_col_letter}2")
 cell(ws0, "A2", f"สรุปรายงานเบิกงาน/ส่งงาน — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=11, color=GREY), align=C)
-ws0.merge_cells("A3:F3")
+ws0.merge_cells(f"A3:{last_col_letter}3")
 cell(ws0, "A3", f"เส้นตัดยอด (cut-off): {date_th(d['cutoff'])}  ·  งานที่คืนหลังจากนี้ยกไปจ่ายรอบเดือน {month_th(d['next_month'])}", font=Font(name=FONT, size=9.5, italic=True, color=GREY), align=C)
 ws0.row_dimensions[1].height = 22
 
 hdr_row = 5
-headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น", "ธนาคาร", "เลขบัญชี", "ค่าแรงสุทธิรอบนี้ (บาท)"]
-widths0 = [10, 26, 14, 16, 16, 20]
+headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น", "ธนาคาร", "เลขบัญชี"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
+widths0 = [9, 24, 13, 15, 15] + [13] * n_prod + [18]
 for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
     col = get_column_letter(ci)
     ws0.column_dimensions[col].width = w
-    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=9.5, bold=True, color="FFFFFF"), fill=NAVY, align=C, border=box)
-ws0.row_dimensions[hdr_row].height = 20
+    is_prod_col = 6 <= ci <= 5 + n_prod
+    if is_prod_col:
+        pname = product_order[ci - 6]
+        hexc = hexcolor(distinct_products[pname]) or "9CA3AF"
+        fill, txt = hexc, contrast_text(hexc)
+    else:
+        fill, txt = NAVY, "FFFFFF"
+    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=9, bold=True, color=txt), fill=fill, align=C, border=box)
+ws0.row_dimensions[hdr_row].height = 24
 
 row = hdr_row + 1
 for m in d["members"]:
-    vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-", m.get("bank_name") or "-", m.get("bank_account") or "-", m["total_wage"]]
+    pw_map = {pw["name"]: pw["wage"] for pw in m.get("product_wages", [])}
+    vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-", m.get("bank_name") or "-", m.get("bank_account") or "-"]
+    vals += [pw_map.get(n, 0) for n in product_order]
+    vals += [m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
+        is_money_col = ci > 5
         cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
-             align=(R if ci == 6 else L), border=box, fmt=(MONEY if ci == 6 else None))
+             align=(R if is_money_col else L), border=box, fmt=(MONEY_Z if is_money_col else None))
     ws0.row_dimensions[row].height = 17
     row += 1
 
-cell(ws0, f"E{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
-cell(ws0, f"F{row}", d["total_wage"], font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+cell(ws0, f"{get_column_letter(5 + n_prod)}{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+cell(ws0, f"{last_col_letter}{row}", d["total_wage"], font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = 20
 
-ws0.print_area = f"A1:F{row}"
-ws0.page_setup.orientation = "portrait"
+ws0.print_area = f"A1:{last_col_letter}{row}"
+ws0.page_setup.orientation = "landscape"
 ws0.page_setup.fitToWidth = 1
 ws0.page_setup.fitToHeight = 0
 ws0.sheet_properties.pageSetUpPr.fitToPage = True
-ws0.page_margins.left = ws0.page_margins.right = 0.4
+ws0.page_margins.left = ws0.page_margins.right = 0.35
 
 # ── ชีตรายบุคคล — พยายามอัดให้พอดี 1 หน้ากระดาษ/คน ──
 for m in d["members"]:
@@ -135,16 +193,16 @@ for m in d["members"]:
     ws = wb.create_sheet(safe_sheet_name(sheet_label, used_names))
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells("A1:D1")
+    ws.merge_cells("A1:E1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=13, bold=True, color=NAVY), align=C)
-    ws.merge_cells("A2:D2")
+    ws.merge_cells("A2:E2")
     cell(ws, "A2", f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=11, color=GREY), align=C)
     ws.row_dimensions[1].height = 22
 
-    ws.merge_cells("A4:D4")
+    ws.merge_cells("A4:E4")
     cell(ws, "A4", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
          font=Font(name=FONT, size=11, bold=True, color="111827"), align=L)
-    ws.merge_cells("A5:D5")
+    ws.merge_cells("A5:E5")
     cell(ws, "A5", f'ธนาคาร: {m.get("bank_name") or "-"}   เลขบัญชี: {m.get("bank_account") or "-"}',
          font=Font(name=FONT, size=9.5, color=GREY), align=L)
 
@@ -153,28 +211,28 @@ for m in d["members"]:
     row = write_table_rows(ws, row, m["rows"])
 
     cell(ws, f"A{row}", "รวมค่าแรง (ก่อนหัก NG เกินเกณฑ์)", font=Font(name=FONT, size=10, bold=True), align=R, border=box)
-    for c in "BC":
+    for c in "BCD":
         cell(ws, f"{c}{row}", None, border=box)
-    cell(ws, f"D{row}", m["gross_wage"], font=Font(name=FONT, size=10, bold=True), align=R, fmt=MONEY, border=box)
+    cell(ws, f"E{row}", m["gross_wage"], font=Font(name=FONT, size=10, bold=True), align=R, fmt=MONEY, border=box)
     row += 1
 
     if m.get("ng_deduction"):
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
              font=Font(name=FONT, size=10, color=RED), align=R, border=box)
-        for c in "BC":
+        for c in "BCD":
             cell(ws, f"{c}{row}", None, border=box)
-        cell(ws, f"D{row}", -m["ng_deduction"], font=Font(name=FONT, size=10, color=RED), align=R, fmt=MONEY, border=box)
+        cell(ws, f"E{row}", -m["ng_deduction"], font=Font(name=FONT, size=10, color=RED), align=R, fmt=MONEY, border=box)
         row += 1
 
     cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
-    for c in "BC":
+    for c in "BCD":
         cell(ws, f"{c}{row}", None, fill=GREEN, border=box)
-    cell(ws, f"D{row}", m["total_wage"], font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+    cell(ws, f"E{row}", m["total_wage"], font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
     ws.row_dimensions[row].height = 20
     row += 2
 
     if m.get("carry_rows"):
-        ws.merge_cells(f"A{row}:D{row}")
+        ws.merge_cells(f"A{row}:E{row}")
         cell(ws, f"A{row}", f'งานที่คืนหลังเส้นตัดยอด ({date_th(d["cutoff"])}) — ยกยอดไปจ่ายรอบเดือน {month_th(d["next_month"])}',
              font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=AMBER, align=L)
         ws.row_dimensions[row].height = 20
@@ -182,12 +240,12 @@ for m in d["members"]:
         row = write_table_header(ws, row)
         row = write_table_rows(ws, row, m["carry_rows"])
         cell(ws, f"A{row}", f'ยอดยกไปจ่ายเดือน {month_th(d["next_month"])}', font=Font(name=FONT, size=10, bold=True, color=AMBER), align=R, border=box)
-        for c in "BC":
+        for c in "BCD":
             cell(ws, f"{c}{row}", None, border=box)
-        cell(ws, f"D{row}", m["carry_subtotal"], font=Font(name=FONT, size=10, bold=True, color=AMBER), align=R, fmt=MONEY, border=box)
+        cell(ws, f"E{row}", m["carry_subtotal"], font=Font(name=FONT, size=10, bold=True, color=AMBER), align=R, fmt=MONEY, border=box)
         row += 1
 
-    ws.print_area = f"A1:D{row}"
+    ws.print_area = f"A1:E{row}"
     ws.page_setup.orientation = "portrait"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
