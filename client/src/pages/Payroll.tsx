@@ -651,22 +651,54 @@ function WageReconcileTab() {
       ) : (
         <>
           {/* เงินกันข้ามเดือน (Reserve) */}
-          <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="p-2 rounded-xl bg-amber-100 text-amber-600"><PiggyBank size={18} /></span>
-              <span className="text-sm font-semibold text-amber-800">เงินกันไว้จ่ายค่าแรงเดือนถัดไป (ยกไป)</span>
-            </div>
-            <p className="text-3xl md:text-[34px] font-bold text-amber-700 tabular-nums leading-none">{money(t.reserve_close)}</p>
-            <p className="text-xs text-amber-700/80 mt-2">
-              = มูลค่าค่าแรงของ<b>งานที่สมาชิกตัดเสร็จคืนมาแล้ว แต่ยังไม่ได้ส่งออก/วางบิล</b> ณ สิ้นเดือน
-              <br />⚠️ เงินก้อนนี้เป็นของสมาชิก — <b>ห้ามนำไปแบ่งกำไร/จ่ายผู้บริหาร/ลงทุน</b> ต้องถือไว้จ่ายเดือนถัดไป
-            </p>
-            <div className="mt-3 pt-3 border-t border-amber-200/70 flex flex-wrap gap-x-6 gap-y-1 text-xs text-amber-700">
-              <span>เงินกันยกมา (ต้นเดือน): <b>{money(t.reserve_open)}</b></span>
-              <span>เปลี่ยนแปลงเดือนนี้: <b className={t.reserve_close - t.reserve_open >= 0 ? 'text-rose-600' : 'text-green-700'}>
-                {t.reserve_close - t.reserve_open >= 0 ? '+' : ''}{fmt(t.reserve_close - t.reserve_open)}</b></span>
-            </div>
-          </div>
+          {(() => {
+            const diff = t.reserve_close - t.reserve_open;
+            const growing = diff > 0.005;
+            const shrinking = diff < -0.005;
+            return (
+              <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="p-2 rounded-xl bg-amber-100 text-amber-600"><PiggyBank size={18} /></span>
+                  <span className="text-sm font-semibold text-amber-800">เงินกันไว้จ่ายค่าแรงเดือนถัดไป (ยกไป)</span>
+                </div>
+                <p className="text-3xl md:text-[34px] font-bold text-amber-700 tabular-nums leading-none">{money(t.reserve_close)}</p>
+                <p className="text-xs text-amber-700/80 mt-2">
+                  = มูลค่าค่าแรงของ<b>งานที่สมาชิกตัดเสร็จคืนมาแล้ว แต่ยังไม่ได้ส่งออก/วางบิล</b> ณ สิ้นเดือน
+                  <br />⚠️ เงินก้อนนี้เป็นของสมาชิก — <b>ห้ามนำไปแบ่งกำไร/จ่ายผู้บริหาร/ลงทุน</b> ต้องถือไว้จ่ายเดือนถัดไป
+                </p>
+                <div className="mt-3 pt-3 border-t border-amber-200/70 flex flex-wrap gap-x-6 gap-y-1 text-xs text-amber-700">
+                  <span>เงินกันยกมา (ต้นเดือน): <b>{money(t.reserve_open)}</b></span>
+                  <span>เปลี่ยนแปลงเดือนนี้: <b className={diff >= 0 ? 'text-rose-600' : 'text-green-700'}>
+                    {diff >= 0 ? '+' : ''}{fmt(diff)}</b></span>
+                </div>
+
+                {/* คำอธิบายกรณี — บอกชัดว่าเดือนนี้ต้อง "กันเงินเพิ่ม" หรือ "ปลดล็อกเงินคืนงบผู้บริหาร" */}
+                <div className={`mt-3 rounded-xl p-3 text-xs leading-relaxed ${
+                  growing ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                  : shrinking ? 'bg-green-50 border border-green-200 text-green-800'
+                  : 'bg-white/70 border border-amber-200 text-amber-700'
+                }`}>
+                  {growing && (
+                    <>
+                      <b>🔒 กรณีนี้: ต้องกันเงินเพิ่ม {money(diff)}</b><br />
+                      เดือนนี้<b>จ่ายค่าแรงให้สมาชิกไปแล้ว แต่สินค้ายังไม่ได้ส่งให้โรงงาน</b> (ยังไม่ได้เก็บเงินจากโรงงาน)
+                      เงินก้อนนี้ยังไม่ใช่กำไร — ห้ามนำไปจ่ายผู้บริหารหรือปันผลเด็ดขาด ต้องกันสดไว้รอจ่ายค่าแรงเดือนถัดไป
+                    </>
+                  )}
+                  {shrinking && (
+                    <>
+                      <b>✅ กรณีนี้: มีเงินคืนงบผู้บริหาร/กำไรได้ {money(Math.abs(diff))}</b><br />
+                      สินค้าที่<b>จ่ายค่าแรงล่วงหน้าไปแล้วในเดือนก่อนๆ</b> ตอนนี้ส่งให้โรงงานและเก็บเงินได้แล้ว
+                      จึง<b>ปลดล็อกเงินก้อนนี้คืนกลับเป็นกำไร/งบผู้บริหารได้ตามปกติ</b> (ไม่ใช่เงินสำรองแล้ว)
+                    </>
+                  )}
+                  {!growing && !shrinking && (
+                    <>ยอดเงินกันไม่เปลี่ยนจากเดือนก่อน — ยอดคืนงานกับยอดส่งออกสมดุลกันพอดี ไม่ต้องกันเพิ่ม/คืนงบ</>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* สมการกระทบยอด */}
           <div className="card p-0 overflow-hidden">
