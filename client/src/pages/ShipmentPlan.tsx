@@ -50,6 +50,17 @@ export default function ShipmentPlan() {
         <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>
       ) : (
         <>
+          {!data.is_current_month && (
+            <div className="rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs text-slate-600 flex items-start gap-2">
+              <Info size={14} className="shrink-0 mt-0.5 text-slate-400" />
+              <span>
+                กำลังดูเดือนที่ผ่านมาแล้ว ({monthLabel(month)}) — "เงินกันยกมา"/"รายรับ" ด้านล่างเป็นตัวเลข<b>ย้อนหลัง</b>ของเดือนนั้น
+                แต่ "สต๊อกงานดีค้าง" เป็นสต๊อก<b>ปัจจุบัน ณ วันนี้</b>เสมอ (ของที่เคยค้างตอนนั้นอาจถูกส่งออกไปหมดแล้วหลังจากนั้น)
+                สองส่วนนี้จึง<b>เทียบกันโดยตรงไม่ได้</b> — ใช้หน้านี้วางแผนได้แม่นยำเฉพาะตอนดู "เดือนปัจจุบัน" เท่านั้น
+              </span>
+            </div>
+          )}
+
           {/* สถานะหลัก */}
           <div className={`rounded-2xl border-2 p-5 ${
             data.covered ? 'border-green-200 bg-gradient-to-br from-green-50 to-emerald-50'
@@ -150,7 +161,7 @@ export default function ShipmentPlan() {
           {/* สต๊อกงานดีค้างทั้งหมด (อ้างอิง) */}
           <div className="card p-0 overflow-hidden">
             <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
-              <span className="font-semibold text-gray-700 text-sm">สต๊อกงานดีค้างทั้งหมด (คืนแล้วยังไม่ส่งออก) — {monthLabel(month)}</span>
+              <span className="font-semibold text-gray-700 text-sm">สต๊อกงานดีค้างทั้งหมด (คืนแล้วยังไม่ส่งออก) — ณ วันนี้ ({dateLabel(data.today)})</span>
             </div>
             {stock.length === 0 ? (
               <div className="p-6 text-center text-sm text-gray-400">ไม่มีสต๊อกค้าง — ส่งออกครบหมดแล้ว</div>

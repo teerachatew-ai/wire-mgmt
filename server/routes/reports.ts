@@ -1072,9 +1072,14 @@ router.get('/wage-reconcile', (req, res) => {
 // แนะนำปริมาณ "อย่างน้อยที่สุด" ที่ควรส่งออกแต่ละชนิดสินค้า เพื่อให้รายรับเดือนนี้ครอบคลุม
 // เงินกันยกมา (ค่าแรงที่จ่ายสมาชิกไปแล้วเดือนก่อน แต่งานยังไม่ถูกส่งออก/วางบิล)
 router.get('/shipment-plan', (req, res) => {
+  const currentMonth = new Date().toISOString().substring(0, 7);
   const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
-    ? req.query.month : new Date().toISOString().substring(0, 7);
+    ? req.query.month : currentMonth;
   const today = new Date().toISOString().split('T')[0];
+  // สต๊อกด้านล่างคือสต๊อก ณ "วันนี้จริงๆ" เสมอ (ของจริงที่ส่งได้ตอนนี้) — ตัวเลขนี้จะเทียบกับ
+  // เงินกันยกมา/รายรับเดือนที่เลือกได้อย่างมีความหมาย ก็ต่อเมื่อเลือกดู "เดือนปัจจุบัน" เท่านั้น
+  // ถ้าเลือกดูเดือนที่ปิดไปแล้ว เงินกันยกมาเป็นตัวเลขย้อนหลัง แต่สต๊อกเป็นของตอนนี้ คนละช่วงเวลากัน
+  const is_current_month = m === currentMonth;
 
   const { reserve_open } = buildWageReconcile(m).totals;
   const shipped_revenue_mtd = monthRevenueOf(m);
@@ -1087,7 +1092,8 @@ router.get('/shipment-plan', (req, res) => {
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
   const cutoff = computeCutoff(m, holidays, overrides, cutoffDay);
   const daysToCutoff = Math.ceil((new Date(cutoff).getTime() - new Date(today).getTime()) / 86400000);
-  const isLastWeek = daysToCutoff <= 7;
+  // "ใกล้เส้นตาย" มีความหมายเฉพาะตอนดูเดือนปัจจุบันเท่านั้น — เดือนที่ปิดไปแล้ว เส้นตายผ่านไปแล้วเสมอ ไม่ใช่เรื่องเร่งด่วนอีกต่อไป
+  const isLastWeek = is_current_month && daysToCutoff >= 0 && daysToCutoff <= 7;
 
   // สต๊อกงานดีค้าง (คืนแล้วยังไม่ส่ง) ของแต่ละสินค้า ณ ตอนนี้ — พร้อมมูลค่าตามราคาโรงงาน
   const stockRows = prepare(`
@@ -1118,7 +1124,7 @@ router.get('/shipment-plan', (req, res) => {
   });
 
   res.json({
-    month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek,
+    month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek, is_current_month,
     reserve_open, shipped_revenue_mtd, target_remaining, covered, surplus,
     stock, suggestions,
     total_stock_value: stock.reduce((s: number, p: any) => s + p.stock_value, 0),
