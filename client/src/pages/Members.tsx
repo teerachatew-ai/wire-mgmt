@@ -272,18 +272,21 @@ function MemberForm({ defaultValues, onSubmit, loading, isEdit }: any) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      {/* Smart card reader + OCR — show only when adding */}
-      {!isEdit && (
-        <div className="space-y-2">
-          <SmartCardButton onExtracted={handleSmartCardData} />
-          <div className="flex items-center gap-2 text-xs text-gray-400">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span>หรือสแกนรูปบัตร</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-          <IdCardScanner onExtracted={handleIdCardData} />
+      {/* Smart card reader + OCR — ใช้ได้ทั้งตอนเพิ่มและแก้ไข (แก้ไข = เขียนทับด้วยข้อมูลจากบัตรจริง) */}
+      <div className="space-y-2">
+        {isEdit && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            ⚠️ เสียบบัตร/สแกนรูปแล้ว จะ<strong>เขียนทับ</strong>ชื่อ-สกุล, เลขบัตรประชาชน, ที่อยู่ ด้วยข้อมูลจากบัตรจริง
+          </p>
+        )}
+        <SmartCardButton onExtracted={handleSmartCardData} />
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span>หรือสแกนรูปบัตร</span>
+          <div className="flex-1 h-px bg-gray-200" />
         </div>
-      )}
+        <IdCardScanner onExtracted={handleIdCardData} />
+      </div>
 
       <div className="space-y-3">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">ข้อมูลสมาชิก</p>
