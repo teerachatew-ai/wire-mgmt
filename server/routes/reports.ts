@@ -994,9 +994,7 @@ router.post('/payroll-detail-export', (req, res) => {
 
 // ── Cross-Check ค่าแรง & เงินกันข้ามเดือน ─────────────────────────────────
 // กระทบยอดค่าแรง 2 วิธี (วางบิล/ส่งออก  vs  ใบเบิก/รับคืน) ให้ตรงกันเป๊ะ + คำนวณเงินกันข้ามเดือน
-router.get('/wage-reconcile', (req, res) => {
-  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
-    ? req.query.month : new Date().toISOString().substring(0, 7);
+function buildWageReconcile(m: string) {
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
   const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
   const monthStart = `${m}-01`;
@@ -1047,7 +1045,7 @@ router.get('/wage-reconcile', (req, res) => {
   const wage_payroll_gross = sum('wage_payroll');
   // ยอดสุทธิ (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคน) — ใช้สูตรเดียวกับหน้า "สรุปรายเดือน" เป๊ะ กันยอดไม่ตรงกัน
   const wage_payroll_net = payCycleWage(m);
-  res.json({
+  return {
     month: m,
     products,
     totals: {
@@ -1061,6 +1059,70 @@ router.get('/wage-reconcile', (req, res) => {
       reserve_open: sum('reserve_open'),      // เงินกันยกมา
       reserve_close: sum('reserve_close'),    // เงินกันยกไป (ต้องถือข้ามเดือน)
     },
+  };
+}
+
+router.get('/wage-reconcile', (req, res) => {
+  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
+    ? req.query.month : new Date().toISOString().substring(0, 7);
+  res.json(buildWageReconcile(m));
+});
+
+// ── วางแผนการส่งงาน (Shipment Planning) ────────────────────────────────
+// แนะนำปริมาณ "อย่างน้อยที่สุด" ที่ควรส่งออกแต่ละชนิดสินค้า เพื่อให้รายรับเดือนนี้ครอบคลุม
+// เงินกันยกมา (ค่าแรงที่จ่ายสมาชิกไปแล้วเดือนก่อน แต่งานยังไม่ถูกส่งออก/วางบิล)
+router.get('/shipment-plan', (req, res) => {
+  const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
+    ? req.query.month : new Date().toISOString().substring(0, 7);
+  const today = new Date().toISOString().split('T')[0];
+
+  const { reserve_open } = buildWageReconcile(m).totals;
+  const shipped_revenue_mtd = monthRevenueOf(m);
+  const target_remaining = Math.max(0, reserve_open - shipped_revenue_mtd);
+  const covered = target_remaining <= 0;
+  const surplus = shipped_revenue_mtd - reserve_open; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
+
+  // เส้นตาย (cut-off) ของเดือนนี้ — ใช้เตือนว่าใกล้ "สัปดาห์สุดท้าย" หรือยัง
+  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
+  const cutoff = computeCutoff(m, holidays, overrides, cutoffDay);
+  const daysToCutoff = Math.ceil((new Date(cutoff).getTime() - new Date(today).getTime()) / 86400000);
+  const isLastWeek = daysToCutoff <= 7;
+
+  // สต๊อกงานดีค้าง (คืนแล้วยังไม่ส่ง) ของแต่ละสินค้า ณ ตอนนี้ — พร้อมมูลค่าตามราคาโรงงาน
+  const stockRows = prepare(`
+    SELECT p.id, p.name, p.color, p.unit, p.factory_price, p.wage_per_unit,
+      COALESCE((SELECT SUM(good_qty) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_good_all,
+      COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as ship_good_all
+    FROM products p WHERE p.active=1
+  `).all() as any[];
+  const stock = stockRows
+    .map((p: any) => ({
+      id: p.id, name: p.name, color: p.color, unit: p.unit,
+      factory_price: p.factory_price, wage_per_unit: p.wage_per_unit,
+      stock_qty: Math.max(0, p.ret_good_all - p.ship_good_all),
+    }))
+    .filter((p: any) => p.stock_qty > 0)
+    .map((p: any) => ({ ...p, stock_value: p.stock_qty * p.factory_price }))
+    .sort((a: any, b: any) => b.stock_value - a.stock_value); // ตัดจากตัวที่มีมูลค่าค้างมากสุดก่อน (ใช้จำนวนชนิดน้อยที่สุดในการปิดเป้า)
+
+  // จัดสรร suggestion: ไล่ตัดจากสต๊อกมูลค่าสูงสุดจนกว่าจะครบเป้า (ไม่บังคับให้ส่งทั้งหมดที่มี)
+  let remaining = target_remaining;
+  const suggestions = stock.map((p: any) => {
+    if (remaining <= 0.005) return { ...p, suggested_qty: 0, suggested_value: 0 };
+    const qtyForTarget = p.factory_price > 0 ? remaining / p.factory_price : 0;
+    const suggested_qty = Math.min(p.stock_qty, Math.ceil(qtyForTarget));
+    const suggested_value = suggested_qty * p.factory_price;
+    remaining = Math.max(0, remaining - suggested_value);
+    return { ...p, suggested_qty, suggested_value };
+  });
+
+  res.json({
+    month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek,
+    reserve_open, shipped_revenue_mtd, target_remaining, covered, surplus,
+    stock, suggestions,
+    total_stock_value: stock.reduce((s: number, p: any) => s + p.stock_value, 0),
+    total_suggested_value: suggestions.reduce((s: number, p: any) => s + p.suggested_value, 0),
   });
 });
 

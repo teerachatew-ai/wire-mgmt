@@ -88,6 +88,7 @@ export const reportApi = {
   cutoffSchedule: () => api.get('/reports/cutoff-schedule').then(r => r.data),
   wageReconcile: (month: string) => api.get('/reports/wage-reconcile', { params: { month } }).then(r => r.data),
   memberReconcile: (month: string) => api.get('/reports/member-reconcile', { params: { month } }).then(r => r.data),
+  shipmentPlan: (month: string) => api.get('/reports/shipment-plan', { params: { month } }).then(r => r.data),
 };
 
 export const ocrApi = {

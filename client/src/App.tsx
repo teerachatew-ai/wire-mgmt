@@ -12,6 +12,7 @@ import OCR from './pages/OCR';
 import SettingsPage from './pages/SettingsPage';
 import StockFlow from './pages/StockFlow';
 import Shipments from './pages/Shipments';
+import ShipmentPlan from './pages/ShipmentPlan';
 import FormPrint from './pages/FormPrint';
 import PdpaConsent from './pages/PdpaConsent';
 import Login from './pages/Login';
@@ -40,6 +41,7 @@ function AppRoutes() {
         <Route path="/returns" element={<Guard path="/returns"><Returns /></Guard>} />
         <Route path="/stock" element={<Guard path="/stock"><StockFlow /></Guard>} />
         <Route path="/shipments" element={<Guard path="/shipments"><Shipments /></Guard>} />
+        <Route path="/shipment-plan" element={<Guard path="/shipment-plan"><ShipmentPlan /></Guard>} />
         <Route path="/payroll" element={<Guard path="/payroll"><Payroll /></Guard>} />
         <Route path="/assets" element={<Guard path="/assets"><Assets /></Guard>} />
         <Route path="/billing" element={<Guard path="/billing"><Billing /></Guard>} />

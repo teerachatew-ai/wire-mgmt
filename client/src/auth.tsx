@@ -11,7 +11,7 @@ const USERS: { key: string; name: string; password: string; role: Role }[] = [
 ];
 
 // เมนูที่ "ดาว" มองไม่เห็น/เข้าไม่ได้
-export const DAO_HIDDEN = ['/', '/products', '/billing', '/ocr', '/settings', '/assets'];
+export const DAO_HIDDEN = ['/', '/products', '/billing', '/ocr', '/settings', '/assets', '/shipment-plan'];
 
 export function canAccess(role: Role, path: string): boolean {
   if (role === 'admin') return true;
