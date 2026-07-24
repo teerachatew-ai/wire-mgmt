@@ -4,12 +4,26 @@ import { useForm } from 'react-hook-form';
 import { memberApi, ocrApi, smartcardApi, reportApi } from '../api';
 import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
+import { compressImageToDataUrl } from '../utils/compressImage';
+
+// คำนวณอายุ (ปี) จากวันเกิด
+function calcAge(dob?: string | null): number | null {
+  if (!dob) return null;
+  const d = new Date(dob);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+}
 
 /* แปลงรายชื่อสมาชิกเป็นแถวสำหรับ export Excel */
 function membersToRows(members: any[]) {
   return members.map(m => ({
     'รหัส': m.code, 'ชื่อ-สกุล': m.name, 'ชื่อเล่น': m.nickname || '',
     'เลขบัตรประชาชน': m.id_card || '', 'เบอร์โทร': m.phone || '', 'ที่อยู่': m.address || '',
+    'วันเกิด': m.dob || '', 'อายุ': calcAge(m.dob) ?? '',
     'ธนาคาร': m.bank_name || '', 'เลขบัญชี': m.bank_account || '',
     'สถานะ': m.status === 'active' ? 'ใช้งาน' : 'พักงาน',
     'เกรด': m.grade || '', 'งานเสียเกิน3%(ครั้ง)': m.ng_count ?? 0, 'จำนวนงาน': m.batch_count ?? 0,
@@ -102,11 +116,14 @@ function IdCardScanner({ onExtracted }: { onExtracted: (data: any) => void }) {
     setState('loading');
     setErrorMsg('');
     try {
-      const result = await ocrApi.readIdCard(file);
+      const [result, photo] = await Promise.all([
+        ocrApi.readIdCard(file),
+        compressImageToDataUrl(file).catch(() => null),   // เก็บรูปบัตร (ย่อขนาดแล้ว) — ถ้าย่อไม่สำเร็จก็ยังกรอกข้อมูลได้ปกติ
+      ]);
       const ex = result.extracted;
       setConfidence(ex.confidence ?? 'medium');
       setUncertain(ex.uncertain_fields ?? []);
-      onExtracted(ex);
+      onExtracted({ ...ex, _photo: photo });
       setState('done');
     } catch (e: any) {
       setErrorMsg(e.response?.data?.error ?? e.message ?? 'เกิดข้อผิดพลาด');
@@ -262,12 +279,15 @@ function MemberForm({ defaultValues, onSubmit, loading, isEdit }: any) {
     if (data.full_name) setValue('name', data.full_name);
     if (data.id_number) setValue('id_card', data.id_number);
     if (data.address) setValue('address', data.address);
+    if (data.date_of_birth) setValue('dob', data.date_of_birth);
+    if (data._photo) setValue('id_card_photo', data._photo);
   }, [setValue]);
 
   const handleSmartCardData = useCallback((data: any) => {
     if (data.name) setValue('name', data.name);
     if (data.id_card) setValue('id_card', data.id_card);
     if (data.address) setValue('address', data.address);
+    if (data.dob) setValue('dob', data.dob);
   }, [setValue]);
 
   return (
@@ -310,6 +330,11 @@ function MemberForm({ defaultValues, onSubmit, loading, isEdit }: any) {
             <input className="input" placeholder="0812345678" {...register('phone')} />
           </div>
           <div>
+            <label className="label">วันเกิด</label>
+            <input type="date" className="input" {...register('dob')} />
+            {(() => { const age = calcAge(watch('dob')); return age !== null ? <p className="text-xs text-gray-400 mt-1">อายุ {age} ปี</p> : null; })()}
+          </div>
+          <div>
             <label className="label">วันที่ลงทะเบียน</label>
             <input type="date" className="input" {...register('registered_at')}
               defaultValue={new Date().toISOString().split('T')[0]} />
@@ -329,6 +354,20 @@ function MemberForm({ defaultValues, onSubmit, loading, isEdit }: any) {
           <label className="label">ที่อยู่</label>
           <textarea className="input" rows={2} {...register('address')} placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด" />
         </div>
+
+        <input type="hidden" {...register('id_card_photo')} />
+        {watch('id_card_photo') && (
+          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 p-2.5">
+            <img src={watch('id_card_photo')} alt="รูปบัตรประชาชน" className="w-24 h-16 object-cover rounded-lg border border-gray-200" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-gray-600">รูปบัตรประชาชนที่บันทึกไว้</p>
+              <button type="button" className="text-xs text-red-500 hover:underline mt-0.5"
+                onClick={() => setValue('id_card_photo', '')}>
+                ลบรูปนี้
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide pt-1">ข้อมูลบัญชีธนาคาร</p>
         <div className="grid grid-cols-2 gap-3">
@@ -357,7 +396,7 @@ function MemberForm({ defaultValues, onSubmit, loading, isEdit }: any) {
         <label className="flex items-start gap-2.5 cursor-pointer">
           <input type="checkbox" className="mt-1 w-5 h-5 accent-blue-600 shrink-0" {...register('pdpa_consent')} />
           <span className="text-sm text-gray-700 leading-relaxed">
-            สมาชิก<strong>ยินยอม</strong>ให้กลุ่มเก็บและใช้ข้อมูลส่วนตัว (ชื่อ เลขบัตรประชาชน ที่อยู่ เบอร์โทร เลขบัญชี)
+            สมาชิก<strong>ยินยอม</strong>ให้กลุ่มเก็บและใช้ข้อมูลส่วนตัว (ชื่อ เลขบัตรประชาชน วันเกิด ที่อยู่ เบอร์โทร เลขบัญชี รูปบัตรประชาชน)
             เพื่อขึ้นทะเบียนสมาชิก คำนวณค่าแรง และโอนเงิน โดยเก็บเป็นความลับ
           </span>
         </label>

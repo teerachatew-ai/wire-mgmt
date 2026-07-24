@@ -232,6 +232,13 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!memberCols.includes('pdpa_consent_at')) {
     db.exec(`ALTER TABLE members ADD COLUMN pdpa_consent_at TEXT`);
   }
+  if (!memberCols.includes('dob')) {
+    db.exec(`ALTER TABLE members ADD COLUMN dob TEXT`);
+  }
+  if (!memberCols.includes('id_card_photo')) {
+    // เก็บเป็น data URL (base64) รูปย่อขนาดเล็กของบัตรประชาชน — ไม่ใช่รูปต้นฉบับขนาดเต็ม
+    db.exec(`ALTER TABLE members ADD COLUMN id_card_photo TEXT`);
+  }
   const productCols = db.exec(`PRAGMA table_info(products)`)[0]?.values.map(r => r[1]) ?? [];
   if (!productCols.includes('factory_price')) {
     db.exec(`ALTER TABLE products ADD COLUMN factory_price REAL NOT NULL DEFAULT 0`);
