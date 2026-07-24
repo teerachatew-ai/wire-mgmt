@@ -99,7 +99,7 @@ const monthLabel = (m: string) => {
 };
 
 /* ── Hero financial card — soft pastel, period-aware ── */
-function HeroCard({ icon: Icon, label, value, sub, theme }: any) {
+function HeroCard({ icon: Icon, label, value, sub, sub2, theme }: any) {
   const t: any = {
     mint:   { bg: 'from-emerald-50 to-teal-50', ring: 'ring-emerald-100', chip: 'bg-emerald-100 text-emerald-600', num: 'text-emerald-700' },
     peach:  { bg: 'from-amber-50 to-orange-50', ring: 'ring-amber-100',   chip: 'bg-amber-100 text-amber-600',     num: 'text-amber-700' },
@@ -113,6 +113,7 @@ function HeroCard({ icon: Icon, label, value, sub, theme }: any) {
       </div>
       <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-none ${t.num}`}>฿{value}</p>
       {sub && <p className="text-xs text-slate-500 mt-2.5 tabular-nums">{sub}</p>}
+      {sub2 && <p className="text-xs text-slate-400 mt-1 tabular-nums">{sub2}</p>}
     </div>
   );
 }
@@ -251,7 +252,8 @@ export default function Dashboard() {
         <HeroCard theme="mint"   icon={Factory} label="รายรับจาก Amphenol" value={thb2(revenue)}
           sub={isM ? `สะสม ฿${thb2(data.revenue_all)}` : `เดือนนี้ ฿${thb2(data.revenue_month)}`} />
         <HeroCard theme="peach"  icon={Wallet} label="ค่าแรงจ่ายสมาชิก" value={thb2(wage)}
-          sub={isM ? `สะสม ฿${thb2(data.wage_all)}` : `เดือนนี้ ฿${thb2(data.wage_month)}`} />
+          sub={isM ? `สะสม ฿${thb2(data.wage_all)}` : `เดือนนี้ ฿${thb2(data.wage_month)}`}
+          sub2={data.outstanding_wage > 0 ? `(ถ้าคืนครบทั้งหมด ฿${thb2(wage + data.outstanding_wage)})` : undefined} />
         <HeroCard theme="violet" icon={Sparkles} label="กำไรสุทธิ" value={thb2(finalNet)}
           sub={`หลังหักทุกรายการ · อัตรากำไร ${margin.toFixed(0)}%`} />
       </div>
@@ -273,6 +275,12 @@ export default function Dashboard() {
             <span className="text-slate-700">กำไรขั้นต้น <span className="text-xs font-normal text-slate-400">(ก่อนหักผู้บริหาร/บริหาร)</span></span>
             <span className="text-emerald-700">฿{thb2(profit)} <span className="text-xs px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 ml-1">{grossMargin.toFixed(1)}%</span></span>
           </div>
+          {data.outstanding_wage > 0 && (
+            <div className="flex justify-between -mt-0.5">
+              <span />
+              <span className="text-[11px] text-slate-400">(ถ้าคืนครบทั้งหมด ฿{thb2(profit + data.outstanding_gross)})</span>
+            </div>
+          )}
           {[
             [`หัก ภาษี ณ ที่จ่าย ${taxPct}%`, -(isM ? data.tax_month : data.tax_all), 'text-rose-600'],
             ['หัก ค่าตอบแทนผู้บริหาร', -(isM ? data.manager_comp_month : data.manager_comp_all), 'text-rose-600'],

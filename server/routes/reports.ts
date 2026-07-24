@@ -150,6 +150,11 @@ router.get('/performance', (req, res) => {
   const fcRevenueAll = fcRows.reduce((s, r) => s + r.ra * r.fp, 0);
   const fcWageAll = fcRows.reduce((s, r) => s + r.ra * r.wp, 0);
 
+  // ประมาณการ "ถ้าคืนครบ" — สมมติงานที่ยังค้างอยู่กับสมาชิก (เบิกไปแล้วยังไม่คืนครบ) ถูกตัดเสร็จคืนมา
+  // และส่งขายให้โรงงานหมด — ใช้บอกเพดานค่าแรง/กำไรขั้นต้นที่เป็นไปได้จากงานที่มีอยู่ในมือสมาชิกตอนนี้
+  const outstandingWage = rows.reduce((s: number, r: any) => s + (r.with_members || 0) * r.wage_per_unit, 0);
+  const outstandingRevenue = rows.reduce((s: number, r: any) => s + (r.with_members || 0) * r.factory_price, 0);
+
   // ค่าแรงจ่ายสมาชิก อิงตาม "รอบจ่าย" (cut-off) ให้ตรงกับหน้าสรุปค่าแรง
   const wageMonthVal = payCycleWage(thisMonth);
   const wageAllVal = payCycleWage(null);
@@ -215,6 +220,10 @@ router.get('/performance', (req, res) => {
     forecast_revenue_all: fcRevenueAll,
     forecast_wage_all: fcWageAll,
     forecast_gross_all: fcRevenueAll - fcWageAll,
+    // ประมาณการ "ถ้าคืนครบ" — งานที่เบิกไปสมาชิกตัดอยู่ ถ้าคืนมาครบ + ส่งขายหมด
+    outstanding_wage: outstandingWage,
+    outstanding_revenue: outstandingRevenue,
+    outstanding_gross: outstandingRevenue - outstandingWage,
     products: rows,
     trend,
   });
