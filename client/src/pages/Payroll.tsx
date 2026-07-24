@@ -103,19 +103,31 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
 
 // ช่องกรอกค่าตอบแทนผู้บริหารรายเดือน (กำหนดเอง / ใช้อัตโนมัติ)
 function MgrCompInput({ mg, month, onSaved }: { mg: any; month: string; onSaved: () => void }) {
-  const [val, setVal] = useState<string>(String(Math.round((mg.computed || 0) * 100) / 100));
+  const isPercent = mg.compensation_type === 'percent';
+  // แบบ % ของรายรับ: กรอก/แสดงเป็น "%" เฉพาะเดือนนี้ (ค่าเริ่มต้น = % ปกติของผู้บริหารคนนี้ ถ้ายังไม่เคยกำหนดเอง)
+  // แบบจำนวนคงที่: กรอก/แสดงเป็นบาทเหมือนเดิม
+  const defaultVal = () => isPercent
+    ? String(mg.overridden ? mg.override_value : mg.amount)
+    : String(Math.round((mg.computed || 0) * 100) / 100);
+  const [val, setVal] = useState<string>(defaultVal());
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setVal(String(Math.round((mg.computed || 0) * 100) / 100)); }, [mg.computed, month]);
-  const changed = Number(val || 0) !== Math.round((mg.computed || 0) * 100) / 100;
+  useEffect(() => { setVal(defaultVal()); }, [mg.computed, mg.override_value, mg.amount, month]);
+  const changed = Number(val || 0) !== Number(defaultVal() || 0);
   const save = async () => { setSaving(true); try { await reportApi.setManagerMonth({ month, manager_id: mg.id, amount: val === '' ? null : Number(val) }); onSaved(); } finally { setSaving(false); } };
   const reset = async () => { setSaving(true); try { await reportApi.setManagerMonth({ month, manager_id: mg.id, amount: null }); onSaved(); } finally { setSaving(false); } };
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      {mg.overridden ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">กำหนดเอง</span>
-        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">อัตโนมัติ</span>}
-      <input type="number" step="0.01" className="input !min-h-[34px] !py-1 !px-2 text-sm w-28 text-right" value={val} onChange={e => setVal(e.target.value)} />
-      {changed && <button className="text-blue-600 hover:text-blue-800" title="บันทึกเดือนนี้" onClick={save} disabled={saving}><Save size={15} /></button>}
-      {mg.overridden && !changed && <button className="text-gray-400 hover:text-gray-600" title="กลับไปใช้อัตโนมัติ" onClick={reset} disabled={saving}><RotateCcw size={14} /></button>}
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-1.5">
+        {mg.overridden ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">กำหนดเอง</span>
+          : <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">อัตโนมัติ</span>}
+        <div className="flex items-center gap-1">
+          <input type="number" step="0.01" className="input !min-h-[34px] !py-1 !px-2 text-sm w-24 text-right" value={val} onChange={e => setVal(e.target.value)} />
+          <span className="text-xs text-gray-400 w-4">{isPercent ? '%' : 'บ.'}</span>
+        </div>
+        {changed && <button className="text-blue-600 hover:text-blue-800" title="บันทึกเดือนนี้" onClick={save} disabled={saving}><Save size={15} /></button>}
+        {mg.overridden && !changed && <button className="text-gray-400 hover:text-gray-600" title="กลับไปใช้อัตโนมัติ" onClick={reset} disabled={saving}><RotateCcw size={14} /></button>}
+      </div>
+      {isPercent && <span className="text-[10px] text-gray-400">= ฿{fmt(mg.computed)}</span>}
     </div>
   );
 }
@@ -353,7 +365,7 @@ function MonthlyTab() {
                     <th className="px-4 py-2.5 font-medium">ชื่อ-ตำแหน่ง</th>
                     <th className="px-4 py-2.5 font-medium">รูปแบบ</th>
                     <th className="px-4 py-2.5 font-medium text-right">อัตรา</th>
-                    <th className="px-4 py-2.5 font-medium text-right">ค่าตอบแทน (บาท)</th>
+                    <th className="px-4 py-2.5 font-medium text-right">ค่าตอบแทนเดือนนี้</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -708,10 +720,10 @@ function WageReconcileTab() {
             </div>
             <div className="p-4 space-y-1.5 text-sm">
               {[
-                ['ค่าแรงตามยอดส่งออก / วางบิล (เดือนนี้)', t.wage_billed, 'text-green-700', 'A · โรงงานจ่ายเงินตามยอดนี้'],
-                ['+ งานคืนแล้วยังไม่ได้ส่ง (สต๊อกงานดีเปลี่ยนแปลง)', t.wage_dFG, 'text-amber-700', 'สมาชิกตัดคืนมา แต่ของยังค้างสต๊อก'],
-                ['+ เหลื่อมรอบตัดยอด (ปลายเดือน)', t.wage_timing, 'text-blue-700', 'งานคืนช่วงคาบเกี่ยววันตัดยอด'],
-                ['+ ค่าแรงงานเสีย-โรงงาน / งานหาย (จ่ายปกติ)', t.wage_extra, 'text-violet-700', 'จ่ายค่าแรงแต่ไม่มียอดส่งรองรับ'],
+                ['ค่าแรงของงานที่ส่งขายให้โรงงานแล้ว', t.wage_billed, 'text-green-700', 'คิดจากจำนวนที่ส่งออกจริงเดือนนี้ × ค่าแรง/หน่วย — เป็นยอดที่โรงงานจ่ายเงินให้เราจริง'],
+                ['+ งานที่สมาชิกตัดคืนมาแล้ว แต่ยังไม่ได้ส่งขาย', t.wage_dFG, 'text-amber-700', 'จ่ายค่าแรงให้สมาชิกไปแล้วตามที่คืนงาน แต่ของยังกองอยู่ในสต๊อก รอส่งขายรอบหน้า'],
+                ['+ ผลจากวันตัดยอดจ่ายค่าแรง', t.wage_timing, 'text-blue-700', 'งานที่คืนใกล้ปลายเดือน ถูกเลื่อนไปนับในรอบจ่ายเดือนถัดไปแทน ตามวันตัดยอดที่ตั้งไว้'],
+                ['+ ค่าแรงงานเสียจากโรงงาน/งานสูญหาย', t.wage_extra, 'text-violet-700', 'จ่ายค่าแรงให้สมาชิกตามปกติ (ไม่ใช่ความผิดสมาชิก) แต่ไม่มีของส่งขายจริงมารองรับยอดนี้'],
               ].map(([label, val, color, note]: any) => (
                 <div key={label} className="flex items-center justify-between gap-2 py-1">
                   <div className="min-w-0">
@@ -741,6 +753,12 @@ function WageReconcileTab() {
                 <span className="tabular-nums font-bold text-slate-900 text-lg">{money(t.wage_payroll_net)}</span>
               </div>
               <p className="text-[11px] text-gray-400 pt-1">* ยอดนี้ตรงกับหน้า "สรุปรายเดือน" เป๊ะ (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคนแล้ว)</p>
+              {t.outstanding_wage > 0 && (
+                <p className="text-[11px] text-gray-400 pt-1.5 border-t border-dashed border-slate-200 mt-1.5">
+                  + ถ้ารวม<b>งานที่เบิกไปสมาชิกแล้ว แต่ยังตัด/คืนไม่ครบ</b> เข้ามาด้วย จะมีค่าแรงเพิ่มอีกประมาณ {money(t.outstanding_wage)}
+                  {' '}(รวมประมาณการทั้งหมด {money(t.wage_payroll_net + t.outstanding_wage)})
+                </p>
+              )}
             </div>
           </div>
 

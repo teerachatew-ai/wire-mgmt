@@ -19,6 +19,9 @@ function monthRevenueOf(month: string): number {
     WHERE s.shipped_at LIKE ?`).get(`${month}%`) as any).v || 0;
 }
 // ค่าตอบแทนผู้บริหารของเดือน — ถ้ากำหนดเองใน manager_month ใช้ค่านั้น มิฉะนั้นคิดอัตโนมัติ
+// ค่าที่กำหนดเองตีความตาม compensation_type ของผู้บริหารคนนั้นเสมอ:
+//   - แบบ % ของรายรับ (percent)  -> ค่าที่กรอกใน manager_month.amount คือ "% ที่ต่างไปเฉพาะเดือนนี้" (คิดจากรายรับเดือนนี้ใหม่)
+//   - แบบจำนวนคงที่ (fixed)      -> ค่าที่กรอกคือจำนวนบาทคงที่เฉพาะเดือนนี้ (เหมือนเดิม)
 function managerCompForMonth(month: string): any[] {
   const rev = monthRevenueOf(month);
   const managers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
@@ -26,8 +29,34 @@ function managerCompForMonth(month: string): any[] {
   return managers.map((mg: any) => {
     const auto = mg.compensation_type === 'percent' ? rev * (mg.amount / 100) : mg.amount;
     const overridden = ov[mg.id] !== undefined;
-    return { ...mg, auto, computed: overridden ? ov[mg.id] : auto, overridden };
+    const overrideRaw = ov[mg.id];
+    const computed = overridden
+      ? (mg.compensation_type === 'percent' ? rev * (overrideRaw / 100) : overrideRaw)
+      : auto;
+    return { ...mg, auto, computed, overridden, override_value: overridden ? overrideRaw : null };
   });
+}
+
+// ค่าใช้จ่ายคงที่รายเดือน (ค่าตอบแทนผู้บริหาร + ค่าบริหารจัดการทั่วไป ตามที่ตั้งไว้ในหน้าภาพรวม/ตั้งค่า)
+// ใช้ยอดขายที่เกิดขึ้นจริง ณ ตอนนี้เป็นฐาน (สำหรับผู้บริหารแบบ %) — เป็นค่าประมาณ ณ ปัจจุบัน ไม่ได้ปรับพลวัตตามยอดขายที่จะเพิ่มในอนาคต
+function monthlyOverhead(month: string): { manager_comp: number; general_expenses: number; total: number } {
+  const expToComp = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager')`).get(month) as any).v;
+  const generalExpenses = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(month) as any).v;
+  const managerCompBase = managerCompForMonth(month).reduce((s: number, mg: any) => s + (mg.computed || 0), 0);
+  const manager_comp = managerCompBase + expToComp;
+  return { manager_comp, general_expenses: generalExpenses, total: manager_comp + generalExpenses };
+}
+
+// มูลค่าค่าแรงประมาณการของงานที่เบิกไปสมาชิกแล้ว แต่ยังตัด/คืนไม่ครบ (ถ้าคืนครบทั้งหมดจะได้ค่าแรงเพิ่มอีกเท่านี้)
+function outstandingWageValue(): number {
+  const rows = prepare(`
+    SELECT p.wage_per_unit as wage,
+      COALESCE(SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0)), 0) as with_members
+    FROM issues i JOIN products p ON i.product_id = p.id
+    WHERE i.status != 'closed' AND p.active = 1
+    GROUP BY p.id
+  `).all() as any[];
+  return rows.reduce((s: number, r: any) => s + (r.with_members || 0) * (r.wage || 0), 0);
 }
 
 // ค่าแรงสมาชิกรวมตาม "รอบจ่าย" (pay_cycle) — ตรงกับหน้าสรุปค่าแรง (หักปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคน)
@@ -1065,6 +1094,7 @@ function buildWageReconcile(m: string) {
       wage_payroll_net,                       // ค่าแรงสุทธิที่ต้องจ่ายสมาชิกรอบนี้ — ตรงกับหน้า "สรุปรายเดือน" เป๊ะ
       reserve_open: sum('reserve_open'),      // เงินกันยกมา
       reserve_close: sum('reserve_close'),    // เงินกันยกไป (ต้องถือข้ามเดือน)
+      outstanding_wage: outstandingWageValue(),  // ค่าแรงประมาณการ ถ้างานที่เบิกไปสมาชิกแล้วคืนครบทั้งหมด
     },
   };
 }
@@ -1090,9 +1120,11 @@ router.get('/shipment-plan', (req, res) => {
 
   const { reserve_open } = buildWageReconcile(m).totals;
   const shipped_revenue_mtd = monthRevenueOf(m);
-  const target_remaining = Math.max(0, reserve_open - shipped_revenue_mtd);
+  const overhead = monthlyOverhead(m);   // ค่าตอบแทนผู้บริหาร + ค่าบริหารจัดการ ตามที่ตั้งไว้ — ต้องมีรายรับมาคุมด้วย ไม่ใช่แค่ค่าแรงสมาชิก
+  const target_before_overhead = reserve_open; // เก็บไว้แยกแสดงผล
+  const target_remaining = Math.max(0, reserve_open + overhead.total - shipped_revenue_mtd);
   const covered = target_remaining <= 0;
-  const surplus = shipped_revenue_mtd - reserve_open; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
+  const surplus = shipped_revenue_mtd - reserve_open - overhead.total; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
 
   // เส้นตาย (cut-off) ของเดือนนี้ — ใช้เตือนว่าใกล้ "สัปดาห์สุดท้าย" หรือยัง
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
@@ -1132,7 +1164,9 @@ router.get('/shipment-plan', (req, res) => {
 
   res.json({
     month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek, is_current_month,
-    reserve_open, shipped_revenue_mtd, target_remaining, covered, surplus,
+    reserve_open, manager_comp_month: overhead.manager_comp, general_expenses_month: overhead.general_expenses,
+    overhead_total: overhead.total, target_before_overhead,
+    shipped_revenue_mtd, target_remaining, covered, surplus,
     stock, suggestions,
     total_stock_value: stock.reduce((s: number, p: any) => s + p.stock_value, 0),
     total_suggested_value: suggestions.reduce((s: number, p: any) => s + p.suggested_value, 0),

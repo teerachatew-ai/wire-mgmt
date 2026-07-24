@@ -42,7 +42,8 @@ export default function ShipmentPlan() {
         </div>
         <p className="text-xs text-gray-500 pb-2 max-w-xl">
           แนะนำปริมาณ<b>อย่างน้อยที่สุด</b>ที่ควรส่งออกแต่ละชนิดสินค้า เพื่อให้รายรับเดือนนี้เพียงพอ
-          คุ้ม<b>ค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน</b> ซึ่งงานยังไม่ถูกส่งออก/วางบิล
+          คุ้ม<b>ค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน</b> (ซึ่งงานยังไม่ถูกส่งออก/วางบิล)
+          <b> บวก</b>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการของเดือนนี้ตามที่ตั้งไว้
         </p>
       </div>
 
@@ -73,10 +74,10 @@ export default function ShipmentPlan() {
               </span>
               <span className={`text-sm font-semibold ${data.covered ? 'text-green-800' : data.is_last_week ? 'text-rose-800' : 'text-amber-800'}`}>
                 {data.covered
-                  ? 'รายรับเดือนนี้ครอบคลุมค่าแรงที่จ่ายล่วงหน้าไปแล้ว'
+                  ? 'รายรับเดือนนี้ครอบคลุมค่าแรงที่จ่ายล่วงหน้า + ค่าบริหารจัดการแล้ว'
                   : data.is_last_week
-                  ? `⚠️ ใกล้วันตัดยอด (เหลือ ${data.days_to_cutoff} วัน) — ยังส่งออกไม่พอคุมค่าแรงที่จ่ายไปก่อน`
-                  : 'ยังส่งออกไม่พอคุมค่าแรงที่จ่ายไปก่อน'}
+                  ? `⚠️ ใกล้วันตัดยอด (เหลือ ${data.days_to_cutoff} วัน) — ยังส่งออกไม่พอคุมค่าแรง+ค่าบริหารจัดการ`
+                  : 'ยังส่งออกไม่พอคุมค่าแรง+ค่าบริหารจัดการ'}
               </span>
             </div>
 
@@ -84,7 +85,7 @@ export default function ShipmentPlan() {
               <>
                 <p className="text-3xl md:text-[34px] font-bold text-green-700 tabular-nums leading-none">{money(data.surplus)}</p>
                 <p className="text-xs text-green-700/80 mt-2">
-                  = ส่วนเกินหลังหักเงินที่ต้องคืนค่าแรงเดือนก่อนแล้ว — เป็น<b>กำไร/งบผู้บริหารได้ตามปกติ</b>
+                  = ส่วนเกินหลังหักทั้งเงินที่ต้องคืนค่าแรงเดือนก่อน<b>และ</b>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการเดือนนี้แล้ว — เป็น<b>กำไรจริงที่เหลือได้ตามปกติ</b>
                   <br />ไม่มีความจำเป็นเร่งด่วนต้องระบายของเพิ่ม แต่แนะนำให้ทยอยระบายสต๊อกเก่าต่อเนื่อง (ดูรายการด้านล่าง) เพื่อไม่ให้ค้างสะสมนาน
                 </p>
               </>
@@ -93,15 +94,20 @@ export default function ShipmentPlan() {
                 <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-none ${data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>{money(data.target_remaining)}</p>
                 <p className={`text-xs mt-2 ${data.is_last_week ? 'text-rose-700/80' : 'text-amber-700/80'}`}>
                   = ยอดรายรับที่<b>ยังต้องระบายของเพิ่ม</b>ให้ครบก่อนวันตัดยอด ({dateLabel(data.cutoff)})
-                  เพื่อคืนเงินค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน — ดูรายการแนะนำด้านล่าง
+                  เพื่อคืนเงินค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน <b>บวก</b>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการเดือนนี้ — ดูรายการแนะนำด้านล่าง
                 </p>
               </>
             )}
 
-            <div className="mt-3 pt-3 border-t border-black/5 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600">
-              <span>เงินกันยกมา (ค่าแรงจ่ายไปแล้ว เดือนก่อน): <b>{money(data.reserve_open)}</b></span>
-              <span>รายรับจากส่งออกเดือนนี้ (สะสมถึงวันนี้): <b>{money(data.shipped_revenue_mtd)}</b></span>
-              <span>เส้นตัดยอด: <b>{dateLabel(data.cutoff)}</b></span>
+            <div className="mt-3 pt-3 border-t border-black/5 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 text-xs text-gray-600">
+              <span>เงินกันยกมา (ค่าแรงจ่ายไปแล้ว เดือนก่อน): <b className="block md:inline">{money(data.reserve_open)}</b></span>
+              <span>ค่าตอบแทนผู้บริหารเดือนนี้: <b className="block md:inline">{money(data.manager_comp_month)}</b></span>
+              <span>ค่าบริหารจัดการเดือนนี้: <b className="block md:inline">{money(data.general_expenses_month)}</b></span>
+              <span>รายรับจากส่งออกเดือนนี้ (สะสมถึงวันนี้): <b className="block md:inline">{money(data.shipped_revenue_mtd)}</b></span>
+            </div>
+            <div className="mt-1.5 text-xs text-gray-600">
+              เส้นตัดยอด: <b>{dateLabel(data.cutoff)}</b>
+              <span className="text-gray-400"> · ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการ คิดจากยอดขายที่เกิดขึ้นจริง ณ ตอนนี้ (ยังไม่ปรับตามยอดที่จะส่งเพิ่ม)</span>
             </div>
           </div>
 
