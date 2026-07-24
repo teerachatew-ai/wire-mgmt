@@ -1035,6 +1035,9 @@ router.get('/wage-reconcile', (req, res) => {
   });
 
   const sum = (k: string) => products.reduce((s, p: any) => s + (p[k] || 0), 0);
+  const wage_payroll_gross = sum('wage_payroll');
+  // ยอดสุทธิ (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคน) — ใช้สูตรเดียวกับหน้า "สรุปรายเดือน" เป๊ะ กันยอดไม่ตรงกัน
+  const wage_payroll_net = payCycleWage(m);
   res.json({
     month: m,
     products,
@@ -1043,7 +1046,9 @@ router.get('/wage-reconcile', (req, res) => {
       wage_dFG: sum('wage_dFG'),              // ΔFG — งานคืนแล้วยังไม่ส่ง (เปลี่ยนแปลง)
       wage_timing: sum('wage_timing'),        // T — เหลื่อมรอบตัดยอด
       wage_extra: sum('wage_extra'),          // X — งานเสียโรงงาน/หาย
-      wage_payroll: sum('wage_payroll'),      // B — ค่าแรงที่ต้องจ่ายสมาชิกรอบนี้ (gross)
+      wage_payroll: wage_payroll_gross,       // B — ค่าแรงตามสมการกระทบยอด (gross ก่อนหัก NG-เกินเกณฑ์)
+      total_ng_deduction: Math.max(0, wage_payroll_gross - wage_payroll_net),
+      wage_payroll_net,                       // ค่าแรงสุทธิที่ต้องจ่ายสมาชิกรอบนี้ — ตรงกับหน้า "สรุปรายเดือน" เป๊ะ
       reserve_open: sum('reserve_open'),      // เงินกันยกมา
       reserve_close: sum('reserve_close'),    // เงินกันยกไป (ต้องถือข้ามเดือน)
     },

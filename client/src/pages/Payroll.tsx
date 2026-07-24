@@ -721,11 +721,26 @@ function WageReconcileTab() {
                   <span className={`tabular-nums font-semibold shrink-0 ${color}`}>{val < 0 ? '−' : ''}{money(Math.abs(val))}</span>
                 </div>
               ))}
-              <div className="flex items-center justify-between gap-2 pt-2.5 mt-1.5 border-t-2 border-slate-200">
-                <span className="font-bold text-slate-800">= ค่าแรงที่ต้องจ่ายสมาชิกรอบนี้</span>
-                <span className="tabular-nums font-bold text-slate-900 text-lg">{money(t.wage_payroll)}</span>
+              <div className="flex items-center justify-between gap-2 py-1 border-t border-dashed border-slate-200 mt-1 pt-2">
+                <div className="min-w-0">
+                  <span className="text-gray-700">= ค่าแรงรวม (ก่อนหักค่าปรับ NG)</span>
+                </div>
+                <span className="tabular-nums font-semibold shrink-0 text-slate-600">{money(t.wage_payroll)}</span>
               </div>
-              <p className="text-[11px] text-gray-400 pt-1">* ยอดนี้ตรงกับหน้า "สรุปรายเดือน" (ก่อนหักค่าปรับ NG-เกินเกณฑ์)</p>
+              {t.total_ng_deduction > 0 && (
+                <div className="flex items-center justify-between gap-2 py-1">
+                  <div className="min-w-0">
+                    <span className="text-gray-700">− หักค่าปรับ NG เกินเกณฑ์</span>
+                    <span className="block text-[11px] text-gray-400">งานเสียจากการตัดเกินเกณฑ์ที่ยอมรับได้ (ปรับต่อคน)</span>
+                  </div>
+                  <span className="tabular-nums font-semibold shrink-0 text-rose-600">−{money(t.total_ng_deduction)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 pt-2.5 mt-1.5 border-t-2 border-slate-200">
+                <span className="font-bold text-slate-800">= ค่าแรงสุทธิที่ต้องจ่ายสมาชิกรอบนี้</span>
+                <span className="tabular-nums font-bold text-slate-900 text-lg">{money(t.wage_payroll_net)}</span>
+              </div>
+              <p className="text-[11px] text-gray-400 pt-1">* ยอดนี้ตรงกับหน้า "สรุปรายเดือน" เป๊ะ (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคนแล้ว)</p>
             </div>
           </div>
 
