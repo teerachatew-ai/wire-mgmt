@@ -18,6 +18,14 @@ const statusInfo: Record<string, { label: string; cls: string; icon: any }> = {
   rejected: { label: 'ไม่ผ่าน', cls: 'bg-rose-100 text-rose-700', icon: XCircle },
 };
 
+// ชื่อกลุ่มงานที่สมาชิกคุ้นเคย (ชื่อรหัสโครงการจริง COT0xx ใช้เฉพาะฝั่งเจ้าหน้าที่)
+const PROJECT_LABEL: Record<string, string> = {
+  COT091: 'งานป้ายขาว',
+  COT092: 'งานป้ายชมพู',
+  COT102: 'งาน 3 สาย',
+};
+const projectLabel = (key: string) => PROJECT_LABEL[key] || key;
+
 /* ── ฟอร์มแจ้งคืนงาน (เต็มจอ ทีละขั้นตอน ปุ่มใหญ่ กดง่าย) ── */
 function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: any; onDone: () => void; onCancel: () => void }) {
   const [good, setGood] = useState('');
@@ -156,7 +164,7 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
         )}
         {groups.map((g: any) => (
           <div key={g.key}>
-            {g.key !== 'สินค้า' && <p className="text-sm font-semibold text-gray-500 px-1 mb-2">{g.key}</p>}
+            {g.key !== 'สินค้า' && <p className="text-sm font-semibold text-gray-500 px-1 mb-2">{projectLabel(g.key)}</p>}
             <div className="space-y-2">
               {g.products.map((p: any) => {
                 const open = selected?.id === p.id;
@@ -327,7 +335,10 @@ export default function MemberPortal() {
     <div className="min-h-screen bg-slate-50 pb-10">
       <div className="bg-blue-600 text-white px-5 pt-8 pb-6 rounded-b-[2rem]">
         <p className="text-blue-100 text-sm">สวัสดี 👋</p>
-        <h1 className="text-2xl font-bold">{member.nickname || member.name}</h1>
+        <h1 className="text-2xl font-bold">
+          {member.name}
+          {member.nickname && <span className="text-lg font-normal"> ({member.nickname})</span>}
+        </h1>
         <p className="text-blue-100 text-sm mt-0.5">รหัสสมาชิก {member.code}</p>
       </div>
 
