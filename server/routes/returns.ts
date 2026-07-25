@@ -106,6 +106,9 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const ret = prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) as any;
   if (!ret) return res.status(404).json({ error: 'ไม่พบรายการรับคืน' });
+  // ลบรายการรับคืนแล้วต้องลบคำขอคืนงานจากพอร์ทัลสมาชิกที่ยืนยันกลายเป็นรายการนี้ไปด้วย
+  // กันไม่ให้เหลือคำขอค้างอ้างถึงรายการรับคืนที่ถูกลบไปแล้ว
+  prepare(`DELETE FROM return_requests WHERE confirmed_return_id = ?`).run(req.params.id);
   prepare(`DELETE FROM returns WHERE id = ?`).run(req.params.id);
   updateIssueStatus(ret.issue_id);
   res.json({ deleted: true, code: ret.code });

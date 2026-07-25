@@ -110,7 +110,12 @@ router.delete('/:id', (req, res) => {
       message: `ใบเบิก ${issue.code} มีรายการรับคืน ${ret.cnt} รายการ การลบจะลบรายการคืนทั้งหมดด้วย ยืนยันหรือไม่?`
     });
   }
-  // ลบรายการคืนที่ผูกอยู่ก่อน
+  // ลบใบเบิกแล้วต้องลบให้ครบทุกฝั่ง — ทั้งรายการรับคืนที่ผูกอยู่ และคำขอจากพอร์ทัลสมาชิก
+  // (ทั้งคำขอเบิกที่ยืนยันแล้วกลายเป็นใบเบิกนี้ และคำขอคืนที่อ้างอิงใบเบิก/รายการคืนนี้)
+  // กันไม่ให้เหลือแถวค้างอ้างถึงรายการที่ถูกลบไปแล้ว
+  prepare(`DELETE FROM return_requests WHERE issue_id = ? OR confirmed_return_id IN (SELECT id FROM returns WHERE issue_id = ?)`)
+    .run(req.params.id, req.params.id);
+  prepare(`DELETE FROM issue_requests WHERE confirmed_issue_id = ?`).run(req.params.id);
   prepare(`DELETE FROM returns WHERE issue_id = ?`).run(req.params.id);
   prepare(`DELETE FROM issues WHERE id = ?`).run(req.params.id);
   res.json({ deleted: true, code: issue.code });
