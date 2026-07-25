@@ -19,6 +19,19 @@ function dateLabel(s?: string) {
   return `${d}/${m}/${parseInt(y) + 543}`;
 }
 
+// แถวในตารางสรุปยอด (แบบสมุดบัญชี) — ชื่อรายการทางซ้าย ตัวเลขทางขวา
+function LedgerRow({ label, sub, value, bold, tone }: { label: string; sub?: string; value: number; bold?: boolean; tone?: string }) {
+  return (
+    <div className={`flex items-start justify-between gap-3 py-1 ${bold ? 'font-bold' : ''}`}>
+      <span className={tone || 'text-gray-600'}>
+        {label}
+        {sub && <span className="block text-[11px] font-normal text-gray-400">{sub}</span>}
+      </span>
+      <span className={`tabular-nums shrink-0 ${tone || 'text-gray-800'}`}>{money(value)}</span>
+    </div>
+  );
+}
+
 export default function ShipmentPlan() {
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -27,6 +40,7 @@ export default function ShipmentPlan() {
 
   const suggestions = ((data?.suggestions || []) as any[]).filter(p => p.suggested_qty > 0);
   const stock = (data?.stock || []) as any[];
+  const totalNeeded = data ? data.reserve_open + data.current_cycle_wage + data.overhead_total : 0;
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-5xl mx-auto">
@@ -41,9 +55,8 @@ export default function ShipmentPlan() {
           <input type="month" className="input" value={month} onChange={e => setMonth(e.target.value)} />
         </div>
         <p className="text-xs text-gray-500 pb-2 max-w-xl">
-          แนะนำปริมาณ<b>อย่างน้อยที่สุด</b>ที่ควรส่งออกแต่ละชนิดสินค้า เพื่อให้รายรับเดือนนี้เพียงพอ
-          คุ้ม<b>ค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน</b> (ซึ่งงานยังไม่ถูกส่งออก/วางบิล)
-          <b> บวก</b>ค่าแรงตัดสายไฟของรอบจ่ายเดือนนี้เอง <b>บวก</b>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการของเดือนนี้ตามที่ตั้งไว้
+          หน้านี้เช็คว่า<b>ส่งงานให้โรงงาน (วางบิล) พอครอบคลุมค่าแรง + ค่าใช้จ่ายของเดือนนี้แล้วหรือยัง</b>
+          ถ้ายังไม่พอ จะแนะนำว่าควรส่งสายไฟชนิดไหนเพิ่มอย่างน้อยเท่าไหร่
         </p>
       </div>
 
@@ -55,9 +68,9 @@ export default function ShipmentPlan() {
             <div className="rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs text-slate-600 flex items-start gap-2">
               <Info size={14} className="shrink-0 mt-0.5 text-slate-400" />
               <span>
-                กำลังดูเดือนที่ผ่านมาแล้ว ({monthLabel(month)}) — "เงินกันยกมา"/"รายรับ" ด้านล่างเป็นตัวเลข<b>ย้อนหลัง</b>ของเดือนนั้น
-                แต่ "สต๊อกงานดีค้าง" เป็นสต๊อก<b>ปัจจุบัน ณ วันนี้</b>เสมอ (ของที่เคยค้างตอนนั้นอาจถูกส่งออกไปหมดแล้วหลังจากนั้น)
-                สองส่วนนี้จึง<b>เทียบกันโดยตรงไม่ได้</b> — ใช้หน้านี้วางแผนได้แม่นยำเฉพาะตอนดู "เดือนปัจจุบัน" เท่านั้น
+                กำลังดูเดือนที่ผ่านมาแล้ว ({monthLabel(month)}) — ตัวเลขเงินด้านล่างเป็นของเดือนนั้น แต่ "สต๊อกงานดีค้าง"
+                เป็นสต๊อก<b>ปัจจุบัน ณ วันนี้</b>เสมอ (ของที่เคยค้างตอนนั้นอาจถูกส่งออกไปแล้วหลังจากนั้น) เทียบกันตรงๆ ไม่ได้
+                — วางแผนได้แม่นยำเฉพาะตอนดู "เดือนปัจจุบัน" เท่านั้น
               </span>
             </div>
           )}
@@ -68,58 +81,60 @@ export default function ShipmentPlan() {
             : data.is_last_week ? 'border-rose-300 bg-gradient-to-br from-rose-50 to-orange-50'
             : 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50'
           }`}>
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-3">
               <span className={`p-2 rounded-xl ${data.covered ? 'bg-green-100 text-green-600' : data.is_last_week ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
                 {data.covered ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
               </span>
-              <span className={`text-sm font-semibold ${data.covered ? 'text-green-800' : data.is_last_week ? 'text-rose-800' : 'text-amber-800'}`}>
+              <span className={`text-base font-bold ${data.covered ? 'text-green-800' : data.is_last_week ? 'text-rose-800' : 'text-amber-800'}`}>
                 {data.covered
-                  ? 'รายรับเดือนนี้ครอบคลุมค่าแรงตัดสาย (เก่า+ใหม่) + ค่าบริหารจัดการแล้ว'
+                  ? '✅ ส่งงานพอแล้ว ไม่ต้องรีบส่งเพิ่ม'
                   : data.is_last_week
-                  ? `⚠️ ใกล้วันตัดยอด (เหลือ ${data.days_to_cutoff} วัน) — ยังส่งออกไม่พอคุมค่าแรงตัดสาย+ค่าบริหารจัดการ`
-                  : 'ยังส่งออกไม่พอคุมค่าแรงตัดสาย+ค่าบริหารจัดการ'}
+                  ? `🔴 ใกล้วันตัดยอดแล้ว (เหลือ ${data.days_to_cutoff} วัน) — ต้องรีบส่งเพิ่ม`
+                  : '⚠️ ยังส่งไม่พอ ต้องส่งเพิ่ม'}
               </span>
             </div>
 
-            {data.covered ? (
-              <>
-                <p className="text-3xl md:text-[34px] font-bold text-green-700 tabular-nums leading-none">{money(data.surplus)}</p>
-                <p className="text-xs text-green-700/80 mt-2">
-                  = ส่วนเกินหลังหักทั้งเงินที่ต้องคืนค่าแรงเดือนก่อน <b>ค่าแรงตัดสายรอบจ่ายเดือนนี้</b> และค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการเดือนนี้แล้ว — เป็น<b>กำไรจริงที่เหลือได้ตามปกติ</b>
-                  <br />ไม่มีความจำเป็นเร่งด่วนต้องระบายของเพิ่ม แต่แนะนำให้ทยอยระบายสต๊อกเก่าต่อเนื่อง (ดูรายการด้านล่าง) เพื่อไม่ให้ค้างสะสมนาน
-                </p>
-              </>
-            ) : (
-              <>
-                <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-none ${data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>{money(data.target_remaining)}</p>
-                <p className={`text-xs mt-2 ${data.is_last_week ? 'text-rose-700/80' : 'text-amber-700/80'}`}>
-                  = ยอดรายรับที่<b>ยังต้องระบายของเพิ่ม</b>ให้ครบก่อนวันตัดยอด ({dateLabel(data.cutoff)})
-                  เพื่อคืนเงินค่าแรงที่จ่ายสมาชิกไปแล้วในเดือนก่อน <b>บวก</b>ค่าแรงตัดสายของรอบจ่ายเดือนนี้ <b>บวก</b>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการเดือนนี้ — ดูรายการแนะนำด้านล่าง
-                </p>
-              </>
-            )}
-
-            <div className="mt-3 pt-3 border-t border-black/5 grid grid-cols-2 md:grid-cols-5 gap-x-4 gap-y-1.5 text-xs text-gray-600">
-              <span>เงินกันยกมา (ค่าแรงจ่ายไปแล้ว เดือนก่อน): <b className="block md:inline">{money(data.reserve_open)}</b></span>
-              <span>ค่าแรงตัดสายรอบจ่ายเดือนนี้: <b className="block md:inline">{money(data.current_cycle_wage)}</b></span>
-              <span>
-                ค่าตอบแทนผู้บริหารเดือนนี้: <b className="block md:inline">{money(data.manager_comp_month)}</b>
-                {data.manager_comp_extra > 0 && (
-                  <span className="block text-[10px] text-gray-400">
-                    (อัตโนมัติ {money(data.manager_comp_auto)} + รายการที่เพิ่มเองซึ่งจ่ายให้บุคคล {money(data.manager_comp_extra)})
-                  </span>
-                )}
-              </span>
-              <span>ค่าบริหารจัดการเดือนนี้: <b className="block md:inline">{money(data.general_expenses_month)}</b></span>
-              <span>รายรับจากส่งออกเดือนนี้ (สะสมถึงวันนี้): <b className="block md:inline">{money(data.shipped_revenue_mtd)}</b></span>
-            </div>
-            <div className="mt-1.5 text-xs text-gray-600">
-              เส้นตัดยอด: <b>{dateLabel(data.cutoff)}</b>
-              <span className="text-gray-400"> · ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการ คิดจากยอดขายที่เกิดขึ้นจริง ณ ตอนนี้ (ยังไม่ปรับตามยอดที่จะส่งเพิ่ม)</span>
-            </div>
-            <p className="mt-1 text-[10px] text-gray-400">
-              💡 รายการ "เพิ่มเองรายเดือน" ในหน้าภาพรวม ถ้าเลือกจ่ายให้ผู้บริหาร/สมาชิกคนใดคนหนึ่ง จะถูกนับรวมใน "ค่าตอบแทนผู้บริหาร" ไม่ใช่ "ค่าบริหารจัดการ"
+            <p className={`text-sm ${data.covered ? 'text-green-700' : data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>
+              {data.covered ? 'เงินเหลือ (กำไรตามปกติ หลังหักค่าแรง+ค่าใช้จ่ายครบแล้ว)' : 'ยอดที่ยังขาด ต้องส่งของเพิ่มให้ครบก่อนวันตัดยอด'}
             </p>
+            <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-tight ${data.covered ? 'text-green-700' : data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>
+              {money(data.covered ? data.surplus : data.target_remaining)}
+            </p>
+
+            {/* ตารางสรุปยอดแบบสมุดบัญชี — อ่านจากบนลงล่างเหมือนบวกลบเลขปกติ */}
+            <div className="mt-4 bg-white/70 rounded-xl p-4 text-sm">
+              <p className="text-xs font-semibold text-gray-500 mb-2">ยอดที่ต้องมีในเดือนนี้</p>
+              <LedgerRow label="ค่าแรงค้างจากเดือนก่อน (เงินกันยกมา)" value={data.reserve_open} />
+              <LedgerRow label="ค่าแรงของเดือนนี้" value={data.current_cycle_wage} />
+              <LedgerRow
+                label="ค่าตอบแทนผู้บริหาร"
+                sub={data.manager_comp_extra > 0 ? `อัตโนมัติ ${money(data.manager_comp_auto)} + จ่ายให้บุคคลเพิ่มเอง ${money(data.manager_comp_extra)}` : undefined}
+                value={data.manager_comp_month}
+              />
+              <LedgerRow label="ค่าบริหารจัดการ" value={data.general_expenses_month} />
+              <div className="border-t mt-1.5 pt-1.5">
+                <LedgerRow label="รวมที่ต้องมี" value={totalNeeded} bold />
+              </div>
+
+              <p className="text-xs font-semibold text-gray-500 mt-3 mb-2">ยอดที่มีแล้ว</p>
+              <LedgerRow label="ส่งออกแล้วเดือนนี้ (สะสมถึงวันนี้)" value={data.shipped_revenue_mtd} />
+
+              <div className="border-t-2 border-gray-300 mt-1.5 pt-1.5">
+                <LedgerRow
+                  label={data.covered ? 'เหลือ (กำไร)' : 'ยังขาด — ต้องส่งเพิ่ม'}
+                  value={data.covered ? data.surplus : data.target_remaining}
+                  bold
+                  tone={data.covered ? 'text-green-700' : 'text-amber-700'}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] text-gray-400 space-y-0.5">
+              <p>วันตัดยอดของเดือนนี้: <b className="text-gray-500">{dateLabel(data.cutoff)}</b></p>
+              <p>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการ คำนวณจากยอดขาย ณ ตอนนี้ — ถ้าส่งของเพิ่มตามคำแนะนำ ยอดนี้อาจขยับขึ้นเล็กน้อยตามไปด้วย</p>
+              <p>💡 ถ้าหน้า "ภาพรวม" เลือกจ่ายรายการ "เพิ่มเองรายเดือน" ให้ผู้บริหาร/สมาชิกคนใดคนหนึ่ง จะถูกนับรวมในค่าตอบแทนผู้บริหาร ไม่ใช่ค่าบริหารจัดการ</p>
+              {data.covered && <p>ไม่มีความจำเป็นเร่งด่วนต้องระบายของเพิ่ม แต่แนะนำให้ทยอยส่งสต๊อกเก่าต่อเนื่อง (ดูรายการด้านล่าง) เพื่อไม่ให้ค้างสะสมนาน</p>}
+            </div>
           </div>
 
           {/* รายการแนะนำ (เฉพาะกรณียังไม่ครอบคลุม) */}

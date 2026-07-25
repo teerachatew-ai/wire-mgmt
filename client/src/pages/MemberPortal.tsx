@@ -125,23 +125,16 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   );
 }
 
-/* ── เบิกงานใหม่ — เลือกสินค้าแล้วกรอกจำนวนจบในหน้าเดียว (แตะสินค้า การ์ดขยายออกให้กรอกจำนวนตรงนั้นเลย) ── */
+/* ── เบิกงานใหม่ — เลือกได้หลายชนิด กรอกจำนวนแต่ละชนิดไว้ก่อน แล้วค่อยกด "ส่ง" ครั้งเดียวรวมกันท้ายสุด ── */
 function IssueRequestScreen({ token, products, onDone, onCancel }: { token: string; products: any[]; onDone: () => void; onCancel: () => void }) {
-  const [selected, setSelected] = useState<any>(null);
-  const [qty, setQty] = useState('');
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [qty, setQty] = useState<Record<number, string>>({});
   const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const mut = useMutation({
-    mutationFn: () => portalApi.submitIssue(token, { product_id: selected.id, quantity: qty || 0, issued_at: issuedAt }),
-    onSuccess: onDone,
-    onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
-  });
-
-  const selectProduct = (p: any) => {
-    setSelected(prev => (prev?.id === p.id ? null : p));
-    setQty(''); setError('');
-  };
+  const toggle = (id: number) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+  const setQtyFor = (id: number, v: string) => setQty(q => ({ ...q, [id]: v }));
 
   const groups = Object.values(
     (products || []).reduce((acc: any, p: any) => {
@@ -151,14 +144,45 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
     }, {})
   ) as any[];
 
+  // รายการที่กรอกจำนวนไว้แล้ว (>0) — พร้อมส่งพร้อมกันตอนกดปุ่มด้านล่าง
+  const picked = (products || [])
+    .map((p: any) => ({ product: p, quantity: parseFloat(qty[p.id]) || 0 }))
+    .filter((x: any) => x.quantity > 0);
+
+  const submit = async () => {
+    if (picked.length === 0 || submitting) return;
+    setSubmitting(true); setError('');
+    const failedNames: string[] = [];
+    for (const it of picked) {
+      try {
+        await portalApi.submitIssue(token, { product_id: it.product.id, quantity: it.quantity, issued_at: issuedAt });
+        setQtyFor(it.product.id, ''); // ส่งสำเร็จแล้ว เคลียร์ช่องนี้ไว้กันส่งซ้ำถ้าต้องลองใหม่
+      } catch {
+        failedNames.push(it.product.name);
+      }
+    }
+    setSubmitting(false);
+    if (failedNames.length > 0) {
+      setError(`ส่งไม่สำเร็จ: ${failedNames.join(', ')} — รายการอื่นส่งสำเร็จแล้ว ลองส่งรายการที่เหลือใหม่อีกครั้ง`);
+    } else {
+      onDone();
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col pb-28">
       <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
         <p className="font-bold text-lg text-gray-800">เบิกงานใหม่</p>
       </div>
-      <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
-        <p className="text-sm text-gray-500 px-1">แตะเลือกสินค้าที่จะเบิก แล้วกรอกจำนวนได้เลย</p>
+      <div className="flex-1 p-4 space-y-4 max-w-md mx-auto w-full">
+        <p className="text-sm text-gray-500 px-1">เลือกได้หลายชนิด กรอกจำนวนไว้ทีละชนิด แล้วค่อยกดส่งรวมกันทีเดียวด้านล่าง</p>
+
+        <div className="bg-white rounded-2xl border p-4 flex items-center justify-between gap-3">
+          <label className="text-sm font-medium text-gray-600 shrink-0">วันที่เบิก</label>
+          <input type="date" className="input !w-auto text-right" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} />
+        </div>
+
         {groups.length === 0 && (
           <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">ยังไม่มีสินค้าให้เลือก ติดต่อเจ้าหน้าที่</div>
         )}
@@ -167,45 +191,36 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
             {g.key !== 'สินค้า' && <p className="text-sm font-semibold text-gray-500 px-1 mb-2">{projectLabel(g.key)}</p>}
             <div className="space-y-2">
               {g.products.map((p: any) => {
-                const open = selected?.id === p.id;
+                const open = !!expanded[p.id];
+                const q = qty[p.id] || '';
+                const hasQty = (parseFloat(q) || 0) > 0;
                 return (
-                  <div key={p.id} className={`bg-white rounded-2xl border-2 overflow-hidden transition-colors ${open ? 'border-blue-400' : 'border-gray-100'}`}>
+                  <div key={p.id} className={`bg-white rounded-2xl border-2 overflow-hidden transition-colors ${hasQty ? 'border-blue-400' : 'border-gray-100'}`}>
                     <button
                       type="button"
-                      onClick={() => selectProduct(p)}
+                      onClick={() => toggle(p.id)}
                       className="w-full p-4 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
                     >
                       {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                       <span className="flex-1 font-semibold text-gray-800">{p.name}</span>
+                      {hasQty && !open && (
+                        <span className="text-sm font-bold text-blue-700 bg-blue-50 rounded-lg px-2.5 py-1 shrink-0">{q} {p.unit}</span>
+                      )}
                       {open ? <ChevronDown size={20} className="text-blue-500 shrink-0" /> : <ChevronRight size={20} className="text-gray-300 shrink-0" />}
                     </button>
                     {open && (
-                      <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
-                        <div className="flex items-center justify-between gap-3 pt-2">
-                          <label className="text-sm font-medium text-gray-600 shrink-0">วันที่เบิก</label>
-                          <input type="date" className="input !w-auto !py-1.5 !min-h-0 text-sm text-right" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} />
-                        </div>
+                      <div className="px-4 pb-4 pt-1 border-t border-gray-100">
                         <div className="text-center">
                           <label className="block text-base font-semibold text-gray-700 mb-2">ขอเบิกกี่{p.unit || 'เส้น'}?</label>
                           <input
                             type="number" inputMode="numeric" min={0} autoFocus
-                            className="w-full text-center text-4xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-1 bg-transparent"
+                            className="w-full text-center text-3xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-1 bg-transparent"
                             placeholder="0"
-                            value={qty}
-                            onChange={e => setQty(e.target.value)}
+                            value={q}
+                            onChange={e => setQtyFor(p.id, e.target.value)}
                           />
                           <p className="text-sm text-gray-400 mt-1">{p.unit}</p>
                         </div>
-                        {error && <p className="text-rose-600 text-sm text-center font-medium">{error}</p>}
-                        <button
-                          type="button"
-                          disabled={(parseFloat(qty) || 0) <= 0 || mut.isPending}
-                          onClick={() => mut.mutate()}
-                          className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-lg py-3.5 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
-                        >
-                          {mut.isPending ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
-                          ส่งคำขอเบิกงาน
-                        </button>
                       </div>
                     )}
                   </div>
@@ -214,7 +229,23 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
             </div>
           </div>
         ))}
-        <p className="text-center text-xs text-gray-400">เจ้าหน้าที่จะตรวจสอบแล้วอนุมัติอีกครั้ง</p>
+      </div>
+
+      {/* แถบส่งรวมด้านล่าง — ลอยติดล่างไว้เสมอ กดครั้งเดียวส่งทุกชนิดที่กรอกไว้พร้อมกัน */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-10">
+        <div className="max-w-md mx-auto w-full">
+          {error && <p className="text-rose-600 text-sm text-center font-medium mb-2">{error}</p>}
+          <button
+            type="button"
+            disabled={picked.length === 0 || submitting}
+            onClick={submit}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-lg py-3.5 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
+          >
+            {submitting ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+            {picked.length === 0 ? 'ส่งคำขอเบิกงาน' : `ส่งคำขอเบิกงาน (${picked.length} ชนิด)`}
+          </button>
+          <p className="text-center text-xs text-gray-400 mt-2">เจ้าหน้าที่จะตรวจสอบแล้วอนุมัติอีกครั้ง</p>
+        </div>
       </div>
     </div>
   );
