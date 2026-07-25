@@ -1122,10 +1122,12 @@ router.get('/shipment-plan', (req, res) => {
   const { reserve_open } = buildWageReconcile(m).totals;
   const shipped_revenue_mtd = monthRevenueOf(m);
   const overhead = monthlyOverhead(m);   // ค่าตอบแทนผู้บริหาร + ค่าบริหารจัดการ ตามที่ตั้งไว้ — ต้องมีรายรับมาคุมด้วย ไม่ใช่แค่ค่าแรงสมาชิก
+  // ค่าแรงตัดสายไฟของ "รอบจ่ายเดือนนี้" (งานที่กำลังตัด/คืนอยู่ตอนนี้ แยกจากเงินกันยกมาซึ่งเป็นของเดือนก่อน) — ตรงกับหน้าสรุปค่าแรง
+  const current_cycle_wage = payCycleWage(m);
   const target_before_overhead = reserve_open; // เก็บไว้แยกแสดงผล
-  const target_remaining = Math.max(0, reserve_open + overhead.total - shipped_revenue_mtd);
+  const target_remaining = Math.max(0, reserve_open + current_cycle_wage + overhead.total - shipped_revenue_mtd);
   const covered = target_remaining <= 0;
-  const surplus = shipped_revenue_mtd - reserve_open - overhead.total; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
+  const surplus = shipped_revenue_mtd - reserve_open - current_cycle_wage - overhead.total; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
 
   // เส้นตาย (cut-off) ของเดือนนี้ — ใช้เตือนว่าใกล้ "สัปดาห์สุดท้าย" หรือยัง
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
@@ -1165,7 +1167,7 @@ router.get('/shipment-plan', (req, res) => {
 
   res.json({
     month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek, is_current_month,
-    reserve_open, manager_comp_month: overhead.manager_comp,
+    reserve_open, current_cycle_wage, manager_comp_month: overhead.manager_comp,
     manager_comp_auto: overhead.manager_comp_auto, manager_comp_extra: overhead.manager_comp_extra,
     general_expenses_month: overhead.general_expenses,
     overhead_total: overhead.total, target_before_overhead,
