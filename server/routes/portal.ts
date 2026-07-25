@@ -28,10 +28,21 @@ router.get('/:token', (req, res) => {
     ORDER BY rr.submitted_at DESC LIMIT 10
   `).all(member.id);
 
+  const products = prepare(`SELECT id, name, unit, color, project FROM products WHERE active = 1 ORDER BY project, name`).all();
+
+  const recentIssueRequests = prepare(`
+    SELECT ir.*, p.name as product_name, p.color, p.unit
+    FROM issue_requests ir JOIN products p ON ir.product_id = p.id
+    WHERE ir.member_id = ?
+    ORDER BY ir.submitted_at DESC LIMIT 10
+  `).all(member.id);
+
   res.json({
     member: { code: member.code, name: member.name, nickname: member.nickname },
     open_issues: openIssues.map((i: any) => ({ ...i, remaining: i.quantity - i.returned_total - i.pending_total })),
     recent_requests: recent,
+    products,
+    recent_issue_requests: recentIssueRequests,
   });
 });
 
@@ -63,6 +74,26 @@ router.post('/:token/return-request', (req, res) => {
   const result = prepare(
     `INSERT INTO return_requests (issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(issue_id, gQty, ngCut, ngFac, wQty, lQty, notes || null);
+
+  res.json({ ok: true, id: result.lastInsertRowid });
+});
+
+// สมาชิกส่งคำขอเบิกงานเอง — ยังไม่ใช่ใบเบิกจริง รอเจ้าหน้าที่ตรวจสอบแล้วกดยืนยันก่อนถึงจะเป็นใบเบิกจริง
+router.post('/:token/issue-request', (req, res) => {
+  const member = getMemberByToken(req.params.token);
+  if (!member) return res.status(404).json({ error: 'ไม่พบข้อมูล ลิงก์อาจไม่ถูกต้อง' });
+  if (member.status !== 'active') return res.status(400).json({ error: 'บัญชีสมาชิกถูกพักสถานะ ติดต่อเจ้าหน้าที่' });
+
+  const { product_id, quantity, notes } = req.body;
+  const product = prepare(`SELECT * FROM products WHERE id = ? AND active = 1`).get(product_id) as any;
+  if (!product) return res.status(400).json({ error: 'ไม่พบสินค้านี้' });
+
+  const qty = parseFloat(quantity) || 0;
+  if (qty <= 0) return res.status(400).json({ error: 'กรุณาระบุจำนวน' });
+
+  const result = prepare(
+    `INSERT INTO issue_requests (member_id, product_id, quantity, notes) VALUES (?, ?, ?, ?)`
+  ).run(member.id, product_id, qty, notes || null);
 
   res.json({ ok: true, id: result.lastInsertRowid });
 });

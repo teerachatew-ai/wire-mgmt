@@ -298,6 +298,22 @@ CREATE TABLE IF NOT EXISTS managers (
     reject_reason TEXT
   )`);
 
+  // คำขอเบิกงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — เช่นเดียวกับ return_requests
+  // ต้องรอเจ้าหน้าที่ตรวจสอบแล้วกดยืนยันก่อนถึงจะกลายเป็นใบเบิกจริงในตาราง issues
+  db.exec(`CREATE TABLE IF NOT EXISTS issue_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity REAL NOT NULL,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    submitted_at TEXT DEFAULT (datetime('now')),
+    confirmed_issue_id INTEGER,
+    confirmed_at TEXT,
+    confirmed_by TEXT,
+    reject_reason TEXT
+  )`);
+
   // ค่าตอบแทนผู้บริหารรายเดือน (กำหนดเองต่อเดือน — ถ้าไม่กำหนดจะใช้ค่าอัตโนมัติ % ของรายได้)
   db.exec(`CREATE TABLE IF NOT EXISTS manager_month (
     month TEXT NOT NULL,

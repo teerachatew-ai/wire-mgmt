@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 function fmtDate(s?: string) {
@@ -110,11 +110,107 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   );
 }
 
+/* ── เลือกสินค้าที่จะขอเบิก (การ์ดใหญ่ กดง่าย) ── */
+function ProductPicker({ products, onPick, onCancel }: { products: any[]; onPick: (p: any) => void; onCancel: () => void }) {
+  const groups = Object.values(
+    (products || []).reduce((acc: any, p: any) => {
+      const key = p.project || 'สินค้า';
+      (acc[key] ??= { key, products: [] }).products.push(p);
+      return acc;
+    }, {})
+  ) as any[];
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
+        <p className="font-bold text-lg text-gray-800">เลือกสินค้าที่จะเบิก</p>
+      </div>
+      <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
+        {groups.length === 0 && (
+          <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">ยังไม่มีสินค้าให้เลือก ติดต่อเจ้าหน้าที่</div>
+        )}
+        {groups.map((g: any) => (
+          <div key={g.key}>
+            {g.key !== 'สินค้า' && <p className="text-sm font-semibold text-gray-500 px-1 mb-2">{g.key}</p>}
+            <div className="space-y-2">
+              {g.products.map((p: any) => (
+                <button
+                  key={p.id}
+                  onClick={() => onPick(p)}
+                  className="w-full bg-white rounded-2xl border-2 border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-transform p-4 flex items-center gap-3 text-left"
+                >
+                  {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                  <span className="flex-1 font-semibold text-gray-800">{p.name}</span>
+                  <ChevronRight size={20} className="text-gray-300 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── ฟอร์มขอเบิกงาน (เลือกสินค้าแล้ว กรอกจำนวนที่ต้องการ) ── */
+function IssueRequestForm({ token, product, onDone, onCancel }: { token: string; product: any; onDone: () => void; onCancel: () => void }) {
+  const [qty, setQty] = useState('');
+  const [error, setError] = useState('');
+
+  const mut = useMutation({
+    mutationFn: () => portalApi.submitIssue(token, { product_id: product.id, quantity: qty || 0 }),
+    onSuccess: onDone,
+    onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
+        <div className="min-w-0 flex items-center gap-2">
+          {product.color && <span className="w-4 h-4 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: product.color }} />}
+          <p className="font-bold text-lg text-gray-800 truncate">{product.name}</p>
+        </div>
+      </div>
+
+      <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
+        <div className="bg-white rounded-3xl border-2 border-blue-200 p-5 text-center">
+          <label className="block text-lg font-semibold text-gray-700 mb-3">ขอเบิกกี่{product.unit || 'เส้น'}?</label>
+          <input
+            type="number" inputMode="numeric" min={0} autoFocus
+            className="w-full text-center text-5xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-2 bg-transparent"
+            placeholder="0"
+            value={qty}
+            onChange={e => setQty(e.target.value)}
+          />
+          <p className="text-sm text-gray-400 mt-2">{product.unit}</p>
+        </div>
+
+        {error && <p className="text-rose-600 text-sm text-center font-medium">{error}</p>}
+
+        <button
+          type="button"
+          disabled={(parseFloat(qty) || 0) <= 0 || mut.isPending}
+          onClick={() => mut.mutate()}
+          className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-xl py-4 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
+        >
+          {mut.isPending ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} />}
+          ส่งคำขอเบิกงาน
+        </button>
+        <p className="text-center text-xs text-gray-400">เจ้าหน้าที่จะตรวจสอบแล้วอนุมัติอีกครั้ง</p>
+      </div>
+    </div>
+  );
+}
+
 export default function MemberPortal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<any>(null);
-  const [justSubmitted, setJustSubmitted] = useState(false);
+  const [pickingProduct, setPickingProduct] = useState(false);
+  const [issueProduct, setIssueProduct] = useState<any>(null);
+  const [justSubmitted, setJustSubmitted] = useState<'return' | 'issue' | null>(null);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['portal', token],
@@ -145,12 +241,33 @@ export default function MemberPortal() {
         token={token!}
         issue={activeIssue}
         onCancel={() => setActiveIssue(null)}
-        onDone={() => { setActiveIssue(null); setJustSubmitted(true); refresh(); setTimeout(() => setJustSubmitted(false), 4000); }}
+        onDone={() => { setActiveIssue(null); setJustSubmitted('return'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
       />
     );
   }
 
-  const { member, open_issues, recent_requests } = data;
+  if (issueProduct) {
+    return (
+      <IssueRequestForm
+        token={token!}
+        product={issueProduct}
+        onCancel={() => setIssueProduct(null)}
+        onDone={() => { setIssueProduct(null); setJustSubmitted('issue'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
+      />
+    );
+  }
+
+  if (pickingProduct) {
+    return (
+      <ProductPicker
+        products={data.products || []}
+        onCancel={() => setPickingProduct(false)}
+        onPick={(p) => { setPickingProduct(false); setIssueProduct(p); }}
+      />
+    );
+  }
+
+  const { member, open_issues, recent_requests, recent_issue_requests } = data;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
@@ -164,9 +281,23 @@ export default function MemberPortal() {
         {justSubmitted && (
           <div className="bg-green-50 border-2 border-green-300 rounded-2xl p-4 flex items-center gap-3">
             <CheckCircle2 size={28} className="text-green-600 shrink-0" />
-            <p className="text-green-800 font-semibold">ส่งแจ้งคืนงานแล้ว ✅ รอเจ้าหน้าที่ตรวจสอบ</p>
+            <p className="text-green-800 font-semibold">
+              {justSubmitted === 'issue' ? 'ส่งคำขอเบิกงานแล้ว ✅ รอเจ้าหน้าที่ตรวจสอบ' : 'ส่งแจ้งคืนงานแล้ว ✅ รอเจ้าหน้าที่ตรวจสอบ'}
+            </p>
           </div>
         )}
+
+        <button
+          onClick={() => setPickingProduct(true)}
+          className="w-full bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-2xl p-4 flex items-center gap-3 mt-4"
+        >
+          <div className="p-2.5 bg-blue-100 rounded-xl shrink-0"><PackagePlus size={24} className="text-blue-600" /></div>
+          <div className="flex-1 text-left">
+            <p className="font-bold text-gray-800">ขอเบิกงานเพิ่ม</p>
+            <p className="text-xs text-gray-500">แจ้งเจ้าหน้าที่ว่าอยากเบิกงานเพิ่ม</p>
+          </div>
+          <ChevronRight size={20} className="text-gray-300 shrink-0" />
+        </button>
 
         <div>
           <p className="text-sm font-semibold text-gray-500 px-1 mb-2 mt-4">งานที่ยังเบิกค้างอยู่</p>
@@ -219,6 +350,30 @@ export default function MemberPortal() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-700 truncate">{r.product_name}</p>
                       <p className="text-xs text-gray-400">{fmtDate(r.submitted_at)} · แจ้งดี {fmtQty(r.good_qty)} {r.unit}</p>
+                    </div>
+                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${st.cls}`}>
+                      <Icon size={12} /> {st.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {recent_issue_requests?.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold text-gray-500 px-1 mb-2 mt-6">ประวัติคำขอเบิกงานล่าสุด</p>
+            <div className="bg-white rounded-2xl border divide-y">
+              {recent_issue_requests.map((r: any) => {
+                const st = statusInfo[r.status] || statusInfo.pending;
+                const Icon = st.icon;
+                return (
+                  <div key={r.id} className="p-3.5 flex items-center gap-3">
+                    {r.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.color }} />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-700 truncate">{r.product_name}</p>
+                      <p className="text-xs text-gray-400">{fmtDate(r.submitted_at)} · ขอเบิก {fmtQty(r.quantity)} {r.unit}</p>
                     </div>
                     <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0 ${st.cls}`}>
                       <Icon size={12} /> {st.label}

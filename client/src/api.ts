@@ -152,6 +152,7 @@ export const expenseApi = {
 export const portalApi = {
   get: (token: string) => api.get(`/portal/${token}`).then(r => r.data),
   submitReturn: (token: string, data: any) => api.post(`/portal/${token}/return-request`, data).then(r => r.data),
+  submitIssue: (token: string, data: any) => api.post(`/portal/${token}/issue-request`, data).then(r => r.data),
 };
 
 // คำขอคืนงานที่สมาชิกส่งเอง — ฝั่งเจ้าหน้าที่ตรวจ/ยืนยัน/ปฏิเสธ
@@ -159,6 +160,13 @@ export const returnRequestApi = {
   list: (status?: string) => api.get('/return-requests', { params: status ? { status } : {} }).then(r => r.data),
   confirm: (id: number, data?: any) => api.post(`/return-requests/${id}/confirm`, data || {}).then(r => r.data),
   reject: (id: number, reason?: string) => api.post(`/return-requests/${id}/reject`, { reason }).then(r => r.data),
+};
+
+// คำขอเบิกงานที่สมาชิกส่งเอง — ฝั่งเจ้าหน้าที่ตรวจ/ยืนยัน/ปฏิเสธ
+export const issueRequestApi = {
+  list: (status?: string) => api.get('/issue-requests', { params: status ? { status } : {} }).then(r => r.data),
+  confirm: (id: number, data?: any) => api.post(`/issue-requests/${id}/confirm`, data || {}).then(r => r.data),
+  reject: (id: number, reason?: string) => api.post(`/issue-requests/${id}/reject`, { reason }).then(r => r.data),
 };
 
 export default api;

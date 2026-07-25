@@ -35,6 +35,7 @@ initDb().then(() => {
   const assetsRouter = require('./routes/assets').default;
   const portalRouter = require('./routes/portal').default;
   const returnRequestsRouter = require('./routes/returnRequests').default;
+  const issueRequestsRouter = require('./routes/issueRequests').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -50,6 +51,7 @@ initDb().then(() => {
   app.use('/api/assets', assetsRouter);
   app.use('/api/portal', portalRouter);
   app.use('/api/return-requests', returnRequestsRouter);
+  app.use('/api/issue-requests', issueRequestsRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {

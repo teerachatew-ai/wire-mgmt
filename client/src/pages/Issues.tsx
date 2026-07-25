@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { issueApi, memberApi, productApi, reportApi, receiveApi } from '../api';
+import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2 } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartphone, Check, Loader2 } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 
@@ -400,6 +400,93 @@ function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
   );
 }
 
+/* ── แถวคำขอเบิกงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจสอบแล้วยืนยัน) ── */
+function PendingIssueRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
+  const [qty, setQty] = useState(String(req.quantity ?? 0));
+  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState('');
+  const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
+  const [error, setError] = useState('');
+
+  const confirm = async () => {
+    setBusy('confirm'); setError('');
+    try {
+      await issueRequestApi.confirm(req.id, { quantity: qty, issued_at: issuedAt, due_date: dueDate || undefined });
+      onDone();
+    } catch (e: any) { setError(e.response?.data?.error || 'ยืนยันไม่สำเร็จ'); setBusy(null); }
+  };
+  const reject = async () => {
+    setBusy('reject'); setError('');
+    try { await issueRequestApi.reject(req.id); onDone(); }
+    catch (e: any) { setError(e.response?.data?.error || 'ปฏิเสธไม่สำเร็จ'); setBusy(null); }
+  };
+
+  return (
+    <div className="p-3.5 border-b last:border-0 bg-amber-50/40">
+      <div className="flex items-center gap-2 flex-wrap">
+        {req.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: req.color }} />}
+        <span className="font-semibold text-gray-800">{req.member_name}</span>
+        {req.member_nickname && <span className="text-gray-400 text-sm">({req.member_nickname})</span>}
+        <span className="text-gray-400">·</span>
+        <span className="text-gray-600 text-sm">{req.product_name}</span>
+        <span className="ml-auto text-xs text-gray-400">{req.submitted_at}</span>
+      </div>
+      <div className="flex items-end gap-2 mt-2 flex-wrap">
+        <div className="w-24 shrink-0">
+          <label className="block text-[10px] text-gray-400">จำนวน</label>
+          <input type="number" className="input !py-1.5 !min-h-0 text-sm font-semibold" value={qty} onChange={e => setQty(e.target.value)} />
+        </div>
+        <div className="w-36 shrink-0">
+          <label className="block text-[10px] text-gray-400">วันที่เบิก</label>
+          <input type="date" className="input !py-1.5 !min-h-0 text-sm" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} />
+        </div>
+        <div className="w-36 shrink-0">
+          <label className="block text-[10px] text-gray-400">กำหนดคืน</label>
+          <input type="date" className="input !py-1.5 !min-h-0 text-sm" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <button type="button" disabled={!!busy} onClick={reject}
+            className="btn-secondary btn-sm !text-rose-600 flex items-center gap-1">
+            {busy === 'reject' ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} ปฏิเสธ
+          </button>
+          <button type="button" disabled={!!busy} onClick={confirm}
+            className="btn-primary btn-sm flex items-center gap-1">
+            {busy === 'confirm' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} ยืนยัน
+          </button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-rose-600 mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+function PendingIssueRequestsPanel() {
+  const qc = useQueryClient();
+  const { data: pending = [] } = useQuery({
+    queryKey: ['issue-requests', 'pending'],
+    queryFn: () => issueRequestApi.list('pending'),
+    refetchInterval: 20000,
+  });
+  if ((pending as any[]).length === 0) return null;
+  const onDone = () => {
+    qc.invalidateQueries({ queryKey: ['issue-requests'] });
+    qc.invalidateQueries({ queryKey: ['issues'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+  return (
+    <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
+      <div className="px-4 py-3 bg-amber-100 flex items-center gap-2">
+        <Smartphone size={16} className="text-amber-700" />
+        <span className="font-semibold text-amber-800 text-sm">คำขอเบิกงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+      </div>
+      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจสอบแล้วแก้จำนวน/วันที่ให้ถูกต้องได้ที่นี่ แล้วกดยืนยัน — จะกลายเป็นใบเบิกจริงก็ต่อเมื่อกดยืนยันแล้วเท่านั้น</p>
+      <div>
+        {(pending as any[]).map((r: any) => <PendingIssueRequestRow key={r.id} req={r} onDone={onDone} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function Issues() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -487,6 +574,8 @@ export default function Issues() {
           </button>
         </div>
       </div>
+
+      <PendingIssueRequestsPanel />
 
       {receiveGroups.length > 0 && (
         <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
