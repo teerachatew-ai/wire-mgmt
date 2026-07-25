@@ -51,7 +51,7 @@ router.post('/:token/return-request', (req, res) => {
   const member = getMemberByToken(req.params.token);
   if (!member) return res.status(404).json({ error: 'ไม่พบข้อมูล ลิงก์อาจไม่ถูกต้อง' });
 
-  const { issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes } = req.body;
+  const { issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes, returned_at } = req.body;
   const issue = prepare(`SELECT * FROM issues WHERE id = ? AND member_id = ?`).get(issue_id, member.id) as any;
   if (!issue) return res.status(400).json({ error: 'ไม่พบใบเบิกนี้' });
   if (issue.status === 'closed') return res.status(400).json({ error: 'ใบเบิกนี้ปิดแล้ว' });
@@ -71,9 +71,10 @@ router.post('/:token/return-request', (req, res) => {
     return res.status(400).json({ error: `แจ้งจำนวนเกินยอดที่เบิกไป (คงเหลือให้แจ้งได้ ${remaining})` });
   }
 
+  const retAt = returned_at || new Date().toISOString().split('T')[0];
   const result = prepare(
-    `INSERT INTO return_requests (issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(issue_id, gQty, ngCut, ngFac, wQty, lQty, notes || null);
+    `INSERT INTO return_requests (issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes, returned_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(issue_id, gQty, ngCut, ngFac, wQty, lQty, notes || null, retAt);
 
   res.json({ ok: true, id: result.lastInsertRowid });
 });
@@ -84,16 +85,17 @@ router.post('/:token/issue-request', (req, res) => {
   if (!member) return res.status(404).json({ error: 'ไม่พบข้อมูล ลิงก์อาจไม่ถูกต้อง' });
   if (member.status !== 'active') return res.status(400).json({ error: 'บัญชีสมาชิกถูกพักสถานะ ติดต่อเจ้าหน้าที่' });
 
-  const { product_id, quantity, notes } = req.body;
+  const { product_id, quantity, notes, issued_at } = req.body;
   const product = prepare(`SELECT * FROM products WHERE id = ? AND active = 1`).get(product_id) as any;
   if (!product) return res.status(400).json({ error: 'ไม่พบสินค้านี้' });
 
   const qty = parseFloat(quantity) || 0;
   if (qty <= 0) return res.status(400).json({ error: 'กรุณาระบุจำนวน' });
 
+  const issuedAt = issued_at || new Date().toISOString().split('T')[0];
   const result = prepare(
-    `INSERT INTO issue_requests (member_id, product_id, quantity, notes) VALUES (?, ?, ?, ?)`
-  ).run(member.id, product_id, qty, notes || null);
+    `INSERT INTO issue_requests (member_id, product_id, quantity, notes, issued_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(member.id, product_id, qty, notes || null, issuedAt);
 
   res.json({ ok: true, id: result.lastInsertRowid });
 });

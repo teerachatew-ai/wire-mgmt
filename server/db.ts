@@ -297,6 +297,11 @@ CREATE TABLE IF NOT EXISTS managers (
     confirmed_by TEXT,
     reject_reason TEXT
   )`);
+  {
+    const cols = db.exec(`PRAGMA table_info(return_requests)`)[0]?.values.map(r => r[1]) ?? [];
+    // วันที่คืนงานจริงที่สมาชิกเลือกเอง (default วันนี้ แก้ไขได้) — ใช้เป็นค่าเริ่มต้นตอนเจ้าหน้าที่ยืนยัน
+    if (!cols.includes('returned_at')) db.exec(`ALTER TABLE return_requests ADD COLUMN returned_at TEXT`);
+  }
 
   // คำขอเบิกงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — เช่นเดียวกับ return_requests
   // ต้องรอเจ้าหน้าที่ตรวจสอบแล้วกดยืนยันก่อนถึงจะกลายเป็นใบเบิกจริงในตาราง issues
@@ -313,6 +318,11 @@ CREATE TABLE IF NOT EXISTS managers (
     confirmed_by TEXT,
     reject_reason TEXT
   )`);
+  {
+    const cols = db.exec(`PRAGMA table_info(issue_requests)`)[0]?.values.map(r => r[1]) ?? [];
+    // วันที่เบิกงานจริงที่สมาชิกเลือกเอง (default วันนี้ แก้ไขได้) — ใช้เป็นค่าเริ่มต้นตอนเจ้าหน้าที่ยืนยัน
+    if (!cols.includes('issued_at')) db.exec(`ALTER TABLE issue_requests ADD COLUMN issued_at TEXT`);
+  }
 
   // ค่าตอบแทนผู้บริหารรายเดือน (กำหนดเองต่อเดือน — ถ้าไม่กำหนดจะใช้ค่าอัตโนมัติ % ของรายได้)
   db.exec(`CREATE TABLE IF NOT EXISTS manager_month (

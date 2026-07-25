@@ -146,13 +146,14 @@ function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
   const [ngFactory, setNgFactory] = useState(String(req.ng_factory ?? 0));
   const [waste, setWaste] = useState(String(req.waste_qty ?? 0));
   const [lost, setLost] = useState(String(req.lost_qty ?? 0));
+  const [returnedAt, setReturnedAt] = useState(req.returned_at || new Date().toISOString().split('T')[0]);
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState('');
 
   const confirm = async () => {
     setBusy('confirm'); setError('');
     try {
-      await returnRequestApi.confirm(req.id, { good_qty: good, ng_cut: ngCut, ng_factory: ngFactory, waste_qty: waste, lost_qty: lost });
+      await returnRequestApi.confirm(req.id, { good_qty: good, ng_cut: ngCut, ng_factory: ngFactory, waste_qty: waste, lost_qty: lost, returned_at: returnedAt });
       onDone();
     } catch (e: any) { setError(e.response?.data?.error || 'ยืนยันไม่สำเร็จ'); setBusy(null); }
   };
@@ -188,6 +189,10 @@ function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
         {numField('เสีย-รง.', ngFactory, setNgFactory)}
         {numField('เศษ', waste, setWaste)}
         {numField('หาย', lost, setLost)}
+        <div className="w-36 shrink-0">
+          <label className="block text-[10px] text-gray-400">วันที่คืน</label>
+          <input type="date" className="input !py-1.5 !min-h-0 text-sm" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
+        </div>
         <div className="flex items-center gap-1.5 ml-auto">
           <button type="button" disabled={!!busy} onClick={reject}
             className="btn-secondary btn-sm !text-rose-600 flex items-center gap-1">

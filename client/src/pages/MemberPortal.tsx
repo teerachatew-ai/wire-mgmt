@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 function fmtDate(s?: string) {
@@ -25,6 +25,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   const [ngCut, setNgCut] = useState('');
   const [waste, setWaste] = useState('');
   const [lost, setLost] = useState('');
+  const [returnedAt, setReturnedAt] = useState(new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
 
   const mut = useMutation({
@@ -34,6 +35,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
       ng_cut: ngCut || 0,
       waste_qty: waste || 0,
       lost_qty: lost || 0,
+      returned_at: returnedAt,
     }),
     onSuccess: onDone,
     onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
@@ -52,6 +54,11 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
       </div>
 
       <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
+        <div className="bg-white rounded-2xl border p-4 flex items-center justify-between gap-3">
+          <label className="text-sm font-medium text-gray-600 shrink-0">วันที่คืน</label>
+          <input type="date" className="input !w-auto text-right" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
+        </div>
+
         <div className="bg-white rounded-3xl border-2 border-blue-200 p-5 text-center">
           <label className="block text-lg font-semibold text-gray-700 mb-3">ตัดเสร็จแล้วกี่เส้น?</label>
           <input
@@ -114,10 +121,11 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
 function IssueRequestScreen({ token, products, onDone, onCancel }: { token: string; products: any[]; onDone: () => void; onCancel: () => void }) {
   const [selected, setSelected] = useState<any>(null);
   const [qty, setQty] = useState('');
+  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
 
   const mut = useMutation({
-    mutationFn: () => portalApi.submitIssue(token, { product_id: selected.id, quantity: qty || 0 }),
+    mutationFn: () => portalApi.submitIssue(token, { product_id: selected.id, quantity: qty || 0, issued_at: issuedAt }),
     onSuccess: onDone,
     onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
   });
@@ -165,7 +173,11 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
                     </button>
                     {open && (
                       <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
-                        <div className="text-center pt-2">
+                        <div className="flex items-center justify-between gap-3 pt-2">
+                          <label className="text-sm font-medium text-gray-600 shrink-0">วันที่เบิก</label>
+                          <input type="date" className="input !w-auto !py-1.5 !min-h-0 text-sm text-right" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} />
+                        </div>
+                        <div className="text-center">
                           <label className="block text-base font-semibold text-gray-700 mb-2">ขอเบิกกี่{p.unit || 'เส้น'}?</label>
                           <input
                             type="number" inputMode="numeric" min={0} autoFocus
@@ -200,11 +212,58 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
   );
 }
 
+/* ── คืนงาน — รายการงานค้างเบิก กดเข้ามาถึงเห็น (หน้าแรกไม่โชว์รายละเอียด) ── */
+function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[]; onSelect: (i: any) => void; onCancel: () => void }) {
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
+        <p className="font-bold text-lg text-gray-800">คืนงาน</p>
+      </div>
+      <div className="flex-1 p-4 space-y-3 max-w-md mx-auto w-full">
+        {openIssues.length === 0 ? (
+          <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">
+            <PackageOpen size={32} className="mx-auto mb-2 opacity-50" />
+            ตอนนี้ไม่มีงานค้างเบิก
+          </div>
+        ) : (
+          openIssues.map((i: any) => (
+            <div key={i.id} className="bg-white rounded-2xl border p-4">
+              <div className="flex items-center gap-2">
+                {i.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                <p className="font-bold text-gray-800">{i.product_name}</p>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">เบิกเมื่อ {fmtDate(i.issued_at)} · เบิกไป {fmtQty(i.quantity)} {i.unit}</p>
+              <div className="flex items-center justify-between mt-3">
+                <div>
+                  <p className="text-xs text-gray-400">คงเหลือที่ต้องคืน</p>
+                  <p className="text-xl font-bold text-blue-700">{fmtQty(i.remaining)} <span className="text-sm font-normal text-gray-400">{i.unit}</span></p>
+                </div>
+                <button
+                  disabled={i.remaining <= 0}
+                  onClick={() => onSelect(i)}
+                  className="bg-blue-600 disabled:bg-gray-300 text-white font-bold px-5 py-3 rounded-xl active:scale-[0.97] transition-transform"
+                >
+                  คืนงาน
+                </button>
+              </div>
+              {i.pending_total > 0 && (
+                <p className="text-xs text-amber-600 mt-2">🕐 มีคำขอรอตรวจสอบอยู่ {fmtQty(i.pending_total)} {i.unit}</p>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MemberPortal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<any>(null);
   const [requestingIssue, setRequestingIssue] = useState(false);
+  const [showReturnList, setShowReturnList] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState<'return' | 'issue' | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -236,7 +295,7 @@ export default function MemberPortal() {
         token={token!}
         issue={activeIssue}
         onCancel={() => setActiveIssue(null)}
-        onDone={() => { setActiveIssue(null); setJustSubmitted('return'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
+        onDone={() => { setActiveIssue(null); setShowReturnList(false); setJustSubmitted('return'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
       />
     );
   }
@@ -252,7 +311,17 @@ export default function MemberPortal() {
     );
   }
 
-  const { member, open_issues, recent_requests, recent_issue_requests } = data;
+  if (showReturnList) {
+    return (
+      <ReturnListScreen
+        openIssues={data.open_issues || []}
+        onCancel={() => setShowReturnList(false)}
+        onSelect={(i) => setActiveIssue(i)}
+      />
+    );
+  }
+
+  const { member, recent_requests, recent_issue_requests } = data;
 
   return (
     <div className="min-h-screen bg-slate-50 pb-10">
@@ -272,54 +341,21 @@ export default function MemberPortal() {
           </div>
         )}
 
-        <button
-          onClick={() => setRequestingIssue(true)}
-          className="w-full bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-2xl p-4 flex items-center gap-3 mt-4"
-        >
-          <div className="p-2.5 bg-blue-100 rounded-xl shrink-0"><PackagePlus size={24} className="text-blue-600" /></div>
-          <div className="flex-1 text-left">
-            <p className="font-bold text-gray-800">เบิกงานใหม่</p>
-            <p className="text-xs text-gray-500">แจ้งเจ้าหน้าที่ว่าอยากเบิกงานเพิ่ม</p>
-          </div>
-          <ChevronRight size={20} className="text-gray-300 shrink-0" />
-        </button>
-
-        <div>
-          <p className="text-sm font-semibold text-gray-500 px-1 mb-2 mt-4">งานที่ยังเบิกค้างอยู่</p>
-          {open_issues.length === 0 ? (
-            <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">
-              <PackageOpen size={32} className="mx-auto mb-2 opacity-50" />
-              ตอนนี้ไม่มีงานค้างเบิก
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {open_issues.map((i: any) => (
-                <div key={i.id} className="bg-white rounded-2xl border p-4">
-                  <div className="flex items-center gap-2">
-                    {i.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
-                    <p className="font-bold text-gray-800">{i.product_name}</p>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">เบิกเมื่อ {fmtDate(i.issued_at)} · เบิกไป {fmtQty(i.quantity)} {i.unit}</p>
-                  <div className="flex items-center justify-between mt-3">
-                    <div>
-                      <p className="text-xs text-gray-400">คงเหลือที่ต้องคืน</p>
-                      <p className="text-xl font-bold text-blue-700">{fmtQty(i.remaining)} <span className="text-sm font-normal text-gray-400">{i.unit}</span></p>
-                    </div>
-                    <button
-                      disabled={i.remaining <= 0}
-                      onClick={() => setActiveIssue(i)}
-                      className="bg-blue-600 disabled:bg-gray-300 text-white font-bold px-5 py-3 rounded-xl active:scale-[0.97] transition-transform"
-                    >
-                      คืนงาน
-                    </button>
-                  </div>
-                  {i.pending_total > 0 && (
-                    <p className="text-xs text-amber-600 mt-2">🕐 มีคำขอรอตรวจสอบอยู่ {fmtQty(i.pending_total)} {i.unit}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <button
+            onClick={() => setRequestingIssue(true)}
+            className="bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-2xl p-5 flex flex-col items-center gap-2"
+          >
+            <div className="p-3 bg-blue-100 rounded-xl"><PackagePlus size={28} className="text-blue-600" /></div>
+            <p className="font-bold text-gray-800 text-lg">เบิกงาน</p>
+          </button>
+          <button
+            onClick={() => setShowReturnList(true)}
+            className="bg-white border-2 border-green-200 hover:border-green-400 active:scale-[0.98] transition-transform rounded-2xl p-5 flex flex-col items-center gap-2"
+          >
+            <div className="p-3 bg-green-100 rounded-xl"><RotateCcw size={28} className="text-green-600" /></div>
+            <p className="font-bold text-gray-800 text-lg">คืนงาน</p>
+          </button>
         </div>
 
         {recent_requests?.length > 0 && (

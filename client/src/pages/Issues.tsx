@@ -403,7 +403,7 @@ function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
 /* ── แถวคำขอเบิกงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจสอบแล้วยืนยัน) ── */
 function PendingIssueRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
   const [qty, setQty] = useState(String(req.quantity ?? 0));
-  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
+  const [issuedAt, setIssuedAt] = useState(req.issued_at || new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState('');

@@ -52,7 +52,7 @@ router.post('/:id/confirm', (req, res) => {
   const ngFac = ng_factory !== undefined ? (parseFloat(ng_factory) || 0) : request.ng_factory;
   const wQty = waste_qty !== undefined ? (parseFloat(waste_qty) || 0) : request.waste_qty;
   const lQty = lost_qty !== undefined ? (parseFloat(lost_qty) || 0) : request.lost_qty;
-  const retAt = returned_at || new Date().toISOString().split('T')[0];
+  const retAt = returned_at || request.returned_at || new Date().toISOString().split('T')[0];
 
   const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(request.issue_id) as any;
   const remaining = issue.quantity - (prev.total || 0);
