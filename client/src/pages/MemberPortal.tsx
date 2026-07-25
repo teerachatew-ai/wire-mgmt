@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 function fmtDate(s?: string) {
@@ -110,8 +110,23 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   );
 }
 
-/* ── เลือกสินค้าที่จะขอเบิก (การ์ดใหญ่ กดง่าย) ── */
-function ProductPicker({ products, onPick, onCancel }: { products: any[]; onPick: (p: any) => void; onCancel: () => void }) {
+/* ── เบิกงานใหม่ — เลือกสินค้าแล้วกรอกจำนวนจบในหน้าเดียว (แตะสินค้า การ์ดขยายออกให้กรอกจำนวนตรงนั้นเลย) ── */
+function IssueRequestScreen({ token, products, onDone, onCancel }: { token: string; products: any[]; onDone: () => void; onCancel: () => void }) {
+  const [selected, setSelected] = useState<any>(null);
+  const [qty, setQty] = useState('');
+  const [error, setError] = useState('');
+
+  const mut = useMutation({
+    mutationFn: () => portalApi.submitIssue(token, { product_id: selected.id, quantity: qty || 0 }),
+    onSuccess: onDone,
+    onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
+  });
+
+  const selectProduct = (p: any) => {
+    setSelected(prev => (prev?.id === p.id ? null : p));
+    setQty(''); setError('');
+  };
+
   const groups = Object.values(
     (products || []).reduce((acc: any, p: any) => {
       const key = p.project || 'สินค้า';
@@ -124,9 +139,10 @@ function ProductPicker({ products, onPick, onCancel }: { products: any[]; onPick
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
-        <p className="font-bold text-lg text-gray-800">เลือกสินค้าที่จะเบิก</p>
+        <p className="font-bold text-lg text-gray-800">เบิกงานใหม่</p>
       </div>
       <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
+        <p className="text-sm text-gray-500 px-1">แตะเลือกสินค้าที่จะเบิก แล้วกรอกจำนวนได้เลย</p>
         {groups.length === 0 && (
           <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">ยังไม่มีสินค้าให้เลือก ติดต่อเจ้าหน้าที่</div>
         )}
@@ -134,70 +150,50 @@ function ProductPicker({ products, onPick, onCancel }: { products: any[]; onPick
           <div key={g.key}>
             {g.key !== 'สินค้า' && <p className="text-sm font-semibold text-gray-500 px-1 mb-2">{g.key}</p>}
             <div className="space-y-2">
-              {g.products.map((p: any) => (
-                <button
-                  key={p.id}
-                  onClick={() => onPick(p)}
-                  className="w-full bg-white rounded-2xl border-2 border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-transform p-4 flex items-center gap-3 text-left"
-                >
-                  {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
-                  <span className="flex-1 font-semibold text-gray-800">{p.name}</span>
-                  <ChevronRight size={20} className="text-gray-300 shrink-0" />
-                </button>
-              ))}
+              {g.products.map((p: any) => {
+                const open = selected?.id === p.id;
+                return (
+                  <div key={p.id} className={`bg-white rounded-2xl border-2 overflow-hidden transition-colors ${open ? 'border-blue-400' : 'border-gray-100'}`}>
+                    <button
+                      type="button"
+                      onClick={() => selectProduct(p)}
+                      className="w-full p-4 flex items-center gap-3 text-left active:scale-[0.99] transition-transform"
+                    >
+                      {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                      <span className="flex-1 font-semibold text-gray-800">{p.name}</span>
+                      {open ? <ChevronDown size={20} className="text-blue-500 shrink-0" /> : <ChevronRight size={20} className="text-gray-300 shrink-0" />}
+                    </button>
+                    {open && (
+                      <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+                        <div className="text-center pt-2">
+                          <label className="block text-base font-semibold text-gray-700 mb-2">ขอเบิกกี่{p.unit || 'เส้น'}?</label>
+                          <input
+                            type="number" inputMode="numeric" min={0} autoFocus
+                            className="w-full text-center text-4xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-1 bg-transparent"
+                            placeholder="0"
+                            value={qty}
+                            onChange={e => setQty(e.target.value)}
+                          />
+                          <p className="text-sm text-gray-400 mt-1">{p.unit}</p>
+                        </div>
+                        {error && <p className="text-rose-600 text-sm text-center font-medium">{error}</p>}
+                        <button
+                          type="button"
+                          disabled={(parseFloat(qty) || 0) <= 0 || mut.isPending}
+                          onClick={() => mut.mutate()}
+                          className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-lg py-3.5 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
+                        >
+                          {mut.isPending ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                          ส่งคำขอเบิกงาน
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))}
-      </div>
-    </div>
-  );
-}
-
-/* ── ฟอร์มขอเบิกงาน (เลือกสินค้าแล้ว กรอกจำนวนที่ต้องการ) ── */
-function IssueRequestForm({ token, product, onDone, onCancel }: { token: string; product: any; onDone: () => void; onCancel: () => void }) {
-  const [qty, setQty] = useState('');
-  const [error, setError] = useState('');
-
-  const mut = useMutation({
-    mutationFn: () => portalApi.submitIssue(token, { product_id: product.id, quantity: qty || 0 }),
-    onSuccess: onDone,
-    onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
-  });
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
-        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
-        <div className="min-w-0 flex items-center gap-2">
-          {product.color && <span className="w-4 h-4 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: product.color }} />}
-          <p className="font-bold text-lg text-gray-800 truncate">{product.name}</p>
-        </div>
-      </div>
-
-      <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
-        <div className="bg-white rounded-3xl border-2 border-blue-200 p-5 text-center">
-          <label className="block text-lg font-semibold text-gray-700 mb-3">ขอเบิกกี่{product.unit || 'เส้น'}?</label>
-          <input
-            type="number" inputMode="numeric" min={0} autoFocus
-            className="w-full text-center text-5xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-2 bg-transparent"
-            placeholder="0"
-            value={qty}
-            onChange={e => setQty(e.target.value)}
-          />
-          <p className="text-sm text-gray-400 mt-2">{product.unit}</p>
-        </div>
-
-        {error && <p className="text-rose-600 text-sm text-center font-medium">{error}</p>}
-
-        <button
-          type="button"
-          disabled={(parseFloat(qty) || 0) <= 0 || mut.isPending}
-          onClick={() => mut.mutate()}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-xl py-4 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
-        >
-          {mut.isPending ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} />}
-          ส่งคำขอเบิกงาน
-        </button>
         <p className="text-center text-xs text-gray-400">เจ้าหน้าที่จะตรวจสอบแล้วอนุมัติอีกครั้ง</p>
       </div>
     </div>
@@ -208,8 +204,7 @@ export default function MemberPortal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<any>(null);
-  const [pickingProduct, setPickingProduct] = useState(false);
-  const [issueProduct, setIssueProduct] = useState<any>(null);
+  const [requestingIssue, setRequestingIssue] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState<'return' | 'issue' | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -246,23 +241,13 @@ export default function MemberPortal() {
     );
   }
 
-  if (issueProduct) {
+  if (requestingIssue) {
     return (
-      <IssueRequestForm
+      <IssueRequestScreen
         token={token!}
-        product={issueProduct}
-        onCancel={() => setIssueProduct(null)}
-        onDone={() => { setIssueProduct(null); setJustSubmitted('issue'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
-      />
-    );
-  }
-
-  if (pickingProduct) {
-    return (
-      <ProductPicker
         products={data.products || []}
-        onCancel={() => setPickingProduct(false)}
-        onPick={(p) => { setPickingProduct(false); setIssueProduct(p); }}
+        onCancel={() => setRequestingIssue(false)}
+        onDone={() => { setRequestingIssue(false); setJustSubmitted('issue'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
       />
     );
   }
@@ -288,12 +273,12 @@ export default function MemberPortal() {
         )}
 
         <button
-          onClick={() => setPickingProduct(true)}
+          onClick={() => setRequestingIssue(true)}
           className="w-full bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-2xl p-4 flex items-center gap-3 mt-4"
         >
           <div className="p-2.5 bg-blue-100 rounded-xl shrink-0"><PackagePlus size={24} className="text-blue-600" /></div>
           <div className="flex-1 text-left">
-            <p className="font-bold text-gray-800">ขอเบิกงานเพิ่ม</p>
+            <p className="font-bold text-gray-800">เบิกงานใหม่</p>
             <p className="text-xs text-gray-500">แจ้งเจ้าหน้าที่ว่าอยากเบิกงานเพิ่ม</p>
           </div>
           <ChevronRight size={20} className="text-gray-300 shrink-0" />
