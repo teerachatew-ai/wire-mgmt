@@ -39,12 +39,13 @@ function managerCompForMonth(month: string): any[] {
 
 // ค่าใช้จ่ายคงที่รายเดือน (ค่าตอบแทนผู้บริหาร + ค่าบริหารจัดการทั่วไป ตามที่ตั้งไว้ในหน้าภาพรวม/ตั้งค่า)
 // ใช้ยอดขายที่เกิดขึ้นจริง ณ ตอนนี้เป็นฐาน (สำหรับผู้บริหารแบบ %) — เป็นค่าประมาณ ณ ปัจจุบัน ไม่ได้ปรับพลวัตตามยอดขายที่จะเพิ่มในอนาคต
-function monthlyOverhead(month: string): { manager_comp: number; general_expenses: number; total: number } {
+function monthlyOverhead(month: string): { manager_comp: number; manager_comp_auto: number; manager_comp_extra: number; general_expenses: number; total: number } {
+  // รายการ "เพิ่มเองรายเดือน" ที่จ่ายให้บุคคล (ผู้บริหาร/สมาชิก) — นับรวมในค่าตอบแทนผู้บริหาร ไม่ใช่ค่าบริหารจัดการ
   const expToComp = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager')`).get(month) as any).v;
   const generalExpenses = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(month) as any).v;
   const managerCompBase = managerCompForMonth(month).reduce((s: number, mg: any) => s + (mg.computed || 0), 0);
   const manager_comp = managerCompBase + expToComp;
-  return { manager_comp, general_expenses: generalExpenses, total: manager_comp + generalExpenses };
+  return { manager_comp, manager_comp_auto: managerCompBase, manager_comp_extra: expToComp, general_expenses: generalExpenses, total: manager_comp + generalExpenses };
 }
 
 // มูลค่าค่าแรงประมาณการของงานที่เบิกไปสมาชิกแล้ว แต่ยังตัด/คืนไม่ครบ (ถ้าคืนครบทั้งหมดจะได้ค่าแรงเพิ่มอีกเท่านี้)
@@ -1164,7 +1165,9 @@ router.get('/shipment-plan', (req, res) => {
 
   res.json({
     month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek, is_current_month,
-    reserve_open, manager_comp_month: overhead.manager_comp, general_expenses_month: overhead.general_expenses,
+    reserve_open, manager_comp_month: overhead.manager_comp,
+    manager_comp_auto: overhead.manager_comp_auto, manager_comp_extra: overhead.manager_comp_extra,
+    general_expenses_month: overhead.general_expenses,
     overhead_total: overhead.total, target_before_overhead,
     shipped_revenue_mtd, target_remaining, covered, surplus,
     stock, suggestions,

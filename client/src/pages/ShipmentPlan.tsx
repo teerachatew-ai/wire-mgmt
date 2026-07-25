@@ -101,7 +101,14 @@ export default function ShipmentPlan() {
 
             <div className="mt-3 pt-3 border-t border-black/5 grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 text-xs text-gray-600">
               <span>เงินกันยกมา (ค่าแรงจ่ายไปแล้ว เดือนก่อน): <b className="block md:inline">{money(data.reserve_open)}</b></span>
-              <span>ค่าตอบแทนผู้บริหารเดือนนี้: <b className="block md:inline">{money(data.manager_comp_month)}</b></span>
+              <span>
+                ค่าตอบแทนผู้บริหารเดือนนี้: <b className="block md:inline">{money(data.manager_comp_month)}</b>
+                {data.manager_comp_extra > 0 && (
+                  <span className="block text-[10px] text-gray-400">
+                    (อัตโนมัติ {money(data.manager_comp_auto)} + รายการที่เพิ่มเองซึ่งจ่ายให้บุคคล {money(data.manager_comp_extra)})
+                  </span>
+                )}
+              </span>
               <span>ค่าบริหารจัดการเดือนนี้: <b className="block md:inline">{money(data.general_expenses_month)}</b></span>
               <span>รายรับจากส่งออกเดือนนี้ (สะสมถึงวันนี้): <b className="block md:inline">{money(data.shipped_revenue_mtd)}</b></span>
             </div>
@@ -109,6 +116,9 @@ export default function ShipmentPlan() {
               เส้นตัดยอด: <b>{dateLabel(data.cutoff)}</b>
               <span className="text-gray-400"> · ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการ คิดจากยอดขายที่เกิดขึ้นจริง ณ ตอนนี้ (ยังไม่ปรับตามยอดที่จะส่งเพิ่ม)</span>
             </div>
+            <p className="mt-1 text-[10px] text-gray-400">
+              💡 รายการ "เพิ่มเองรายเดือน" ในหน้าภาพรวม ถ้าเลือกจ่ายให้ผู้บริหาร/สมาชิกคนใดคนหนึ่ง จะถูกนับรวมใน "ค่าตอบแทนผู้บริหาร" ไม่ใช่ "ค่าบริหารจัดการ"
+            </p>
           </div>
 
           {/* รายการแนะนำ (เฉพาะกรณียังไม่ครอบคลุม) */}
