@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { issueApi, memberApi, productApi, reportApi } from '../api';
+import { issueApi, memberApi, productApi, reportApi, receiveApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2 } from 'lucide-react';
@@ -424,6 +424,17 @@ export default function Issues() {
     enabled: !!detailId
   });
 
+  // ของเข้าจากโรงงานในวันที่กำลังดูอยู่ (ถ้าไม่ได้กรองวันที่ ใช้ "วันนี้") — เผื่อดูก่อนตัดสินใจเบิกให้สมาชิก
+  const todayStr = new Date().toISOString().split('T')[0];
+  const receiveDate = dayFilter || todayStr;
+  const { data: receivesOfDay = [] } = useQuery({
+    queryKey: ['receives', 'day', receiveDate],
+    queryFn: () => receiveApi.list({ date: receiveDate }),
+  });
+  const receiveGroups = Object.values((receivesOfDay as any[]).reduce((a: any, r: any) => {
+    const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
+  }, {})) as any[];
+
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -476,6 +487,26 @@ export default function Issues() {
           </button>
         </div>
       </div>
+
+      {receiveGroups.length > 0 && (
+        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+            <span className="text-sm font-semibold text-emerald-800">
+              📦 มีของเข้าจากโรงงาน{dayFilter ? ` — วันที่ ${receiveDate}` : ' วันนี้'}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {receiveGroups.map((g: any) => (
+              <span key={g.name} className="inline-flex items-center gap-1.5 bg-white border border-emerald-200 rounded-lg px-3 py-1.5 text-sm">
+                {g.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: g.color }} />}
+                <span className="text-gray-700">{g.name}</span>
+                <b className="text-emerald-700">{Number(g.qty || 0).toLocaleString('th-TH')}</b>
+                {g.unit && <span className="text-gray-400 text-xs">{g.unit}</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <DaySummary groups={summary} note={dayFilter || 'ทั้งหมด'} unitLabel="เบิก" memberCount={memberCount} />
 
