@@ -15,6 +15,7 @@ import Shipments from './pages/Shipments';
 import ShipmentPlan from './pages/ShipmentPlan';
 import FormPrint from './pages/FormPrint';
 import PdpaConsent from './pages/PdpaConsent';
+import MemberPortal from './pages/MemberPortal';
 import Login from './pages/Login';
 import Assets from './pages/Assets';
 import { AuthProvider, useAuth, canAccess, homePath } from './auth';
@@ -61,6 +62,8 @@ export default function App() {
           {/* print page — no layout/auth wrapper */}
           <Route path="/print" element={<FormPrint />} />
           <Route path="/pdpa" element={<PdpaConsent />} />
+          {/* พอร์ทัลส่วนตัวสมาชิก — เข้าด้วยลิงก์/QR โทเคน ไม่ต้อง login ไม่มีเมนู/แถบด้านข้าง */}
+          <Route path="/portal/:token" element={<MemberPortal />} />
           <Route path="/*" element={<AppRoutes />} />
         </Routes>
       </AuthProvider>

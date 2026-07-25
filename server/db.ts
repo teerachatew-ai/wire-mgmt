@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import initSqlJs, { Database } from 'sql.js';
 import { computePayCycle, loadCutoffConfig } from './payCycle';
+
+// โทเคนสุ่มสำหรับลิงก์พอร์ทัลสมาชิก — เดายาก ไม่มีรูปแบบให้ไล่เดา (ไม่ใช่รหัสสมาชิกที่เรียงลำดับได้)
+export function randomToken(): string {
+  return crypto.randomBytes(18).toString('base64url');
+}
 
 // โหมดเก็บข้อมูล:
 //  - มี DATABASE_URL (เช่นบน cloud/Render) -> เก็บฐานข้อมูลเป็น blob ใน Postgres (Neon) ให้ถาวร
@@ -239,6 +245,15 @@ CREATE TABLE IF NOT EXISTS managers (
     // เก็บเป็น data URL (base64) รูปย่อขนาดเล็กของบัตรประชาชน — ไม่ใช่รูปต้นฉบับขนาดเต็ม
     db.exec(`ALTER TABLE members ADD COLUMN id_card_photo TEXT`);
   }
+  if (!memberCols.includes('portal_token')) {
+    // โทเคนสุ่ม ไม่ซ้ำ ใช้เป็นลิงก์/QR ส่วนตัวของสมาชิกแต่ละคน (เดาไม่ได้ ไม่ต้อง login)
+    db.exec(`ALTER TABLE members ADD COLUMN portal_token TEXT`);
+    const noToken = db.exec(`SELECT id FROM members WHERE portal_token IS NULL OR portal_token = ''`)[0]?.values ?? [];
+    for (const [id] of noToken) {
+      db.run(`UPDATE members SET portal_token = ? WHERE id = ?`, [randomToken(), id]);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_members_portal_token ON members(portal_token)`);
+  }
   const productCols = db.exec(`PRAGMA table_info(products)`)[0]?.values.map(r => r[1]) ?? [];
   if (!productCols.includes('factory_price')) {
     db.exec(`ALTER TABLE products ADD COLUMN factory_price REAL NOT NULL DEFAULT 0`);
@@ -263,6 +278,25 @@ CREATE TABLE IF NOT EXISTS managers (
     const cols = db.exec(`PRAGMA table_info(${t})`)[0]?.values.map(r => r[1]) ?? [];
     if (!cols.includes('created_by')) db.exec(`ALTER TABLE ${t} ADD COLUMN created_by TEXT`);
   }
+
+  // คำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — ยังไม่ใช่ยอดจริง ต้องรอเจ้าหน้าที่ตรวจนับของจริงแล้วกดยืนยันก่อน
+  // ถึงจะกลายเป็นแถวใน returns (กันสมาชิกปลอมยอดเบิกเอง — เจ้าหน้าที่เห็น "ยอดที่แจ้ง" แต่กรอกยอดจริงตอนยืนยันได้)
+  db.exec(`CREATE TABLE IF NOT EXISTS return_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL,
+    good_qty REAL NOT NULL DEFAULT 0,
+    ng_cut REAL NOT NULL DEFAULT 0,
+    ng_factory REAL NOT NULL DEFAULT 0,
+    waste_qty REAL NOT NULL DEFAULT 0,
+    lost_qty REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    submitted_at TEXT DEFAULT (datetime('now')),
+    confirmed_return_id INTEGER,
+    confirmed_at TEXT,
+    confirmed_by TEXT,
+    reject_reason TEXT
+  )`);
 
   // ค่าตอบแทนผู้บริหารรายเดือน (กำหนดเองต่อเดือน — ถ้าไม่กำหนดจะใช้ค่าอัตโนมัติ % ของรายได้)
   db.exec(`CREATE TABLE IF NOT EXISTS manager_month (

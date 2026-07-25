@@ -33,6 +33,8 @@ initDb().then(() => {
   const smartcardRouter = require('./routes/smartcard').default;
   const expensesRouter = require('./routes/expenses').default;
   const assetsRouter = require('./routes/assets').default;
+  const portalRouter = require('./routes/portal').default;
+  const returnRequestsRouter = require('./routes/returnRequests').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -46,6 +48,8 @@ initDb().then(() => {
   app.use('/api/smartcard', smartcardRouter);
   app.use('/api/expenses', expensesRouter);
   app.use('/api/assets', assetsRouter);
+  app.use('/api/portal', portalRouter);
+  app.use('/api/return-requests', returnRequestsRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {

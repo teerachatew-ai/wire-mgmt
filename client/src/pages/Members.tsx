@@ -1,10 +1,79 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { memberApi, ocrApi, smartcardApi, reportApi } from '../api';
-import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History } from 'lucide-react';
+import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History, QrCode, Copy, Printer } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
 import { compressImageToDataUrl } from '../utils/compressImage';
+import QRCode from 'qrcode';
+
+// ลิงก์พอร์ทัลส่วนตัวของสมาชิก (ใช้ origin ของเว็บปัจจุบัน ใช้ได้ทั้ง local/deploy)
+function portalUrl(token?: string | null): string {
+  if (!token) return '';
+  return `${window.location.origin}/portal/${token}`;
+}
+
+/* ── QR Code ลิงก์พอร์ทัลส่วนตัวสมาชิก — ให้พิมพ์/แปะให้สมาชิกสแกนเข้าเว็บของตัวเอง ── */
+function QrModal({ member, onClose }: { member: any; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+  const url = portalUrl(member.portal_token);
+
+  useEffect(() => {
+    QRCode.toDataURL(url, { width: 320, margin: 1 }).then(setDataUrl).catch(() => {});
+  }, [url]);
+
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+  };
+
+  const print = () => {
+    const w = window.open('', '_blank', 'width=420,height=560');
+    if (!w) return;
+    w.document.write(`
+      <html><head><title>QR ${member.name}</title>
+      <style>
+        body { font-family: 'Tahoma', sans-serif; text-align: center; padding: 24px; }
+        h2 { margin: 0 0 4px; } p { color: #555; margin: 0 0 20px; }
+        img { width: 260px; height: 260px; }
+        .code { font-size: 13px; color: #888; margin-top: 12px; word-break: break-all; }
+      </style></head>
+      <body>
+        <h2>${member.name}${member.nickname ? ` (${member.nickname})` : ''}</h2>
+        <p>รหัสสมาชิก ${member.code} — สแกนเพื่อแจ้งคืนงานของตัวเอง</p>
+        <img src="${dataUrl}" />
+        <div class="code">${url}</div>
+        <script>window.onload = () => window.print();<\/script>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xs p-5 space-y-4 text-center">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-gray-800">QR ส่วนตัว — {member.name}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={18} className="text-gray-400" /></button>
+        </div>
+        <p className="text-xs text-gray-500">ให้สมาชิกสแกนเพื่อเข้าเว็บของตัวเอง แจ้งคืนงานเองได้ ไม่ต้องล็อกอิน</p>
+        {dataUrl ? (
+          <img src={dataUrl} alt="QR" className="mx-auto rounded-xl border" />
+        ) : (
+          <div className="h-64 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
+        )}
+        <div className="flex gap-2">
+          <button type="button" onClick={copyLink} className="btn-secondary flex-1 flex items-center justify-center gap-1.5 text-sm">
+            <Copy size={14} /> {copied ? 'คัดลอกแล้ว ✓' : 'คัดลอกลิงก์'}
+          </button>
+          <button type="button" onClick={print} className="btn-primary flex-1 flex items-center justify-center gap-1.5 text-sm">
+            <Printer size={14} /> พิมพ์
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // คำนวณอายุ (ปี) จากวันเกิด
 function calcAge(dob?: string | null): number | null {
@@ -585,6 +654,7 @@ export default function Members() {
   const [apiError, setApiError] = useState('');
   const [deleting, setDeleting] = useState<any>(null);
   const [history, setHistory] = useState<any>(null);
+  const [qrMember, setQrMember] = useState<any>(null);
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['members', q],
@@ -717,6 +787,7 @@ export default function Members() {
                   const p = new URLSearchParams({ name: m.name || '', idcard: m.id_card || '', code: m.code || '', consent: m.pdpa_consent ? '1' : '0' });
                   window.open(`/pdpa?${p.toString()}`, '_blank', 'width=900,height=700,scrollbars=yes');
                 }}><FileText size={18} /></button>
+                <button className="p-2 text-gray-400 hover:text-violet-600" title="QR พอร์ทัลสมาชิก" onClick={() => setQrMember(m)}><QrCode size={18} /></button>
                 <button className="p-2 text-gray-400 hover:text-amber-600" onClick={() => openEdit(m)}><Edit2 size={18} /></button>
                 <button className="p-2 text-gray-400 hover:text-red-600" onClick={() => setDeleting(m)}><Trash2 size={18} /></button>
               </div>
@@ -788,6 +859,9 @@ export default function Members() {
                   }}>
                     <FileText size={15} />
                   </button>
+                  <button className="text-gray-400 hover:text-violet-600" title="QR พอร์ทัลสมาชิก" onClick={() => setQrMember(m)}>
+                    <QrCode size={15} />
+                  </button>
                   <button className="text-gray-400 hover:text-blue-600" title="แก้ไข" onClick={() => openEdit(m)}>
                     <Edit2 size={15} />
                   </button>
@@ -802,6 +876,7 @@ export default function Members() {
       </div>
 
       {history && <HistoryModal member={history} onClose={() => setHistory(null)} />}
+      {qrMember && <QrModal member={qrMember} onClose={() => setQrMember(null)} />}
 
       {deleting && (
         <DeleteDialog

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { returnApi, issueApi } from '../api';
-import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2 } from 'lucide-react';
+import { returnApi, issueApi, returnRequestApi } from '../api';
+import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2, Smartphone, Check, Loader2 } from 'lucide-react';
 
 // วันที่แบบสั้น dd/mm/yyyy (พ.ศ.)
 function fmtDate(s: string) {
@@ -139,6 +139,101 @@ function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 
+/* ── แถวคำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจนับของจริงแล้วยืนยัน) ── */
+function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
+  const [good, setGood] = useState(String(req.good_qty ?? 0));
+  const [ngCut, setNgCut] = useState(String(req.ng_cut ?? 0));
+  const [ngFactory, setNgFactory] = useState(String(req.ng_factory ?? 0));
+  const [waste, setWaste] = useState(String(req.waste_qty ?? 0));
+  const [lost, setLost] = useState(String(req.lost_qty ?? 0));
+  const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
+  const [error, setError] = useState('');
+
+  const confirm = async () => {
+    setBusy('confirm'); setError('');
+    try {
+      await returnRequestApi.confirm(req.id, { good_qty: good, ng_cut: ngCut, ng_factory: ngFactory, waste_qty: waste, lost_qty: lost });
+      onDone();
+    } catch (e: any) { setError(e.response?.data?.error || 'ยืนยันไม่สำเร็จ'); setBusy(null); }
+  };
+  const reject = async () => {
+    if (!confirm) return;
+    setBusy('reject'); setError('');
+    try { await returnRequestApi.reject(req.id); onDone(); }
+    catch (e: any) { setError(e.response?.data?.error || 'ปฏิเสธไม่สำเร็จ'); setBusy(null); }
+  };
+
+  const numField = (label: string, val: string, set: (v: string) => void, cls = '') => (
+    <div className="w-20 shrink-0">
+      <label className="block text-[10px] text-gray-400">{label}</label>
+      <input type="number" className={`input !py-1.5 !min-h-0 text-sm ${cls}`} value={val} onChange={e => set(e.target.value)} />
+    </div>
+  );
+
+  return (
+    <div className="p-3.5 border-b last:border-0 bg-amber-50/40">
+      <div className="flex items-center gap-2 flex-wrap">
+        {req.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: req.color }} />}
+        <span className="font-semibold text-gray-800">{req.member_name}</span>
+        {req.member_nickname && <span className="text-gray-400 text-sm">({req.member_nickname})</span>}
+        <span className="text-gray-400">·</span>
+        <span className="text-gray-600 text-sm">{req.product_name}</span>
+        <span className="text-gray-400">·</span>
+        <span className="text-xs text-gray-400">อ้างใบเบิก {req.issue_code}</span>
+        <span className="ml-auto text-xs text-gray-400">{fmtDate(req.submitted_at)}</span>
+      </div>
+      <div className="flex items-end gap-2 mt-2 flex-wrap">
+        {numField('งานดี', good, setGood, 'font-semibold text-green-700')}
+        {numField('เสีย-ตัด', ngCut, setNgCut)}
+        {numField('เสีย-รง.', ngFactory, setNgFactory)}
+        {numField('เศษ', waste, setWaste)}
+        {numField('หาย', lost, setLost)}
+        <div className="flex items-center gap-1.5 ml-auto">
+          <button type="button" disabled={!!busy} onClick={reject}
+            className="btn-secondary btn-sm !text-rose-600 flex items-center gap-1">
+            {busy === 'reject' ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />} ปฏิเสธ
+          </button>
+          <button type="button" disabled={!!busy} onClick={confirm}
+            className="btn-primary btn-sm flex items-center gap-1">
+            {busy === 'confirm' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} ยืนยัน
+          </button>
+        </div>
+      </div>
+      {error && <p className="text-xs text-rose-600 mt-1.5">{error}</p>}
+    </div>
+  );
+}
+
+function PendingRequestsPanel() {
+  const qc = useQueryClient();
+  const { data: pending = [] } = useQuery({
+    queryKey: ['return-requests', 'pending'],
+    queryFn: () => returnRequestApi.list('pending'),
+    refetchInterval: 20000,
+  });
+  if ((pending as any[]).length === 0) return null;
+  const onDone = () => {
+    qc.invalidateQueries({ queryKey: ['return-requests'] });
+    qc.invalidateQueries({ queryKey: ['returns'] });
+    qc.invalidateQueries({ queryKey: ['issues'] });
+    qc.invalidateQueries({ queryKey: ['issues-open'] });
+    qc.invalidateQueries({ queryKey: ['issues-partial'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+  return (
+    <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
+      <div className="px-4 py-3 bg-amber-100 flex items-center gap-2">
+        <Smartphone size={16} className="text-amber-700" />
+        <span className="font-semibold text-amber-800 text-sm">คำขอคืนงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+      </div>
+      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจนับของจริงก่อน แก้ไขจำนวนให้ตรงได้ที่นี่ แล้วกดยืนยัน — ยอดจะเข้าระบบก็ต่อเมื่อกดยืนยันแล้วเท่านั้น</p>
+      <div>
+        {(pending as any[]).map((r: any) => <PendingRequestRow key={r.id} req={r} onDone={onDone} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function Returns() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -264,6 +359,8 @@ export default function Returns() {
           </button>
         </div>
       </div>
+
+      <PendingRequestsPanel />
 
       <DaySummary
         groups={Object.values((returns_ as any[]).reduce((a: any, r: any) => {

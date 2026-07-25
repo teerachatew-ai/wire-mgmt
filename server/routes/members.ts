@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepare, nextCode } from '../db';
+import { prepare, nextCode, randomToken } from '../db';
 
 const router = Router();
 
@@ -46,8 +46,8 @@ router.post('/', (req, res) => {
   const consent = pdpa_consent ? 1 : 0;
   const consentAt = consent ? new Date().toISOString().split('T')[0] : null;
   const result = prepare(
-    `INSERT INTO members (code, name, nickname, id_card, phone, address, bank_account, bank_name, registered_at, pdpa_consent, pdpa_consent_at, dob, id_card_photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(code, name, nickname || null, id_card || null, phone || null, address || null, bank_account || null, bank_name || null, registered_at || new Date().toISOString().split('T')[0], consent, consentAt, dob || null, sanitizePhoto(id_card_photo));
+    `INSERT INTO members (code, name, nickname, id_card, phone, address, bank_account, bank_name, registered_at, pdpa_consent, pdpa_consent_at, dob, id_card_photo, portal_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(code, name, nickname || null, id_card || null, phone || null, address || null, bank_account || null, bank_name || null, registered_at || new Date().toISOString().split('T')[0], consent, consentAt, dob || null, sanitizePhoto(id_card_photo), randomToken());
   res.json(prepare(`SELECT * FROM members WHERE id = ?`).get(result.lastInsertRowid));
 });
 
