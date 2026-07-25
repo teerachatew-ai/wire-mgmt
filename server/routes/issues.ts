@@ -88,6 +88,14 @@ router.put('/:id', (req, res) => {
   const member = prepare(`SELECT * FROM members WHERE id = ?`).get(member_id) as any;
   if (!member) return res.status(400).json({ error: 'ไม่พบสมาชิก' });
 
+  // ใบเบิกอื่นที่เบิกพร้อมกัน (ชุดเดียวกัน) — คนเดียวกัน วันเดียวกัน จำนวนเท่ากับก่อนแก้ — เผื่ออยากแก้จำนวนให้ตรงกันด้วย
+  const qtyChanged = parseFloat(quantity) !== issue.quantity;
+  const siblings = qtyChanged ? prepare(`
+    SELECT i.id, i.code, i.quantity, i.issued_at, i.member_id, i.product_id, i.due_date, i.notes, p.name as product_name, p.unit
+    FROM issues i JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND i.issued_at = ? AND i.quantity = ? AND i.id != ?
+  `).all(issue.member_id, issue.issued_at, issue.quantity, req.params.id) : [];
+
   prepare(`UPDATE issues SET issued_at=?, member_id=?, product_id=?, quantity=?, due_date=?, notes=? WHERE id=?`)
     .run(issued_at, member_id, product_id, quantity, due_date || null, notes || null, req.params.id);
 
@@ -95,7 +103,10 @@ router.put('/:id', (req, res) => {
   const newStatus = (ret.total || 0) >= parseFloat(quantity) ? 'closed' : (ret.total || 0) > 0 ? 'partial' : 'pending';
   prepare(`UPDATE issues SET status = ? WHERE id = ?`).run(newStatus, req.params.id);
 
-  res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id));
+  res.json({
+    ...prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id) as any,
+    siblings,
+  });
 });
 
 router.delete('/:id', (req, res) => {

@@ -285,6 +285,9 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
   const memberId = watch('member_id');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [siblings, setSiblings] = useState<any[] | null>(null); // ใบเบิกคู่กัน (เบิกพร้อมกัน) — รอถามว่าจะแก้จำนวนให้ตรงกันด้วยไหม
+  const [pendingQty, setPendingQty] = useState<any>(null);
+  const [applying, setApplying] = useState(false);
 
   const activeProducts = (products as any[]).filter((p: any) => p.active || String(p.id) === String(issue.product_id));
   const returned = issue.returned_good + issue.returned_defect + issue.returned_waste;
@@ -292,12 +295,56 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
   const onSubmit = async (data: any) => {
     setLoading(true); setError('');
     try {
-      await issueApi.update(issue.id, data);
-      onSaved(); onClose();
+      const result = await issueApi.update(issue.id, data);
+      if (result.siblings?.length > 0) {
+        setSiblings(result.siblings);
+        setPendingQty(data.quantity);
+      } else {
+        onSaved(); onClose();
+      }
     } catch (e: any) {
       setError(e.response?.data?.error || 'เกิดข้อผิดพลาด');
     } finally { setLoading(false); }
   };
+
+  const skipSiblings = () => { onSaved(); onClose(); };
+  const applySiblings = async () => {
+    setApplying(true);
+    for (const s of siblings || []) {
+      try {
+        await issueApi.update(s.id, { issued_at: s.issued_at, due_date: s.due_date || '', member_id: s.member_id, product_id: s.product_id, quantity: pendingQty, notes: s.notes || '' });
+      } catch { /* ข้ามใบที่แก้ไม่ได้ (เช่นคืนไปแล้วเกินจำนวนใหม่) ไม่บล็อกใบอื่น */ }
+    }
+    setApplying(false);
+    onSaved(); onClose();
+  };
+
+  if (siblings) {
+    return (
+      <Modal title={`แก้ไขใบเบิก ${issue.code}`} onClose={onClose}>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            พบใบเบิกอื่นที่เบิกพร้อมกัน (คนเดียวกัน วันเดียวกัน จำนวนเดิมเท่ากัน) <strong>{siblings.length}</strong> ใบ
+            ต้องการแก้จำนวนเป็น <strong className="text-blue-600">{pendingQty}</strong> ให้ตรงกันด้วยหรือไม่?
+          </p>
+          <div className="border rounded-xl divide-y">
+            {siblings.map((s: any) => (
+              <div key={s.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                <span><span className="font-mono text-xs text-blue-600">{s.code}</span> {s.product_name}</span>
+                <span className="text-gray-400">{s.quantity} {s.unit}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button type="button" className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง</button>
+            <button type="button" className="btn-primary" disabled={applying} onClick={applySiblings}>
+              {applying ? 'กำลังแก้ไข...' : 'ใช่ แก้ให้ตรงกัน'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title={`แก้ไขใบเบิก ${issue.code}`} onClose={onClose}>

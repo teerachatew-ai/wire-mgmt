@@ -42,16 +42,67 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [siblings, setSiblings] = useState<any[] | null>(null); // รายการรับคืนคู่กัน (คืนพร้อมกัน) — รอถามว่าจะแก้งานดีให้ตรงกันด้วยไหม
+  const [pendingGoodQty, setPendingGoodQty] = useState<any>(null);
+  const [applying, setApplying] = useState(false);
 
   const onSubmit = async (data: any) => {
     setLoading(true); setError('');
     try {
-      await returnApi.update(ret.id, data);
-      onSaved(); onClose();
+      const result = await returnApi.update(ret.id, data);
+      if (result.siblings?.length > 0) {
+        setSiblings(result.siblings);
+        setPendingGoodQty(data.good_qty);
+      } else {
+        onSaved(); onClose();
+      }
     } catch (e: any) {
       setError(e.response?.data?.error || 'เกิดข้อผิดพลาด');
     } finally { setLoading(false); }
   };
+
+  const skipSiblings = () => { onSaved(); onClose(); };
+  const applySiblings = async () => {
+    setApplying(true);
+    for (const s of siblings || []) {
+      try {
+        await returnApi.update(s.id, {
+          returned_at: s.returned_at, good_qty: pendingGoodQty,
+          ng_cut: s.ng_cut, ng_factory: s.ng_factory, waste_qty: s.waste_qty, lost_qty: s.lost_qty,
+          inspector: s.inspector || '', notes: s.notes || '',
+        });
+      } catch { /* ข้ามรายการที่แก้ไม่ได้ (เช่นเกินจำนวนเบิกของใบนั้น) ไม่บล็อกรายการอื่น */ }
+    }
+    setApplying(false);
+    onSaved(); onClose();
+  };
+
+  if (siblings) {
+    return (
+      <Modal title={`แก้ไขรับคืน ${ret.code}`} onClose={onClose}>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            พบรายการรับคืนอื่นที่คืนพร้อมกัน (คนเดียวกัน วันเดียวกัน งานดีเดิมเท่ากัน) <strong>{siblings.length}</strong> รายการ
+            ต้องการแก้งานดีเป็น <strong className="text-green-600">{pendingGoodQty}</strong> ให้ตรงกันด้วยหรือไม่?
+          </p>
+          <div className="border rounded-xl divide-y">
+            {siblings.map((s: any) => (
+              <div key={s.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                <span><span className="font-mono text-xs text-green-600">{s.code}</span> {s.product_name}</span>
+                <span className="text-gray-400">{s.good_qty} {s.unit}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button type="button" className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง</button>
+            <button type="button" className="btn-primary" disabled={applying} onClick={applySiblings}>
+              {applying ? 'กำลังแก้ไข...' : 'ใช่ แก้ให้ตรงกัน'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal title={`แก้ไขรับคืน ${ret.code}`} onClose={onClose}>

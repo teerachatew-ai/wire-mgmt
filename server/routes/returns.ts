@@ -95,12 +95,21 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
   }
 
+  // รายการรับคืนอื่นที่คืนพร้อมกัน (ชุดเดียวกัน) — คนเดียวกัน วันเดียวกัน งานดีเท่ากับก่อนแก้ — เผื่ออยากแก้จำนวนให้ตรงกันด้วย
+  const goodQtyChanged = gQty !== ret.good_qty;
+  const siblings = goodQtyChanged ? prepare(`
+    SELECT r.id, r.code, r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty, r.inspector, r.notes,
+      r.returned_at, r.issue_id, i.member_id, p.name as product_name, p.unit
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.returned_at = ? AND r.good_qty = ? AND r.id != ?
+  `).all(issue.member_id, ret.returned_at, ret.good_qty, req.params.id) : [];
+
   const payCycle = payCycleFor(returned_at);
   prepare(`UPDATE returns SET returned_at=?, good_qty=?, defect_qty=?, ng_cut=?, ng_factory=?, waste_qty=?, lost_qty=?, inspector=?, notes=?, pay_cycle=? WHERE id=?`)
     .run(returned_at, gQty, dQty, finalNgCut, ngFac, wQty, lQty, inspector || null, notes || null, payCycle, req.params.id);
 
   updateIssueStatus(ret.issue_id);
-  res.json({ return: prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) });
+  res.json({ return: prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id), siblings });
 });
 
 router.delete('/:id', (req, res) => {
