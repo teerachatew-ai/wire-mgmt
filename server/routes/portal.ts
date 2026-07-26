@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
+import { loadCutoffConfig, computePayCycle, payCycleWindow } from '../payCycle';
 
 const router = Router();
 
@@ -98,6 +99,36 @@ router.post('/:token/issue-request', (req, res) => {
   ).run(member.id, product_id, qty, notes || null, issuedAt);
 
   res.json({ ok: true, id: result.lastInsertRowid });
+});
+
+// สรุปจำนวนงานที่ตัด (ไม่แสดงค่าแรง) ของสมาชิกคนนี้ ในรอบตัดค่าแรงปัจจุบัน — ให้สมาชิกดูเองผ่านลิงก์พอร์ทัล
+router.get('/:token/cutting-summary', (req, res) => {
+  const member = getMemberByToken(req.params.token);
+  if (!member) return res.status(404).json({ error: 'ไม่พบข้อมูล ลิงก์อาจไม่ถูกต้อง' });
+
+  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
+  const today = new Date().toISOString().split('T')[0];
+  const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
+  const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
+
+  const rows = prepare(`
+    SELECT r.returned_at, p.id as product_id, p.name as product_name, p.color, p.unit,
+      SUM(r.good_qty) as good_qty
+    FROM returns r
+    JOIN issues i ON r.issue_id = i.id
+    JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle = ?
+    GROUP BY r.returned_at, p.id
+    ORDER BY r.returned_at, p.id
+  `).all(member.id, cycle) as any[];
+
+  const productMap = new Map<number, any>();
+  for (const r of rows) {
+    if (!productMap.has(r.product_id)) productMap.set(r.product_id, { id: r.product_id, name: r.product_name, color: r.color, unit: r.unit });
+  }
+
+  res.json({ cycle, start, end, rows, products: Array.from(productMap.values()) });
 });
 
 export default router;

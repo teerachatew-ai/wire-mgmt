@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 function fmtDate(s?: string) {
@@ -25,6 +25,13 @@ const PROJECT_LABEL: Record<string, string> = {
   COT102: 'งาน 3 สาย',
 };
 const projectLabel = (key: string) => PROJECT_LABEL[key] || key;
+
+// แยกชื่อสินค้า "MA020-633_A (ป้ายขาวสั้น)" -> เลขรุ่น "633" (บรรทัดบน) + ชื่อเรียก "ป้ายขาวสั้น" (บรรทัดล่าง)
+function parseProductLabel(name: string) {
+  const num = name.match(/-(\d+)/)?.[1] || '';
+  const label = name.match(/\(([^)]+)\)/)?.[1] || name;
+  return { num, label };
+}
 
 /* ── ฟอร์มแจ้งคืนงาน (เต็มจอ ทีละขั้นตอน ปุ่มใหญ่ กดง่าย) ── */
 function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: any; onDone: () => void; onCancel: () => void }) {
@@ -297,12 +304,102 @@ function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[
   );
 }
 
+/* ── สรุปจำนวนงานที่ตัด — รอบตัดค่าแรงปัจจุบัน ไม่แสดงจำนวนเงิน ── */
+function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['portal-cutting-summary', token],
+    queryFn: () => portalApi.cuttingSummary(token),
+  });
+
+  const rows: any[] = data?.rows || [];
+  const products: any[] = data?.products || [];
+  const dates = Array.from(new Set(rows.map((r: any) => r.returned_at))).sort();
+  const qtyOf = (date: string, productId: number) => {
+    const r = rows.find((x: any) => x.returned_at === date && x.product_id === productId);
+    return r ? Number(r.good_qty) || 0 : 0;
+  };
+  const totalOf = (productId: number) => rows.filter((r: any) => r.product_id === productId).reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
+  const grandTotal = rows.reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
+  const unit = products[0]?.unit || '';
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
+        <div className="min-w-0">
+          <p className="font-bold text-lg text-gray-800">สรุปจำนวนงานที่ตัด</p>
+          {data && <p className="text-xs text-gray-400">รอบ {fmtDate(data.start)} - {fmtDate(data.end)}</p>}
+        </div>
+      </div>
+
+      <div className="flex-1 p-4 space-y-4 max-w-md mx-auto w-full">
+        {isLoading ? (
+          <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>
+        ) : rows.length === 0 ? (
+          <div className="bg-white rounded-2xl border p-6 text-center text-gray-400">
+            <ClipboardList size={32} className="mx-auto mb-2 opacity-50" />
+            ยังไม่มีข้อมูลการตัดในรอบนี้
+          </div>
+        ) : (
+          <>
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 text-center">
+              <p className="text-sm text-purple-700 font-medium">ตัดไปแล้วรวมรอบนี้</p>
+              <p className="text-4xl font-bold text-purple-800 mt-1">{fmtQty(grandTotal)} <span className="text-lg font-normal">{unit}</span></p>
+            </div>
+
+            <div className="bg-white rounded-2xl border overflow-x-auto">
+              <table className="text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 border-b">
+                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 border-r">วันที่</th>
+                    {products.map((p: any) => {
+                      const { num, label } = parseProductLabel(p.name);
+                      return (
+                        <th key={p.id} className="px-2.5 py-2 text-center font-medium text-gray-500 min-w-[64px]">
+                          <span className="flex items-center justify-center gap-1 text-gray-700 font-bold">
+                            {p.color && <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                            {num}
+                          </span>
+                          <span className="block text-[10px] font-normal leading-tight mt-0.5">{label}</span>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dates.map((d: string) => (
+                    <tr key={d} className="border-b border-gray-50 last:border-0">
+                      <td className="sticky left-0 z-10 bg-white px-3 py-2 text-gray-700 whitespace-nowrap border-r">{fmtDate(d)}</td>
+                      {products.map((p: any) => {
+                        const q = qtyOf(d, p.id);
+                        return <td key={p.id} className="px-2.5 py-2 text-center tabular-nums text-gray-700">{q > 0 ? fmtQty(q) : '-'}</td>;
+                      })}
+                    </tr>
+                  ))}
+                  <tr className="bg-purple-50 font-bold">
+                    <td className="sticky left-0 z-10 bg-purple-50 px-3 py-2 text-purple-800 border-r">รวม</td>
+                    {products.map((p: any) => (
+                      <td key={p.id} className="px-2.5 py-2 text-center tabular-nums text-purple-800">{fmtQty(totalOf(p.id))}</td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-center text-xs text-gray-400">ปัดขวาเพื่อดูสินค้าชนิดอื่น</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MemberPortal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
   const [activeIssue, setActiveIssue] = useState<any>(null);
   const [requestingIssue, setRequestingIssue] = useState(false);
   const [showReturnList, setShowReturnList] = useState(false);
+  const [showCuttingSummary, setShowCuttingSummary] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState<'return' | 'issue' | null>(null);
 
   const { data, isLoading, isError } = useQuery({
@@ -360,6 +457,10 @@ export default function MemberPortal() {
     );
   }
 
+  if (showCuttingSummary) {
+    return <CuttingSummaryScreen token={token!} onCancel={() => setShowCuttingSummary(false)} />;
+  }
+
   const { member, recent_requests, recent_issue_requests } = data;
 
   return (
@@ -387,17 +488,24 @@ export default function MemberPortal() {
         <div className="flex flex-col gap-4">
           <button
             onClick={() => setRequestingIssue(true)}
-            className="w-full bg-white border border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center gap-5 shadow-sm hover:shadow-md"
+            className="w-full bg-white border border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
           >
             <div className="p-5 bg-blue-50 rounded-2xl shrink-0"><PackagePlus size={40} className="text-blue-600" /></div>
             <span className="font-bold text-gray-800 text-3xl">เบิกงาน</span>
           </button>
           <button
             onClick={() => setShowReturnList(true)}
-            className="w-full bg-white border border-gray-100 hover:border-green-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center gap-5 shadow-sm hover:shadow-md"
+            className="w-full bg-white border border-gray-100 hover:border-green-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
           >
             <div className="p-5 bg-green-50 rounded-2xl shrink-0"><RotateCcw size={40} className="text-green-600" /></div>
             <span className="font-bold text-gray-800 text-3xl">คืนงาน</span>
+          </button>
+          <button
+            onClick={() => setShowCuttingSummary(true)}
+            className="w-full bg-white border border-gray-100 hover:border-purple-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
+          >
+            <div className="p-5 bg-purple-50 rounded-2xl shrink-0"><ClipboardList size={40} className="text-purple-600" /></div>
+            <span className="font-bold text-gray-800 text-3xl">สรุปจำนวนงานที่ตัด</span>
           </button>
         </div>
       </div>

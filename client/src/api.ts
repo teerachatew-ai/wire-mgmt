@@ -153,6 +153,7 @@ export const portalApi = {
   get: (token: string) => api.get(`/portal/${token}`).then(r => r.data),
   submitReturn: (token: string, data: any) => api.post(`/portal/${token}/return-request`, data).then(r => r.data),
   submitIssue: (token: string, data: any) => api.post(`/portal/${token}/issue-request`, data).then(r => r.data),
+  cuttingSummary: (token: string) => api.get(`/portal/${token}/cutting-summary`).then(r => r.data),
 };
 
 // คำขอคืนงานที่สมาชิกส่งเอง — ฝั่งเจ้าหน้าที่ตรวจ/ยืนยัน/ปฏิเสธ
