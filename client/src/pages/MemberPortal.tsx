@@ -31,7 +31,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   const [good, setGood] = useState('');
   const [hasProblem, setHasProblem] = useState(false);
   const [ngCut, setNgCut] = useState('');
-  const [waste, setWaste] = useState('');
+  const [ngFactory, setNgFactory] = useState('');
   const [lost, setLost] = useState('');
   const [returnedAt, setReturnedAt] = useState(new Date().toISOString().split('T')[0]);
   const [error, setError] = useState('');
@@ -41,7 +41,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
       issue_id: issue.id,
       good_qty: good || 0,
       ng_cut: ngCut || 0,
-      waste_qty: waste || 0,
+      ng_factory: ngFactory || 0,
       lost_qty: lost || 0,
       returned_at: returnedAt,
     }),
@@ -49,7 +49,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
     onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
   });
 
-  const total = (parseFloat(good) || 0) + (parseFloat(ngCut) || 0) + (parseFloat(waste) || 0) + (parseFloat(lost) || 0);
+  const total = (parseFloat(good) || 0) + (parseFloat(ngCut) || 0) + (parseFloat(ngFactory) || 0) + (parseFloat(lost) || 0);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -85,21 +85,21 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
             onClick={() => setHasProblem(true)}
             className="w-full text-center text-gray-500 text-base py-2 underline"
           >
-            มีของเสีย / เศษ / ของหายไหม?
+            มีของเสีย / ของหายไหม?
           </button>
         ) : (
           <div className="bg-white rounded-2xl border p-4 space-y-3">
             <p className="text-sm font-semibold text-gray-600">มีปัญหาด้วย — ระบุจำนวน (ใส่เฉพาะที่มี)</p>
             <div>
-              <label className="text-sm text-gray-500">เสียจากการตัด (เส้น)</label>
+              <label className="text-sm text-gray-500">จำนวนงานเสียจากการตัด (เส้น)</label>
               <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngCut} onChange={e => setNgCut(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm text-gray-500">เศษ (เส้น)</label>
-              <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={waste} onChange={e => setWaste(e.target.value)} />
+              <label className="text-sm text-gray-500">จำนวนงานเสียจากโรงงาน (เส้น)</label>
+              <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngFactory} onChange={e => setNgFactory(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm text-gray-500">ของหาย (เส้น)</label>
+              <label className="text-sm text-gray-500">จำนวนงานหาย (เส้น)</label>
               <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={lost} onChange={e => setLost(e.target.value)} />
             </div>
           </div>
@@ -363,8 +363,8 @@ export default function MemberPortal() {
   const { member, recent_requests, recent_issue_requests } = data;
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-10">
-      <div className="bg-blue-600 text-white px-5 pt-8 pb-6 rounded-b-[2rem]">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="bg-blue-600 text-white px-5 pt-8 pb-6 rounded-b-[2rem] shrink-0">
         <p className="text-blue-100 text-sm">สวัสดี 👋</p>
         <h1 className="text-2xl font-bold">
           {member.name}
@@ -373,9 +373,10 @@ export default function MemberPortal() {
         <p className="text-blue-100 text-sm mt-0.5">รหัสสมาชิก {member.code}</p>
       </div>
 
-      <div className="max-w-md mx-auto px-4 -mt-3 space-y-4">
+      {/* ปุ่มหลัก 2 ปุ่ม — ขยายเต็มพื้นที่หน้าจอที่เหลือ (โดยเฉพาะมือถือ) ให้กดง่ายที่สุด */}
+      <div className="flex-1 flex flex-col max-w-md mx-auto px-4 -mt-3 w-full">
         {justSubmitted && (
-          <div className="bg-green-50 border-2 border-green-300 rounded-2xl p-4 flex items-center gap-3">
+          <div className="bg-green-50 border-2 border-green-300 rounded-2xl p-4 flex items-center gap-3 mb-4">
             <CheckCircle2 size={28} className="text-green-600 shrink-0" />
             <p className="text-green-800 font-semibold">
               {justSubmitted === 'issue' ? 'ส่งคำขอเบิกงานแล้ว ✅ รอเจ้าหน้าที่ตรวจสอบ' : 'ส่งแจ้งคืนงานแล้ว ✅ รอเจ้าหน้าที่ตรวจสอบ'}
@@ -383,23 +384,25 @@ export default function MemberPortal() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="grid grid-cols-2 gap-4 flex-1 min-h-[calc(100vh-150px)] pb-4">
           <button
             onClick={() => setRequestingIssue(true)}
-            className="bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-2xl p-5 flex flex-col items-center gap-2"
+            className="bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-3xl flex flex-col items-center justify-center gap-4"
           >
-            <div className="p-3 bg-blue-100 rounded-xl"><PackagePlus size={28} className="text-blue-600" /></div>
-            <p className="font-bold text-gray-800 text-lg">เบิกงาน</p>
+            <div className="p-6 bg-blue-100 rounded-2xl"><PackagePlus size={56} className="text-blue-600" /></div>
+            <p className="font-bold text-gray-800 text-3xl">เบิกงาน</p>
           </button>
           <button
             onClick={() => setShowReturnList(true)}
-            className="bg-white border-2 border-green-200 hover:border-green-400 active:scale-[0.98] transition-transform rounded-2xl p-5 flex flex-col items-center gap-2"
+            className="bg-white border-2 border-green-200 hover:border-green-400 active:scale-[0.98] transition-transform rounded-3xl flex flex-col items-center justify-center gap-4"
           >
-            <div className="p-3 bg-green-100 rounded-xl"><RotateCcw size={28} className="text-green-600" /></div>
-            <p className="font-bold text-gray-800 text-lg">คืนงาน</p>
+            <div className="p-6 bg-green-100 rounded-2xl"><RotateCcw size={56} className="text-green-600" /></div>
+            <p className="font-bold text-gray-800 text-3xl">คืนงาน</p>
           </button>
         </div>
+      </div>
 
+      <div className="max-w-md mx-auto px-4 pb-10 w-full space-y-4 shrink-0">
         {recent_requests?.length > 0 && (
           <div>
             <p className="text-sm font-semibold text-gray-500 px-1 mb-2 mt-6">ประวัติการแจ้งคืนล่าสุด</p>
