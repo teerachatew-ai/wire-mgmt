@@ -373,8 +373,8 @@ export default function MemberPortal() {
         <p className="text-blue-100 text-sm mt-0.5">รหัสสมาชิก {member.code}</p>
       </div>
 
-      {/* ปุ่มหลัก 2 ปุ่ม — ขยายเต็มพื้นที่หน้าจอที่เหลือ (โดยเฉพาะมือถือ) ให้กดง่ายที่สุด */}
-      <div className="flex-1 flex flex-col max-w-md mx-auto px-4 -mt-3 w-full">
+      {/* ปุ่มหลัก 2 ปุ่ม — เรียงตามแนวนอน (ไอคอน+ตัวหนังสือชิดกันในแถวเดียว) เรียงต่อกันจากบนลงล่าง แถวใหญ่กดง่าย เหมาะกับผู้สูงอายุ */}
+      <div className="max-w-md mx-auto px-4 -mt-3 w-full">
         {justSubmitted && (
           <div className="bg-green-50 border-2 border-green-300 rounded-2xl p-4 flex items-center gap-3 mb-4">
             <CheckCircle2 size={28} className="text-green-600 shrink-0" />
@@ -384,20 +384,20 @@ export default function MemberPortal() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 flex-1 min-h-[calc(100vh-150px)] pb-4">
+        <div className="flex flex-col gap-4">
           <button
             onClick={() => setRequestingIssue(true)}
-            className="bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-3xl flex flex-col items-center justify-center gap-4"
+            className="w-full bg-white border-2 border-blue-200 hover:border-blue-400 active:scale-[0.98] transition-transform rounded-3xl p-6 flex items-center gap-5"
           >
-            <div className="p-6 bg-blue-100 rounded-2xl"><PackagePlus size={56} className="text-blue-600" /></div>
-            <p className="font-bold text-gray-800 text-3xl">เบิกงาน</p>
+            <div className="p-5 bg-blue-100 rounded-2xl shrink-0"><PackagePlus size={40} className="text-blue-600" /></div>
+            <span className="font-bold text-gray-800 text-3xl">เบิกงาน</span>
           </button>
           <button
             onClick={() => setShowReturnList(true)}
-            className="bg-white border-2 border-green-200 hover:border-green-400 active:scale-[0.98] transition-transform rounded-3xl flex flex-col items-center justify-center gap-4"
+            className="w-full bg-white border-2 border-green-200 hover:border-green-400 active:scale-[0.98] transition-transform rounded-3xl p-6 flex items-center gap-5"
           >
-            <div className="p-6 bg-green-100 rounded-2xl"><RotateCcw size={56} className="text-green-600" /></div>
-            <p className="font-bold text-gray-800 text-3xl">คืนงาน</p>
+            <div className="p-5 bg-green-100 rounded-2xl shrink-0"><RotateCcw size={40} className="text-green-600" /></div>
+            <span className="font-bold text-gray-800 text-3xl">คืนงาน</span>
           </button>
         </div>
       </div>
