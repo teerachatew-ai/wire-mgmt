@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartphone, Check, Loader2 } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 
@@ -448,12 +448,17 @@ function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
 }
 
 /* ── แถวคำขอเบิกงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจสอบแล้วยืนยัน) ── */
-function PendingIssueRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
+function PendingIssueRequestRow({ req, onDone, onChange }: { req: any; onDone: () => void; onChange: (id: number, data: any) => void }) {
   const [qty, setQty] = useState(String(req.quantity ?? 0));
   const [issuedAt, setIssuedAt] = useState(req.issued_at || new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState('');
+
+  // แจ้งค่าล่าสุดของแถวนี้ขึ้นไปให้ปุ่ม "ยืนยันทั้งหมด" ด้านบนใช้ตอนกด (แก้ตัวเลขไว้ก่อนแล้วค่อยกดยืนยันทั้งหมดทีเดียวได้)
+  useEffect(() => {
+    onChange(req.id, { quantity: qty, issued_at: issuedAt, due_date: dueDate || undefined });
+  }, [qty, issuedAt, dueDate]);
 
   const confirm = async () => {
     setBusy('confirm'); setError('');
@@ -514,21 +519,49 @@ function PendingIssueRequestsPanel() {
     queryFn: () => issueRequestApi.list('pending'),
     refetchInterval: 20000,
   });
-  if ((pending as any[]).length === 0) return null;
+  const valuesRef = useRef<Record<number, any>>({});
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+
   const onDone = () => {
     qc.invalidateQueries({ queryKey: ['issue-requests'] });
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
+  const handleRowChange = (id: number, data: any) => { valuesRef.current[id] = data; };
+
+  const confirmAll = async () => {
+    setConfirmingAll(true); setBulkError('');
+    const failed: string[] = [];
+    for (const r of pending as any[]) {
+      try { await issueRequestApi.confirm(r.id, valuesRef.current[r.id] || {}); }
+      catch (e: any) { failed.push(`${r.member_name} · ${r.product_name}: ${e.response?.data?.error || 'ผิดพลาด'}`); }
+    }
+    setConfirmingAll(false);
+    onDone();
+    setBulkError(failed.length ? failed.join('\n') : '');
+  };
+
+  if ((pending as any[]).length === 0) return null;
   return (
     <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
-      <div className="px-4 py-3 bg-amber-100 flex items-center gap-2">
-        <Smartphone size={16} className="text-amber-700" />
-        <span className="font-semibold text-amber-800 text-sm">คำขอเบิกงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+      <div className="px-4 py-3 bg-amber-100 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Smartphone size={16} className="text-amber-700" />
+          <span className="font-semibold text-amber-800 text-sm">คำขอเบิกงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+        </div>
+        {(pending as any[]).length > 1 && (
+          <button type="button" disabled={confirmingAll} onClick={confirmAll}
+            className="btn-primary btn-sm flex items-center gap-1.5">
+            {confirmingAll ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />}
+            ยืนยันทั้งหมด ({(pending as any[]).length})
+          </button>
+        )}
       </div>
-      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจสอบแล้วแก้จำนวน/วันที่ให้ถูกต้องได้ที่นี่ แล้วกดยืนยัน — จะกลายเป็นใบเบิกจริงก็ต่อเมื่อกดยืนยันแล้วเท่านั้น</p>
+      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจสอบแล้วแก้จำนวน/วันที่ให้ถูกต้องได้ที่นี่ แล้วกดยืนยัน — จะกลายเป็นใบเบิกจริงก็ต่อเมื่อกดยืนยันแล้วเท่านั้น (แก้ไว้หลายแถวแล้วกด "ยืนยันทั้งหมด" ทีเดียวได้)</p>
+      {bulkError && <p className="px-4 pt-2 text-xs text-rose-600 whitespace-pre-line">ยืนยันไม่สำเร็จบางรายการ:{'\n'}{bulkError}</p>}
       <div>
-        {(pending as any[]).map((r: any) => <PendingIssueRequestRow key={r.id} req={r} onDone={onDone} />)}
+        {(pending as any[]).map((r: any) => <PendingIssueRequestRow key={r.id} req={r} onDone={onDone} onChange={handleRowChange} />)}
       </div>
     </div>
   );

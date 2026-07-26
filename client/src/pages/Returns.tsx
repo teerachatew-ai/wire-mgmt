@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { returnApi, issueApi, returnRequestApi } from '../api';
-import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2, Smartphone, Check, Loader2 } from 'lucide-react';
+import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
 
 // วันที่แบบสั้น dd/mm/yyyy (พ.ศ.)
 function fmtDate(s: string) {
@@ -191,7 +191,7 @@ import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 
 /* ── แถวคำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจนับของจริงแล้วยืนยัน) ── */
-function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
+function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => void; onChange: (id: number, data: any) => void }) {
   const [good, setGood] = useState(String(req.good_qty ?? 0));
   const [ngCut, setNgCut] = useState(String(req.ng_cut ?? 0));
   const [ngFactory, setNgFactory] = useState(String(req.ng_factory ?? 0));
@@ -201,6 +201,11 @@ function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState('');
 
+  // แจ้งค่าล่าสุดของแถวนี้ขึ้นไปให้ปุ่ม "ยืนยันทั้งหมด" ด้านบนใช้ตอนกด (แก้ตัวเลขไว้ก่อนแล้วค่อยกดยืนยันทั้งหมดทีเดียวได้)
+  useEffect(() => {
+    onChange(req.id, { good_qty: good, ng_cut: ngCut, ng_factory: ngFactory, waste_qty: waste, lost_qty: lost, returned_at: returnedAt });
+  }, [good, ngCut, ngFactory, waste, lost, returnedAt]);
+
   const confirm = async () => {
     setBusy('confirm'); setError('');
     try {
@@ -209,7 +214,6 @@ function PendingRequestRow({ req, onDone }: { req: any; onDone: () => void }) {
     } catch (e: any) { setError(e.response?.data?.error || 'ยืนยันไม่สำเร็จ'); setBusy(null); }
   };
   const reject = async () => {
-    if (!confirm) return;
     setBusy('reject'); setError('');
     try { await returnRequestApi.reject(req.id); onDone(); }
     catch (e: any) { setError(e.response?.data?.error || 'ปฏิเสธไม่สำเร็จ'); setBusy(null); }
@@ -267,7 +271,10 @@ function PendingRequestsPanel() {
     queryFn: () => returnRequestApi.list('pending'),
     refetchInterval: 20000,
   });
-  if ((pending as any[]).length === 0) return null;
+  const valuesRef = useRef<Record<number, any>>({});
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+
   const onDone = () => {
     qc.invalidateQueries({ queryKey: ['return-requests'] });
     qc.invalidateQueries({ queryKey: ['returns'] });
@@ -276,15 +283,40 @@ function PendingRequestsPanel() {
     qc.invalidateQueries({ queryKey: ['issues-partial'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
+  const handleRowChange = (id: number, data: any) => { valuesRef.current[id] = data; };
+
+  const confirmAll = async () => {
+    setConfirmingAll(true); setBulkError('');
+    const failed: string[] = [];
+    for (const r of pending as any[]) {
+      try { await returnRequestApi.confirm(r.id, valuesRef.current[r.id] || {}); }
+      catch (e: any) { failed.push(`${r.member_name} · ${r.product_name}: ${e.response?.data?.error || 'ผิดพลาด'}`); }
+    }
+    setConfirmingAll(false);
+    onDone();
+    setBulkError(failed.length ? failed.join('\n') : '');
+  };
+
+  if ((pending as any[]).length === 0) return null;
   return (
     <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
-      <div className="px-4 py-3 bg-amber-100 flex items-center gap-2">
-        <Smartphone size={16} className="text-amber-700" />
-        <span className="font-semibold text-amber-800 text-sm">คำขอคืนงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+      <div className="px-4 py-3 bg-amber-100 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Smartphone size={16} className="text-amber-700" />
+          <span className="font-semibold text-amber-800 text-sm">คำขอคืนงานจากสมาชิก (ผ่านลิงก์มือถือ) — รอตรวจสอบ {(pending as any[]).length} รายการ</span>
+        </div>
+        {(pending as any[]).length > 1 && (
+          <button type="button" disabled={confirmingAll} onClick={confirmAll}
+            className="btn-primary btn-sm flex items-center gap-1.5">
+            {confirmingAll ? <Loader2 size={14} className="animate-spin" /> : <CheckCheck size={14} />}
+            ยืนยันทั้งหมด ({(pending as any[]).length})
+          </button>
+        )}
       </div>
-      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจนับของจริงก่อน แก้ไขจำนวนให้ตรงได้ที่นี่ แล้วกดยืนยัน — ยอดจะเข้าระบบก็ต่อเมื่อกดยืนยันแล้วเท่านั้น</p>
+      <p className="px-4 pt-2 text-xs text-amber-700">ตรวจนับของจริงก่อน แก้ไขจำนวนให้ตรงได้ที่นี่ แล้วกดยืนยัน — ยอดจะเข้าระบบก็ต่อเมื่อกดยืนยันแล้วเท่านั้น (แก้ไว้หลายแถวแล้วกด "ยืนยันทั้งหมด" ทีเดียวได้)</p>
+      {bulkError && <p className="px-4 pt-2 text-xs text-rose-600 whitespace-pre-line">ยืนยันไม่สำเร็จบางรายการ:{'\n'}{bulkError}</p>}
       <div>
-        {(pending as any[]).map((r: any) => <PendingRequestRow key={r.id} req={r} onDone={onDone} />)}
+        {(pending as any[]).map((r: any) => <PendingRequestRow key={r.id} req={r} onDone={onDone} onChange={handleRowChange} />)}
       </div>
     </div>
   );
