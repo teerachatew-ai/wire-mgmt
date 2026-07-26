@@ -327,7 +327,7 @@ function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: ()
       <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
         <div className="min-w-0">
-          <p className="font-bold text-lg text-gray-800">สรุปจำนวนงานที่ตัด</p>
+          <p className="font-bold text-lg text-gray-800">สรุปยอด</p>
           {data && <p className="text-xs text-gray-400">รอบ {fmtDate(data.start)} - {fmtDate(data.end)}</p>}
         </div>
       </div>
@@ -505,7 +505,7 @@ export default function MemberPortal() {
             className="w-full bg-white border border-gray-100 hover:border-purple-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
           >
             <div className="p-5 bg-purple-50 rounded-2xl shrink-0"><ClipboardList size={40} className="text-purple-600" /></div>
-            <span className="font-bold text-gray-800 text-3xl">สรุปจำนวนงานที่ตัด</span>
+            <span className="font-bold text-gray-800 text-3xl">สรุปยอด</span>
           </button>
         </div>
       </div>
