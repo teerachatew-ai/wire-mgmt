@@ -354,7 +354,16 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
         scrollBox.style.width = `${scrollBox.scrollWidth}px`;
         scrollBox.style.overflow = 'visible';
       }
-      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+      // html2canvas เรนเดอร์ในกรอบ viewport ปัจจุบันเป็นค่าเริ่มต้น เนื้อหาที่กว้างเกินจอ (ต้องเลื่อนดู)
+      // จะถูกตัดออกถ้าไม่บอก windowWidth/windowHeight ให้ตรงกับขนาดจริงของเนื้อหาทั้งหมด
+      const canvas = await html2canvas(el, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        windowWidth: el.scrollWidth,
+        windowHeight: el.scrollHeight,
+      });
       if (scrollBox) {
         scrollBox.style.width = prevWidth || '';
         scrollBox.style.overflow = prevOverflow || '';
