@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { SARABUN_REGULAR_BASE64, SARABUN_BOLD_BASE64 } from '../assets/fonts/sarabun-base64';
 import { portalApi } from '../api';
 import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Download } from 'lucide-react';
 
@@ -26,6 +27,16 @@ function fmtDate(s?: string) {
   if (isNaN(d.getTime())) return String(s).slice(0, 10);
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear() + 543}`;
 }
+// PDF ที่ export ใช้ตัวอักษรฝังไปในไฟล์ (ไม่พึ่งฟอนต์ระบบ) ต้องลงทะเบียนฟอนต์ไทยเองก่อนเขียนข้อความ
+// ใช้คำว่า "บาท" แทนสัญลักษณ์ ฿ ในเอกสาร PDF เพราะฟอนต์ที่ฝังไม่การันตีว่ามีสัญลักษณ์นี้ครบ
+function registerSarabunFont(doc: jsPDF) {
+  doc.addFileToVFS('Sarabun-Regular.ttf', SARABUN_REGULAR_BASE64);
+  doc.addFont('Sarabun-Regular.ttf', 'Sarabun', 'normal');
+  doc.addFileToVFS('Sarabun-Bold.ttf', SARABUN_BOLD_BASE64);
+  doc.addFont('Sarabun-Bold.ttf', 'Sarabun', 'bold');
+  doc.setFont('Sarabun', 'normal');
+}
+const fmtMoneyForPdf = (n: number) => `${Number(n || 0).toLocaleString('th-TH')} บาท`;
 
 const statusInfo: Record<string, { label: string; cls: string; icon: any }> = {
   pending: { label: 'รอตรวจสอบ', cls: 'bg-amber-100 text-amber-700', icon: Clock },
@@ -327,7 +338,6 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
     queryKey: ['portal-cutting-summary', token],
     queryFn: () => portalApi.cuttingSummary(token),
   });
-  const summaryRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
 
   const rows: any[] = data?.rows || [];
@@ -338,44 +348,87 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
     return r ? Number(r.good_qty) || 0 : 0;
   };
   const totalOf = (productId: number) => rows.filter((r: any) => r.product_id === productId).reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
+  // ยอดเงินต่อสินค้า — รวมจาก r.wage ของแต่ละแถว (คำนวณจากรายการที่ยืนยัน+คืนแล้วเท่านั้น สูตรเดียวกับยอดรวมด้านบน)
+  const wageOf = (productId: number) => rows.filter((r: any) => r.product_id === productId).reduce((s: number, r: any) => s + (Number(r.wage) || 0), 0);
   const grandTotal = rows.reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
   const unit = products[0]?.unit || '';
 
-  // ถ่ายภาพการ์ด+ตารางที่แสดงอยู่จริง (รวมคอลัมน์ที่ยังไม่ได้เลื่อนไปดู) แล้วฝังเป็นไฟล์ PDF ให้ดาวน์โหลดทันที ไม่ต้องผ่านหน้าต่างพิมพ์
+  // สร้างรายงาน PDF จริง (ไม่ใช่ถ่ายภาพหน้าจอ) — วางหน้ากระดาษ, หัวเรื่อง, การ์ดสรุป และตารางเองด้วย jsPDF + autoTable
+  // ฝังฟอนต์ไทย Sarabun เพื่อให้ตัวอักษรคมชัดและค้นหา/เลือกข้อความในไฟล์ได้ ไม่ใช่ภาพแรสเตอร์
   const exportPdf = async () => {
-    const el = summaryRef.current;
-    if (!el || exporting) return;
+    if (!data || exporting) return;
     setExporting(true);
     try {
-      const scrollBox = el.querySelector('.overflow-x-auto') as HTMLElement | null;
-      const prevWidth = scrollBox?.style.width;
-      const prevOverflow = scrollBox?.style.overflow;
-      if (scrollBox) {
-        scrollBox.style.width = `${scrollBox.scrollWidth}px`;
-        scrollBox.style.overflow = 'visible';
-      }
-      // html2canvas เรนเดอร์ในกรอบ viewport ปัจจุบันเป็นค่าเริ่มต้น เนื้อหาที่กว้างเกินจอ (ต้องเลื่อนดู)
-      // จะถูกตัดออกถ้าไม่บอก windowWidth/windowHeight ให้ตรงกับขนาดจริงของเนื้อหาทั้งหมด
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        width: el.scrollWidth,
-        height: el.scrollHeight,
-        windowWidth: el.scrollWidth,
-        windowHeight: el.scrollHeight,
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      registerSarabunFont(doc);
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 14;
+
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(16); doc.setTextColor(32, 31, 28);
+      doc.text('สรุปยอดตัดสายไฟ', margin, margin + 4);
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(11); doc.setTextColor(90, 86, 78);
+      doc.text(`${member?.name || ''}${member?.code ? ` (รหัส ${member.code})` : ''}`, margin, margin + 11);
+      doc.setFontSize(9.5); doc.setTextColor(150, 145, 135);
+      doc.text(`รอบ ${fmtDate(data.start)} - ${fmtDate(data.end)}`, margin, margin + 16.5);
+
+      const boxY = margin + 22;
+      const boxHeight = 22;
+      const boxGap = 6;
+      const boxWidth = (pageWidth - margin * 2 - boxGap) / 2;
+
+      doc.setFillColor(243, 232, 255);
+      doc.roundedRect(margin, boxY, boxWidth, boxHeight, 3, 3, 'F');
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(10); doc.setTextColor(91, 33, 182);
+      doc.text('ตัดไปแล้วรวมรอบนี้', margin + boxWidth / 2, boxY + 8, { align: 'center' });
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(17);
+      doc.text(`${fmtQty(grandTotal)} ${unit}`, margin + boxWidth / 2, boxY + 16.5, { align: 'center' });
+
+      const boxBX = margin + boxWidth + boxGap;
+      doc.setFillColor(209, 250, 229);
+      doc.roundedRect(boxBX, boxY, boxWidth, boxHeight, 3, 3, 'F');
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(10); doc.setTextColor(4, 120, 87);
+      doc.text('คิดเป็นเงินประมาณ (ไม่เป็นทางการ)', boxBX + boxWidth / 2, boxY + 8, { align: 'center' });
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(17);
+      doc.text(fmtMoneyForPdf(wage), boxBX + boxWidth / 2, boxY + 16.5, { align: 'center' });
+
+      const head = [['วันที่เบิก', ...products.map((p: any) => {
+        const { num, label } = parseProductLabel(p.name);
+        return `${num}\n${label}`;
+      })]];
+      const body = dates.map((d: string) => [fmtDate(d), ...products.map((p: any) => {
+        const q = qtyOf(d, p.id);
+        return q > 0 ? fmtQty(q) : '-';
+      })]);
+      const foot = [
+        ['รวม', ...products.map((p: any) => fmtQty(totalOf(p.id)))],
+        ['คิดเป็นเงิน', ...products.map((p: any) => fmtMoneyForPdf(wageOf(p.id)))],
+      ];
+
+      autoTable(doc, {
+        startY: boxY + boxHeight + 8,
+        head, body, foot,
+        theme: 'grid',
+        margin: { left: margin, right: margin },
+        styles: { font: 'Sarabun', fontSize: 9, cellPadding: 2.4, halign: 'center', valign: 'middle', lineColor: [232, 228, 220], lineWidth: 0.2, textColor: [32, 31, 28] },
+        headStyles: { font: 'Sarabun', fontStyle: 'bold', fillColor: [248, 247, 244], textColor: [90, 86, 78] },
+        columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+        didParseCell: (d) => {
+          if (d.section === 'foot') {
+            if (d.row.index === 0) { d.cell.styles.fillColor = [243, 232, 255]; d.cell.styles.textColor = [91, 33, 182]; }
+            else { d.cell.styles.fillColor = [209, 250, 229]; d.cell.styles.textColor = [4, 120, 87]; }
+            d.cell.styles.fontStyle = 'bold';
+          }
+        },
+        didDrawPage: () => {
+          const pageHeight = doc.internal.pageSize.getHeight();
+          doc.setFont('Sarabun', 'normal'); doc.setFontSize(8); doc.setTextColor(165, 160, 153);
+          doc.text(`พิมพ์เมื่อ ${fmtDate(todayLocal())} · ไม่เป็นทางการ`, margin, pageHeight - 8);
+          doc.text(`หน้า ${(doc as any).internal.getCurrentPageInfo().pageNumber}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
+        },
       });
-      if (scrollBox) {
-        scrollBox.style.width = prevWidth || '';
-        scrollBox.style.overflow = prevOverflow || '';
-      }
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [canvas.width, canvas.height],
-      });
-      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-      pdf.save(`สรุปยอด-${member?.code || 'สมาชิก'}${data?.cycle ? `-${data.cycle}` : ''}.pdf`);
+
+      doc.save(`สรุปยอด-${member?.code || 'สมาชิก'}${data?.cycle ? `-${data.cycle}` : ''}.pdf`);
     } finally {
       setExporting(false);
     }
@@ -406,7 +459,6 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
           </div>
         ) : (
           <>
-            <div ref={summaryRef} className="bg-slate-50 space-y-4">
             <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 text-center">
               <p className="text-sm text-purple-700 font-medium">ตัดไปแล้วรวมรอบนี้</p>
               <p className="text-4xl font-bold text-purple-800 mt-1">{fmtQty(grandTotal)} <span className="text-lg font-normal">{unit}</span></p>
@@ -452,9 +504,14 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
                       <td key={p.id} className="px-2.5 py-2 text-center tabular-nums text-purple-800">{fmtQty(totalOf(p.id))}</td>
                     ))}
                   </tr>
+                  <tr className="bg-emerald-50 font-bold">
+                    <td className="sticky left-0 z-10 bg-emerald-50 px-3 py-2 text-emerald-700 border-r whitespace-nowrap">คิดเป็นเงิน</td>
+                    {products.map((p: any) => (
+                      <td key={p.id} className="px-2.5 py-2 text-center tabular-nums text-emerald-700 whitespace-nowrap">{money(wageOf(p.id))}</td>
+                    ))}
+                  </tr>
                 </tbody>
               </table>
-            </div>
             </div>
             <p className="text-center text-xs text-gray-400">ปัดขวาเพื่อดูสินค้าชนิดอื่น</p>
           </>

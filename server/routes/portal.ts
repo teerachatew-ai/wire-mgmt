@@ -165,22 +165,29 @@ router.get('/:token/cutting-summary', (req, res) => {
   if (!member) return res.status(404).json({ error: 'ไม่พบข้อมูล ลิงก์อาจไม่ถูกต้อง' });
 
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const cfg = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
   const today = todayThai();
   const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
   const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
 
   // จัดกลุ่มตาม "วันที่เบิก" (issued_at) ไม่ใช่วันที่รับคืน — งานหนึ่งชิ้นมีทั้งวันเบิกและวันคืน ให้ยึดวันเบิกเป็นหลักตามที่สมาชิกคุ้นเคย
+  // wage ต่อกลุ่ม (วันที่+สินค้า) ใช้สูตรเดียวกับ currentCycleSummary/payroll-cumulative เป๊ะ (หักค่าปรับ NG-เกินเกณฑ์แล้ว)
+  // เพราะเป็นสูตรบวก (SUM) ล้วน จึงรวมย่อยตามสินค้าหรือวันที่ก่อนแล้วบวกกันทีหลัง ได้ผลรวมเท่ากับคำนวณรวบยอดเป๊ะ ไม่มีปัดเศษระหว่างทาง
   const rows = prepare(`
     SELECT i.issued_at as issued_at, p.id as product_id, p.name as product_name, p.color, p.unit,
-      SUM(r.good_qty) as good_qty
+      SUM(r.good_qty) as good_qty,
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0)
+        - COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) * ? as wage
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
     GROUP BY i.issued_at, p.id
     ORDER BY i.issued_at, p.id
-  `).all(member.id, cycle) as any[];
+  `).all(defectWagePct, ngPenaltyRate, member.id, cycle) as any[];
 
   const productMap = new Map<number, any>();
   for (const r of rows) {
