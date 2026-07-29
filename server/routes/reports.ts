@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth } from '../payCycle';
+import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai } from '../payCycle';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -1110,24 +1110,30 @@ router.get('/wage-reconcile', (req, res) => {
 // แนะนำปริมาณ "อย่างน้อยที่สุด" ที่ควรส่งออกแต่ละชนิดสินค้า เพื่อให้รายรับเดือนนี้ครอบคลุม
 // เงินกันยกมา (ค่าแรงที่จ่ายสมาชิกไปแล้วเดือนก่อน แต่งานยังไม่ถูกส่งออก/วางบิล)
 router.get('/shipment-plan', (req, res) => {
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  // ใช้เวลาไทย (Asia/Bangkok) เสมอ ไม่ใช่ new Date().toISOString() ตรงๆ (เป็น UTC) — ช่วงเที่ยงคืนถึงตี 7 เวลาไทย
+  // จะได้ "เดือน/วันของเมื่อวาน" แทนของจริง ทำให้ currentMonth/is_current_month/today ผิดพลาดได้ในช่วงนั้น
+  const todayStr = todayThai();
+  const currentMonth = todayStr.substring(0, 7);
   const m = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
     ? req.query.month : currentMonth;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayStr;
   // สต๊อกด้านล่างคือสต๊อก ณ "วันนี้จริงๆ" เสมอ (ของจริงที่ส่งได้ตอนนี้) — ตัวเลขนี้จะเทียบกับ
   // เงินกันยกมา/รายรับเดือนที่เลือกได้อย่างมีความหมาย ก็ต่อเมื่อเลือกดู "เดือนปัจจุบัน" เท่านั้น
   // ถ้าเลือกดูเดือนที่ปิดไปแล้ว เงินกันยกมาเป็นตัวเลขย้อนหลัง แต่สต๊อกเป็นของตอนนี้ คนละช่วงเวลากัน
   const is_current_month = m === currentMonth;
 
-  const { reserve_open } = buildWageReconcile(m).totals;
+  const { reserve_open, outstanding_wage } = buildWageReconcile(m).totals;
   const shipped_revenue_mtd = monthRevenueOf(m);
   const overhead = monthlyOverhead(m);   // ค่าตอบแทนผู้บริหาร + ค่าบริหารจัดการ ตามที่ตั้งไว้ — ต้องมีรายรับมาคุมด้วย ไม่ใช่แค่ค่าแรงสมาชิก
-  // ค่าแรงตัดสายไฟของ "รอบจ่ายเดือนนี้" (งานที่กำลังตัด/คืนอยู่ตอนนี้ แยกจากเงินกันยกมาซึ่งเป็นของเดือนก่อน) — ตรงกับหน้าสรุปค่าแรง
+  // ค่าแรงตัดสายไฟของ "รอบจ่ายเดือนนี้" — เฉพาะงานที่สมาชิกคืนและเจ้าหน้าที่ยืนยันแล้วเท่านั้น ตรงกับหน้าสรุปค่าแรง
   const current_cycle_wage = payCycleWage(m);
+  // กรณีเลวร้ายสุด (worst case) สำหรับวางแผน: บวกค่าแรงของงานที่เบิกไปให้สมาชิกแล้วแต่ยังไม่คืนเข้ามาด้วย
+  // (ถ้าสมาชิกคืนงานที่เบิกไปทั้งหมดในอนาคต จะต้องจ่ายเพิ่มอีกเท่านี้) — กันไม่ให้ประเมินกำไรสูงเกินจริงจากการนับแค่ที่คืนแล้ว
+  const worst_case_wage = current_cycle_wage + outstanding_wage;
   const target_before_overhead = reserve_open; // เก็บไว้แยกแสดงผล
-  const target_remaining = Math.max(0, reserve_open + current_cycle_wage + overhead.total - shipped_revenue_mtd);
+  const target_remaining = Math.max(0, reserve_open + worst_case_wage + overhead.total - shipped_revenue_mtd);
   const covered = target_remaining <= 0;
-  const surplus = shipped_revenue_mtd - reserve_open - current_cycle_wage - overhead.total; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
+  const surplus = shipped_revenue_mtd - reserve_open - worst_case_wage - overhead.total; // ถ้า covered แล้ว เหลือเท่าไร (เป็นบวก)
 
   // เส้นตาย (cut-off) ของเดือนนี้ — ใช้เตือนว่าใกล้ "สัปดาห์สุดท้าย" หรือยัง
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
@@ -1167,7 +1173,7 @@ router.get('/shipment-plan', (req, res) => {
 
   res.json({
     month: m, today, cutoff, days_to_cutoff: daysToCutoff, is_last_week: isLastWeek, is_current_month,
-    reserve_open, current_cycle_wage, manager_comp_month: overhead.manager_comp,
+    reserve_open, current_cycle_wage, outstanding_wage, worst_case_wage, manager_comp_month: overhead.manager_comp,
     manager_comp_auto: overhead.manager_comp_auto, manager_comp_extra: overhead.manager_comp_extra,
     general_expenses_month: overhead.general_expenses,
     overhead_total: overhead.total, target_before_overhead,

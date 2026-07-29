@@ -40,7 +40,7 @@ export default function ShipmentPlan() {
 
   const suggestions = ((data?.suggestions || []) as any[]).filter(p => p.suggested_qty > 0);
   const stock = (data?.stock || []) as any[];
-  const totalNeeded = data ? data.reserve_open + data.current_cycle_wage + data.overhead_total : 0;
+  const totalNeeded = data ? data.reserve_open + data.worst_case_wage + data.overhead_total : 0;
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-5xl mx-auto">
@@ -95,7 +95,7 @@ export default function ShipmentPlan() {
             </div>
 
             <p className={`text-sm ${data.covered ? 'text-green-700' : data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>
-              {data.covered ? 'เงินเหลือ (กำไรตามปกติ หลังหักค่าแรง+ค่าใช้จ่ายครบแล้ว)' : 'ยอดที่ยังขาด ต้องส่งของเพิ่มให้ครบก่อนวันตัดยอด'}
+              {data.covered ? 'กำไรคงเหลือ หลังหักค่าแรงและค่าใช้จ่ายทั้งหมดแล้ว' : 'ยอดที่ยังขาด ต้องส่งของเพิ่มให้ครบก่อนวันตัดยอด'}
             </p>
             <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-tight ${data.covered ? 'text-green-700' : data.is_last_week ? 'text-rose-700' : 'text-amber-700'}`}>
               {money(data.covered ? data.surplus : data.target_remaining)}
@@ -104,11 +104,19 @@ export default function ShipmentPlan() {
             {/* ตารางสรุปยอดแบบสมุดบัญชี — อ่านจากบนลงล่างเหมือนบวกลบเลขปกติ */}
             <div className="mt-4 bg-white/70 rounded-xl p-4 text-sm">
               <p className="text-xs font-semibold text-gray-500 mb-2">ยอดที่ต้องมีในเดือนนี้</p>
-              <LedgerRow label="ค่าแรงค้างจากเดือนก่อน (เงินกันยกมา)" value={data.reserve_open} />
-              <LedgerRow label="ค่าแรงของเดือนนี้" value={data.current_cycle_wage} />
+              <LedgerRow
+                label="ค่าแรงค้างจากเดือนก่อน"
+                sub="จ่ายสมาชิกไปแล้วเดือนก่อน แต่ตอนนั้นงานยังไม่ถูกส่งขายให้โรงงาน"
+                value={data.reserve_open}
+              />
+              <LedgerRow
+                label="ค่าแรงตัดของเดือนนี้ (กรณีเลวร้ายสุด)"
+                sub={`คืนงานแล้ว ${money(data.current_cycle_wage)}${data.outstanding_wage > 0 ? ` + เบิกไปแล้วแต่ยังไม่คืน ${money(data.outstanding_wage)}` : ''}`}
+                value={data.worst_case_wage}
+              />
               <LedgerRow
                 label="ค่าตอบแทนผู้บริหาร"
-                sub={data.manager_comp_extra > 0 ? `อัตโนมัติ ${money(data.manager_comp_auto)} + จ่ายให้บุคคลเพิ่มเอง ${money(data.manager_comp_extra)}` : undefined}
+                sub={data.manager_comp_extra > 0 ? `อัตโนมัติ ${money(data.manager_comp_auto)} + จ่ายให้บุคคลเพิ่มเอง ${money(data.manager_comp_extra)}` : 'คิดจากยอดขายปัจจุบัน'}
                 value={data.manager_comp_month}
               />
               <LedgerRow label="ค่าบริหารจัดการ" value={data.general_expenses_month} />
@@ -131,7 +139,7 @@ export default function ShipmentPlan() {
 
             <div className="mt-3 text-[11px] text-gray-400 space-y-0.5">
               <p>วันตัดยอดของเดือนนี้: <b className="text-gray-500">{dateLabel(data.cutoff)}</b></p>
-              <p>ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการ คำนวณจากยอดขาย ณ ตอนนี้ — ถ้าส่งของเพิ่มตามคำแนะนำ ยอดนี้อาจขยับขึ้นเล็กน้อยตามไปด้วย</p>
+              <p>ถ้าส่งของเพิ่มตามคำแนะนำ ค่าตอบแทนผู้บริหาร/ค่าบริหารจัดการอาจขยับขึ้นตามไปด้วยเล็กน้อย (คิดจากยอดขาย)</p>
               <p>💡 ถ้าหน้า "ภาพรวม" เลือกจ่ายรายการ "เพิ่มเองรายเดือน" ให้ผู้บริหาร/สมาชิกคนใดคนหนึ่ง จะถูกนับรวมในค่าตอบแทนผู้บริหาร ไม่ใช่ค่าบริหารจัดการ</p>
               {data.covered && <p>ไม่มีความจำเป็นเร่งด่วนต้องระบายของเพิ่ม แต่แนะนำให้ทยอยส่งสต๊อกเก่าต่อเนื่อง (ดูรายการด้านล่าง) เพื่อไม่ให้ค้างสะสมนาน</p>}
             </div>
