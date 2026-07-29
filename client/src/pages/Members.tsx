@@ -13,6 +13,57 @@ function portalUrl(token?: string | null): string {
   return `${window.location.origin}/portal/${token}`;
 }
 
+const escHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+
+// CSS ของบัตรประจำตัวสมาชิก 1 ใบ — ใช้ร่วมกันทั้งพิมพ์ทีละใบและพิมพ์รวมหลายใบ
+const ID_CARD_CSS = `
+  .card { width: 90mm; height: 140mm; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+  .header { position: relative; overflow: hidden; padding: 7mm 6mm 9mm; text-align: center; flex-shrink: 0;
+    background: radial-gradient(140% 160% at 12% -25%, #6a3fae 0%, #4a2f8c 48%, #262459 100%); }
+  .header::before { content: ""; position: absolute; width: 30mm; height: 30mm; right: -10mm; top: -14mm; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.18), rgba(255,255,255,0) 70%); }
+  .title { position: relative; color: #fff; font-size: 4.2mm; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  .body { flex: 1; padding: 0 6mm 5mm; display: flex; flex-direction: column; min-height: 0; }
+  .id-block { position: relative; margin: -5mm 0 0; background: #fff; border-radius: 3.5mm; box-shadow: 0 10px 24px -10px rgba(38,36,89,.3); padding: 4mm 4.5mm; flex-shrink: 0; }
+  .name { font-size: 4.3mm; font-weight: 800; color: #201f1c; margin: 0; line-height: 1.25; }
+  .nick { font-size: 3mm; font-weight: 500; color: #6f6b63; }
+  .pill { display: inline-flex; margin-top: 2.2mm; padding: 1mm 3mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 2.7mm; font-weight: 700; }
+  .info-list { margin-top: 4mm; display: flex; flex-direction: column; gap: 2.6mm; }
+  .info-row { display: flex; align-items: flex-start; gap: 2.2mm; }
+  .info-icon { width: 4.4mm; height: 4.4mm; border-radius: 1.6mm; background: #f0ecfd; flex-shrink: 0; }
+  .info-icon svg { width: 4.4mm; height: 4.4mm; display: block; }
+  .info-text { font-size: 2.85mm; color: #201f1c; line-height: 1.45; padding-top: 0.3mm; }
+  .divider { border: none; border-top: .25mm solid #e8e4dc; margin: 4mm 0; flex-shrink: 0; }
+  .qr-block { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 0; }
+  .qr-frame { padding: 2mm; border-radius: 2.6mm; border: .3mm solid #e8e4dc; }
+  .qr-frame img { display: block; width: 52mm; height: 52mm; }
+  .qr-caption { font-size: 2.7mm; font-weight: 600; color: #201f1c; margin: 2.4mm 0 0; }
+  .qr-subcaption { font-size: 2.35mm; color: #a5a099; margin: .8mm 0 0; }
+`;
+
+function idCardHtml(member: any, dataUrl: string): string {
+  return `
+    <div class="card">
+      <div class="header"><p class="title">บัตรประจำตัวสมาชิก</p></div>
+      <div class="body">
+        <div class="id-block">
+          <p class="name">${escHtml(member.name)}${member.nickname ? ` <span class="nick">(${escHtml(member.nickname)})</span>` : ''}</p>
+          <span class="pill">รหัสสมาชิก ${escHtml(member.code)}</span>
+          <div class="info-list">
+            ${member.address ? `<div class="info-row"><span class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#4e2fb8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 5.5-8 12-8 12s-8-6.5-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="2.8"/></svg></span><span class="info-text">${escHtml(member.address)}</span></div>` : ''}
+            ${member.phone ? `<div class="info-row"><span class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#4e2fb8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.7A2 2 0 0 1 4.1 1h2a2 2 0 0 1 2 1.7c.1 1 .3 2 .7 2.9a2 2 0 0 1-.4 2.1L7.1 9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.4 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z"/></svg></span><span class="info-text">${escHtml(member.phone)}</span></div>` : ''}
+          </div>
+        </div>
+        <hr class="divider" />
+        <div class="qr-block">
+          <div class="qr-frame"><img src="${dataUrl}" /></div>
+          <p class="qr-caption">สแกนเพื่อแจ้งเบิก-คืนงานของตัวเอง</p>
+          <p class="qr-subcaption">เห็นเฉพาะข้อมูลของตัวเองเท่านั้น</p>
+        </div>
+      </div>
+    </div>`;
+}
+
 /* ── QR Code ลิงก์พอร์ทัลส่วนตัวสมาชิก — ให้พิมพ์/แปะให้สมาชิกสแกนเข้าเว็บของตัวเอง ── */
 function QrModal({ member, onClose }: { member: any; onClose: () => void }) {
   const [dataUrl, setDataUrl] = useState('');
@@ -31,56 +82,17 @@ function QrModal({ member, onClose }: { member: any; onClose: () => void }) {
   const print = () => {
     const w = window.open('', '_blank', 'width=420,height=640');
     if (!w) return;
-    const esc = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
     w.document.write(`
-      <html><head><title>บัตรสมาชิก ${esc(member.name)}</title>
+      <html><head><title>บัตรสมาชิก ${escHtml(member.name)}</title>
       <style>
         @page { size: 90mm 140mm; margin: 0; }
         * { box-sizing: border-box; }
         body { margin: 0; font-family: 'Tahoma', 'Segoe UI', sans-serif; background: #f4f2ee; }
-        .card { width: 90mm; height: 140mm; margin: 0 auto; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-        .header { position: relative; overflow: hidden; padding: 7mm 6mm 9mm; text-align: center; flex-shrink: 0;
-          background: radial-gradient(140% 160% at 12% -25%, #6a3fae 0%, #4a2f8c 48%, #262459 100%); }
-        .header::before { content: ""; position: absolute; width: 30mm; height: 30mm; right: -10mm; top: -14mm; border-radius: 50%;
-          background: radial-gradient(circle, rgba(255,255,255,0.18), rgba(255,255,255,0) 70%); }
-        .title { position: relative; color: #fff; font-size: 4.2mm; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
-        .body { flex: 1; padding: 0 6mm 5mm; display: flex; flex-direction: column; min-height: 0; }
-        .id-block { position: relative; margin: -5mm 0 0; background: #fff; border-radius: 3.5mm; box-shadow: 0 10px 24px -10px rgba(38,36,89,.3); padding: 4mm 4.5mm; flex-shrink: 0; }
-        .name { font-size: 4.3mm; font-weight: 800; color: #201f1c; margin: 0; line-height: 1.25; }
-        .nick { font-size: 3mm; font-weight: 500; color: #6f6b63; }
-        .pill { display: inline-flex; margin-top: 2.2mm; padding: 1mm 3mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 2.7mm; font-weight: 700; }
-        .info-list { margin-top: 4mm; display: flex; flex-direction: column; gap: 2.6mm; }
-        .info-row { display: flex; align-items: flex-start; gap: 2.2mm; }
-        .info-icon { width: 4.4mm; height: 4.4mm; border-radius: 1.6mm; background: #f0ecfd; flex-shrink: 0; }
-        .info-icon svg { width: 4.4mm; height: 4.4mm; display: block; }
-        .info-text { font-size: 2.85mm; color: #201f1c; line-height: 1.45; padding-top: 0.3mm; }
-        .divider { border: none; border-top: .25mm solid #e8e4dc; margin: 4mm 0; flex-shrink: 0; }
-        .qr-block { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 0; }
-        .qr-frame { padding: 2mm; border-radius: 2.6mm; border: .3mm solid #e8e4dc; }
-        .qr-frame img { display: block; width: 52mm; height: 52mm; }
-        .qr-caption { font-size: 2.7mm; font-weight: 600; color: #201f1c; margin: 2.4mm 0 0; }
-        .qr-subcaption { font-size: 2.35mm; color: #a5a099; margin: .8mm 0 0; }
+        ${ID_CARD_CSS}
+        .card { margin: 0 auto; }
       </style></head>
       <body>
-        <div class="card">
-          <div class="header"><p class="title">บัตรประจำตัวสมาชิก</p></div>
-          <div class="body">
-            <div class="id-block">
-              <p class="name">${esc(member.name)}${member.nickname ? ` <span class="nick">(${esc(member.nickname)})</span>` : ''}</p>
-              <span class="pill">รหัสสมาชิก ${esc(member.code)}</span>
-              <div class="info-list">
-                ${member.address ? `<div class="info-row"><span class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#4e2fb8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 5.5-8 12-8 12s-8-6.5-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="2.8"/></svg></span><span class="info-text">${esc(member.address)}</span></div>` : ''}
-                ${member.phone ? `<div class="info-row"><span class="info-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#4e2fb8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.7A2 2 0 0 1 4.1 1h2a2 2 0 0 1 2 1.7c.1 1 .3 2 .7 2.9a2 2 0 0 1-.4 2.1L7.1 9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.4 1.9.6 2.9.7a2 2 0 0 1 1.7 2Z"/></svg></span><span class="info-text">${esc(member.phone)}</span></div>` : ''}
-              </div>
-            </div>
-            <hr class="divider" />
-            <div class="qr-block">
-              <div class="qr-frame"><img src="${dataUrl}" /></div>
-              <p class="qr-caption">สแกนเพื่อแจ้งเบิก-คืนงานของตัวเอง</p>
-              <p class="qr-subcaption">เห็นเฉพาะข้อมูลของตัวเองเท่านั้น</p>
-            </div>
-          </div>
-        </div>
+        ${idCardHtml(member, dataUrl)}
         <script>window.onload = () => window.print();<\/script>
       </body></html>
     `);
@@ -693,6 +705,7 @@ export default function Members() {
   const [deleting, setDeleting] = useState<any>(null);
   const [history, setHistory] = useState<any>(null);
   const [qrMember, setQrMember] = useState<any>(null);
+  const [printingAll, setPrintingAll] = useState(false);
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['members', q],
@@ -728,12 +741,58 @@ export default function Members() {
   const openAdd = () => { setEditing(null); setApiError(''); setModal('add'); };
   const openEdit = (m: any) => { setEditing(m); setApiError(''); setModal('edit'); };
 
+  // พิมพ์บัตรสมาชิกทุกคนพร้อมกันเป็น PDF — เรียง 2x2 ต่อหน้า A4 (ขนาดจริง 90x140มม./ใบ) ไปเรื่อยๆ จนครบทุกคน
+  const printAllCards = async () => {
+    const withToken = all.filter((m: any) => m.portal_token);
+    if (withToken.length === 0 || printingAll) return;
+    setPrintingAll(true);
+    try {
+      const qrs = await Promise.all(
+        withToken.map((m: any) => QRCode.toDataURL(portalUrl(m.portal_token), { width: 300, margin: 1 }))
+      );
+      const cards = withToken.map((m: any, i: number) => idCardHtml(m, qrs[i]));
+      const pages: string[] = [];
+      for (let i = 0; i < cards.length; i += 4) pages.push(`<div class="page">${cards.slice(i, i + 4).join('')}</div>`);
+
+      const w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write(`
+        <html><head><title>บัตรสมาชิกทั้งหมด (${withToken.length} คน)</title>
+        <style>
+          @page { size: A4; margin: 0; }
+          * { box-sizing: border-box; }
+          body { margin: 0; font-family: 'Tahoma', 'Segoe UI', sans-serif; background: #fff; }
+          ${ID_CARD_CSS}
+          .card { outline: .3mm dashed #ccc; outline-offset: 2mm; }
+          .page {
+            width: 210mm; height: 297mm;
+            display: grid; grid-template-columns: repeat(2, 90mm); grid-template-rows: repeat(2, 140mm);
+            gap: 5mm; justify-content: center; align-content: center;
+            page-break-after: always;
+          }
+          .page:last-child { page-break-after: auto; }
+        </style></head>
+        <body>
+          ${pages.join('')}
+          <script>window.onload = () => window.print();<\/script>
+        </body></html>
+      `);
+      w.document.close();
+    } finally {
+      setPrintingAll(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-gray-800">ทะเบียนสมาชิก</h1>
         <div className="flex items-center gap-2">
           <ExportExcelButton filename={`รายชื่อสมาชิก-${new Date().toISOString().split('T')[0]}`} rows={membersToRows(data as any[])} />
+          <button className="btn-secondary btn-sm flex items-center gap-2" disabled={printingAll} onClick={printAllCards} title="พิมพ์บัตรประจำตัวสมาชิกทุกคนรวมเป็นไฟล์เดียว เรียง 4 ใบต่อหน้า A4">
+            {printingAll ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
+            พิมพ์บัตรสมาชิกทั้งหมด
+          </button>
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={openAdd}>
             <UserPlus size={16} /> เพิ่มสมาชิก
           </button>
