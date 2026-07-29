@@ -321,8 +321,8 @@ function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[
   );
 }
 
-/* ── สรุปจำนวนงานที่ตัด — รอบตัดค่าแรงปัจจุบัน ไม่แสดงจำนวนเงิน ── */
-function CuttingSummaryScreen({ token, member, onCancel }: { token: string; member: any; onCancel: () => void }) {
+/* ── สรุปจำนวนงานที่ตัด — รอบตัดค่าแรงปัจจุบัน พร้อมยอดเงินโดยประมาณ (ใช้ค่าเดียวกับหน้าหลัก คำนวณจากรายการที่ยืนยัน+คืนแล้วเท่านั้น) ── */
+function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string; member: any; wage: number; onCancel: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['portal-cutting-summary', token],
     queryFn: () => portalApi.cuttingSummary(token),
@@ -410,6 +410,11 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
             <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 text-center">
               <p className="text-sm text-purple-700 font-medium">ตัดไปแล้วรวมรอบนี้</p>
               <p className="text-4xl font-bold text-purple-800 mt-1">{fmtQty(grandTotal)} <span className="text-lg font-normal">{unit}</span></p>
+              <div className="mt-3 pt-3 border-t border-purple-200/70 flex items-center justify-center gap-1.5 flex-wrap">
+                <span className="text-sm text-emerald-700 font-medium">คิดเป็นเงินประมาณ</span>
+                <span className="text-lg font-bold text-emerald-700">{money(wage)}</span>
+                <span className="text-xs text-gray-400">(ไม่เป็นทางการ)</span>
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl border overflow-x-auto">
@@ -524,7 +529,7 @@ export default function MemberPortal() {
   }
 
   if (showCuttingSummary) {
-    return <CuttingSummaryScreen token={token!} member={data.member} onCancel={() => setShowCuttingSummary(false)} />;
+    return <CuttingSummaryScreen token={token!} member={data.member} wage={data.current_cycle?.wage || 0} onCancel={() => setShowCuttingSummary(false)} />;
   }
 
   const { member, recent_requests, recent_issue_requests } = data;
@@ -556,7 +561,7 @@ export default function MemberPortal() {
         {/* การ์ดรายได้โดยประมาณ — ลอยคาบรอยต่อหัวบล็อกกับเนื้อหา */}
         <div className="relative -mt-[30px] bg-white rounded-[22px] shadow-lg border border-gray-100 pt-3 px-[18px] pb-4">
           <div className="flex flex-col items-center text-center">
-            <p className="text-xs font-medium text-gray-500">ประมาณการรายได้ถึงปัจจุบัน</p>
+            <p className="text-xs font-medium text-gray-500">ประมาณการรายได้ถึงปัจจุบัน (ไม่เป็นทางการ)</p>
             <div className="relative flex items-center justify-center w-full mt-1.5 min-h-[40px]">
               <div className="absolute left-0 top-1/2 -translate-y-1/2 w-10 h-10 rounded-[13px] grid place-items-center bg-[conic-gradient(from_200deg,#4fd39f,#0f8f6d,#4fd39f)]">
                 <div className="absolute inset-[3px] rounded-[10px] bg-white" />
