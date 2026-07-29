@@ -5,6 +5,13 @@ import { portalApi } from '../api';
 import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
+const money = (n: number) => `฿${Number(n || 0).toLocaleString('th-TH')}`;
+function greetingText() {
+  const h = new Date().getHours();
+  if (h < 11) return 'สวัสดีตอนเช้า';
+  if (h < 17) return 'สวัสดีตอนบ่าย';
+  return 'สวัสดีตอนเย็น';
+}
 function fmtDate(s?: string) {
   if (!s) return '';
   const d = new Date(s);
@@ -462,19 +469,58 @@ export default function MemberPortal() {
   }
 
   const { member, recent_requests, recent_issue_requests } = data;
+  const cc = data.current_cycle || { total_qty: 0, wage: 0, breakdown: [] as any[] };
+  const openReturnable = (data.open_issues || []).filter((i: any) => i.remaining > 0).length;
+  const initial = (member.nickname || member.name || '?').trim().charAt(0);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="bg-blue-600 text-white px-5 pt-8 pb-6 rounded-b-[2rem] shrink-0">
-        <p className="text-blue-100 text-sm">สวัสดี 👋</p>
-        <h1 className="text-2xl font-bold">
-          {member.name}
-          {member.nickname && <span className="text-lg font-normal"> ({member.nickname})</span>}
-        </h1>
-        <p className="text-blue-100 text-sm mt-0.5">รหัสสมาชิก {member.code}</p>
+      <div className="relative overflow-hidden px-5 pt-8 pb-8 rounded-b-[2rem] shrink-0 bg-[radial-gradient(130%_150%_at_15%_-20%,#6a3fae_0%,#4a2f8c_46%,#262459_100%)]">
+        <div className="absolute -right-16 -top-24 w-64 h-64 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+        <div className="absolute -left-16 -bottom-24 w-48 h-48 rounded-full bg-white/[0.06] blur-2xl pointer-events-none" />
+        <div className="relative flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-white/60 text-sm">{greetingText()} 👋</p>
+            <h1 className="text-2xl font-bold text-white mt-0.5 truncate">
+              {member.name}
+              {member.nickname && <span className="text-base font-normal text-white/70"> ({member.nickname})</span>}
+            </h1>
+            <span className="inline-flex mt-2.5 px-3 py-1 rounded-full bg-white/[0.14] border border-white/20 text-white/85 text-xs font-semibold">รหัสสมาชิก {member.code}</span>
+          </div>
+          <div className="shrink-0 w-[52px] h-[52px] rounded-full bg-white/[0.12] border border-white/20 grid place-items-center text-white font-bold text-lg">
+            {initial}
+          </div>
+        </div>
       </div>
 
-      {/* ปุ่มหลัก 2 ปุ่ม — เรียงตามแนวนอน (ไอคอน+ตัวหนังสือชิดกันในแถวเดียว) เรียงต่อกันจากบนลงล่าง แถวใหญ่กดง่าย เหมาะกับผู้สูงอายุ */}
+      <div className="max-w-md mx-auto px-4 w-full">
+        {/* การ์ดรายได้โดยประมาณ — ลอยคาบรอยต่อหัวบล็อกกับเนื้อหา */}
+        <div className="relative -mt-[30px] bg-white rounded-[22px] shadow-lg border border-gray-100 pt-3 px-[18px] pb-4">
+          <div className="flex flex-col items-center text-center">
+            <p className="text-xs font-medium text-gray-500">ประมาณการรายได้ถึงปัจจุบัน</p>
+            <div className="relative flex items-center justify-center w-full mt-1.5 min-h-[40px]">
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-10 h-10 rounded-[13px] grid place-items-center bg-[conic-gradient(from_200deg,#4fd39f,#0f8f6d,#4fd39f)]">
+                <div className="absolute inset-[3px] rounded-[10px] bg-white" />
+                <span className="relative text-emerald-700 font-bold text-[19px]">฿</span>
+              </div>
+              <p className="text-[32px] font-medium text-emerald-700 tracking-tight leading-none">{money(cc.wage)}</p>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">จากงานที่ตัด {fmtQty(cc.total_qty)} เส้น{cc.start && ` (${fmtDate(cc.start)} – ${fmtDate(cc.end)})`}</p>
+          </div>
+          {cc.breakdown.length > 0 && (
+            <div className="flex items-center justify-center gap-2.5 mt-3 pt-3 border-t border-gray-100 flex-nowrap overflow-x-auto">
+              {cc.breakdown.map((b: any) => (
+                <span key={b.project} className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 whitespace-nowrap">
+                  {b.color && <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: b.color }} />}
+                  {b.label} <b className="text-gray-800">{fmtQty(b.sets)}</b> ชุด
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ปุ่มหลัก — เรียงตามแนวนอน (ไอคอน+ตัวหนังสือชิดกันในแถวเดียว) เรียงต่อกันจากบนลงล่าง แถวใหญ่กดง่าย เหมาะกับผู้สูงอายุ */}
       <div className="max-w-md mx-auto px-4 pt-6 w-full">
         {justSubmitted && (
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3 mb-4 shadow-sm">
@@ -485,27 +531,44 @@ export default function MemberPortal() {
           </div>
         )}
 
-        <div className="flex flex-col gap-4">
+        <p className="text-xs font-bold tracking-wider uppercase text-gray-400 mb-2.5 px-1">เมนูหลัก</p>
+        <div className="flex flex-col gap-3">
           <button
             onClick={() => setRequestingIssue(true)}
-            className="w-full bg-white border border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
+            className="w-full bg-white border border-gray-100 hover:border-blue-300 active:scale-[0.98] transition-all rounded-3xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md text-left"
           >
-            <div className="p-5 bg-blue-50 rounded-2xl shrink-0"><PackagePlus size={40} className="text-blue-600" /></div>
-            <span className="font-bold text-gray-800 text-3xl">เบิกงาน</span>
+            <div className="p-3.5 bg-blue-50 rounded-2xl shrink-0"><PackagePlus size={28} className="text-blue-600" /></div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-gray-800 text-lg">เบิกงาน</p>
+              <p className="text-xs text-gray-500 mt-0.5 truncate">แจ้งขอเบิกวัตถุดิบไปตัดเพิ่ม</p>
+            </div>
+            <ChevronRight size={18} className="text-gray-300 shrink-0" />
           </button>
           <button
             onClick={() => setShowReturnList(true)}
-            className="w-full bg-white border border-gray-100 hover:border-green-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
+            className="w-full bg-white border border-gray-100 hover:border-green-300 active:scale-[0.98] transition-all rounded-3xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md text-left"
           >
-            <div className="p-5 bg-green-50 rounded-2xl shrink-0"><RotateCcw size={40} className="text-green-600" /></div>
-            <span className="font-bold text-gray-800 text-3xl">คืนงาน</span>
+            <div className="p-3.5 bg-green-50 rounded-2xl shrink-0"><RotateCcw size={28} className="text-green-600" /></div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-gray-800 text-lg">คืนงาน</p>
+              <p className="text-xs text-gray-500 mt-0.5 truncate">ส่งงานที่ตัดเสร็จแล้วคืน</p>
+            </div>
+            {openReturnable > 0 && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 shrink-0 whitespace-nowrap">{openReturnable} ใบรอคืน</span>
+            )}
           </button>
           <button
             onClick={() => setShowCuttingSummary(true)}
-            className="w-full bg-white border border-gray-100 hover:border-purple-300 active:scale-[0.98] transition-all rounded-3xl p-6 flex items-center justify-center gap-5 shadow-sm hover:shadow-md"
+            className="w-full bg-white border border-gray-100 hover:border-purple-300 active:scale-[0.98] transition-all rounded-3xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md text-left"
           >
-            <div className="p-5 bg-purple-50 rounded-2xl shrink-0"><ClipboardList size={40} className="text-purple-600" /></div>
-            <span className="font-bold text-gray-800 text-3xl">สรุปยอด</span>
+            <div className="p-3.5 bg-purple-50 rounded-2xl shrink-0"><ClipboardList size={28} className="text-purple-600" /></div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-gray-800 text-lg">สรุปยอด</p>
+              <p className="text-xs text-gray-500 mt-0.5 truncate">ดูยอดที่ตัดไปในรอบนี้</p>
+            </div>
+            {cc.total_qty > 0 && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 shrink-0 whitespace-nowrap">{fmtQty(cc.total_qty)} เส้น</span>
+            )}
           </button>
         </div>
       </div>

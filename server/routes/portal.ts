@@ -8,6 +8,61 @@ function getMemberByToken(token: string) {
   return prepare(`SELECT * FROM members WHERE portal_token = ?`).get(token) as any;
 }
 
+// จำนวนชิ้นที่นับเป็น "1 ชุด" ต่อโครงการ (project) — ป้ายขาว/ป้ายชมพู คือ 1 ชุด = สั้น+ยาว (2 ชิ้น)
+// 3 สาย คือ 1 ชุด = 3 เส้น (1 ชิ้นต่อรุ่นย่อยทั้ง 3 รุ่นในกลุ่ม) — โครงการอื่นนอกเหนือจากนี้ไม่แปลงหน่วย
+const PROJECT_SET_SIZE: Record<string, number> = { COT091: 2, COT092: 2, COT102: 3 };
+const PROJECT_CHIP_LABEL: Record<string, string> = { COT091: 'ป้ายขาว', COT092: 'ป้ายชมพู', COT102: '3 สาย' };
+
+// สรุปรายได้โดยประมาณ + จำนวนที่ตัด ของสมาชิกคนนี้ในรอบตัดค่าแรงปัจจุบัน — นับเฉพาะรายการคืนที่เจ้าหน้าที่ยืนยันแล้ว (ตาราง returns)
+// เท่านั้น ไม่รวมคำขอที่ยังรอตรวจสอบ ใช้สูตรเดียวกับ /reports/payroll-cumulative (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาท) เพื่อให้ตรงกับยอดที่เจ้าหน้าที่เห็น
+function currentCycleSummary(memberId: number) {
+  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const cfg = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
+  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
+  const today = new Date().toISOString().split('T')[0];
+  const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
+  const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
+
+  const totals = prepare(`
+    SELECT
+      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
+      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty,
+      COALESCE(SUM(r.good_qty), 0) as total_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle = ?
+  `).get(defectWagePct, memberId, cycle) as any;
+  const wage = Math.max(0, Math.ceil(totals.gross_wage - totals.ng_excess_qty * ngPenaltyRate));
+
+  const byProduct = prepare(`
+    SELECT p.id as product_id, p.project, COALESCE(SUM(r.good_qty), 0) as good_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle = ?
+    GROUP BY p.id
+  `).all(memberId, cycle) as any[];
+  const qtyByProduct = new Map<number, number>(byProduct.map((r: any) => [r.product_id, r.good_qty]));
+
+  const allProducts = prepare(`SELECT id, project, color FROM products WHERE active = 1`).all() as any[];
+  const projectProducts = new Map<string, any[]>();
+  for (const p of allProducts) {
+    if (!p.project) continue;
+    if (!projectProducts.has(p.project)) projectProducts.set(p.project, []);
+    projectProducts.get(p.project)!.push(p);
+  }
+
+  const breakdown: any[] = [];
+  for (const [project, setSize] of Object.entries(PROJECT_SET_SIZE)) {
+    const prods = projectProducts.get(project) || [];
+    if (prods.length < setSize) continue;
+    const qtys = prods.map((p: any) => qtyByProduct.get(p.id) || 0);
+    if (qtys.every((q: number) => q === 0)) continue;
+    breakdown.push({ project, label: PROJECT_CHIP_LABEL[project] || project, color: prods[0].color, sets: Math.min(...qtys) });
+  }
+
+  return { cycle, start, end, total_qty: totals.total_qty, wage, breakdown };
+}
+
 // ข้อมูลของสมาชิกคนนี้เอง — ใบเบิกที่ยังไม่ปิด + ประวัติคำขอคืนงานล่าสุด (ไม่ต้อง login ใช้โทเคนในลิงก์แทน)
 router.get('/:token', (req, res) => {
   const member = getMemberByToken(req.params.token);
@@ -44,6 +99,7 @@ router.get('/:token', (req, res) => {
     recent_requests: recent,
     products,
     recent_issue_requests: recentIssueRequests,
+    current_cycle: currentCycleSummary(member.id),
   });
 });
 
