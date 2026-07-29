@@ -17,6 +17,7 @@ const escHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '
 
 // CSS ของบัตรประจำตัวสมาชิก 1 ใบ — ใช้ร่วมกันทั้งพิมพ์ทีละใบและพิมพ์รวมหลายใบ
 const ID_CARD_CSS = `
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
   .card { width: 90mm; height: 140mm; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
   .header { position: relative; overflow: hidden; padding: 7mm 6mm 9mm; text-align: center; flex-shrink: 0;
     background: radial-gradient(140% 160% at 12% -25%, #6a3fae 0%, #4a2f8c 48%, #262459 100%); }
