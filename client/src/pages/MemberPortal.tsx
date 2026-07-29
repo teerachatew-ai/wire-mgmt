@@ -358,7 +358,7 @@ function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: ()
               <table className="text-sm border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
-                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 border-r">วันที่</th>
+                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 border-r whitespace-nowrap">วันที่รับงาน</th>
                     {products.map((p: any) => {
                       const { num, label } = parseProductLabel(p.name);
                       return (
