@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 const money = (n: number) => `฿${Number(n || 0).toLocaleString('th-TH')}`;
@@ -288,11 +288,13 @@ function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[
         ) : (
           openIssues.map((i: any) => (
             <div key={i.id} className="bg-white rounded-2xl border p-4">
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 mb-2.5">
+                <Calendar size={12} /> เบิกเมื่อ {fmtDate(i.issued_at)}
+              </span>
               <div className="flex items-center gap-2">
                 {i.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
                 <p className="font-bold text-gray-800">{i.product_name}</p>
               </div>
-              <p className="text-sm text-gray-500 mt-1">เบิกเมื่อ {fmtDate(i.issued_at)} · เบิกไป {fmtQty(i.quantity)} {i.unit}</p>
               <div className="flex items-center justify-between mt-3">
                 <div>
                   <p className="text-xs text-gray-400">คงเหลือที่ต้องคืน</p>
@@ -513,16 +515,6 @@ export default function MemberPortal() {
             </div>
             <p className="text-xs text-gray-500 mt-2">จากงานที่ตัด {fmtQty(cc.total_qty)} เส้น{cc.start && ` (${fmtDate(cc.start)} – ${fmtDate(cc.end)})`}</p>
           </div>
-          {cc.breakdown.length > 0 && (
-            <div className="flex items-center justify-center gap-2.5 mt-3 pt-3 border-t border-gray-100 flex-nowrap overflow-x-auto">
-              {cc.breakdown.map((b: any) => (
-                <span key={b.project} className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 whitespace-nowrap">
-                  {b.color && <span className="w-2 h-2 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: b.color }} />}
-                  {b.label} <b className="text-gray-800">{fmtQty(b.sets)}</b> ชุด
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
