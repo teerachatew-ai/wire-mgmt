@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Printer } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Download } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 const money = (n: number) => `฿${Number(n || 0).toLocaleString('th-TH')}`;
-const escHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 // วันที่วันนี้ตามเวลาเครื่อง (local) ของสมาชิก — ห้ามใช้ toISOString() ตรงๆ เพราะแปลงเป็น UTC ก่อน
 // ทำให้ช่วงเที่ยงคืนถึงตี 7 เวลาไทย จะได้ "เมื่อวาน" แทนวันนี้จริง (ประเทศไทยเร็วกว่า UTC 7 ชม.)
 function todayLocal() {
@@ -326,6 +327,8 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
     queryKey: ['portal-cutting-summary', token],
     queryFn: () => portalApi.cuttingSummary(token),
   });
+  const summaryRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
 
   const rows: any[] = data?.rows || [];
   const products: any[] = data?.products || [];
@@ -338,68 +341,35 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
   const grandTotal = rows.reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
   const unit = products[0]?.unit || '';
 
-  // ส่งออกตารางสรุปยอดเป็น PDF — แนวนอน A4 ให้พอดีกับคอลัมน์สินค้าหลายชนิด
-  const exportPdf = () => {
-    if (!data) return;
-    const w = window.open('', '_blank');
-    if (!w) return;
-
-    const headHtml = products.map((p: any) => {
-      const { num, label } = parseProductLabel(p.name);
-      return `<th>${p.color ? `<span class="pdot" style="background:${escHtml(p.color)}"></span>` : ''}${escHtml(num)}<br/><span class="plabel">${escHtml(label)}</span></th>`;
-    }).join('');
-
-    const rowsHtml = dates.map((d: string) => `
-      <tr>
-        <td class="dcell">${escHtml(fmtDate(d))}</td>
-        ${products.map((p: any) => {
-          const q = qtyOf(d, p.id);
-          return `<td>${q > 0 ? fmtQty(q) : '-'}</td>`;
-        }).join('')}
-      </tr>`).join('');
-
-    const totalRowHtml = `
-      <tr class="totalrow">
-        <td class="dcell">รวม</td>
-        ${products.map((p: any) => `<td>${fmtQty(totalOf(p.id))}</td>`).join('')}
-      </tr>`;
-
-    w.document.write(`
-      <html><head><title>สรุปยอด ${escHtml(member?.code || '')}</title>
-      <style>
-        @page { size: A4 landscape; margin: 14mm; }
-        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        body { margin: 0; font-family: 'Tahoma', 'Segoe UI', sans-serif; color: #201f1c; }
-        .title { font-size: 18px; font-weight: 800; margin: 0; }
-        .sub { font-size: 12px; color: #6f6b63; margin: 3px 0 16px; }
-        .banner { display: inline-block; background: #f3e8ff; border: 1.5px solid #ddd6fe; border-radius: 14px; padding: 10px 24px; margin-bottom: 18px; text-align: center; }
-        .banner .lbl { font-size: 11px; color: #6d28d9; font-weight: 600; }
-        .banner .val { font-size: 26px; font-weight: 800; color: #5b21b6; margin-top: 2px; }
-        table { border-collapse: collapse; width: 100%; font-size: 11px; }
-        th, td { border: 1px solid #e8e4dc; padding: 6px 7px; text-align: center; }
-        th { background: #f8f7f4; font-weight: 700; }
-        .plabel { display: block; font-weight: 400; font-size: 9px; color: #8a8578; }
-        .pdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; border: 1px solid #ccc; }
-        .dcell { text-align: left; white-space: nowrap; font-weight: 600; }
-        .totalrow td { background: #f3e8ff; color: #5b21b6; font-weight: 800; }
-        .foot { margin-top: 16px; font-size: 10px; color: #a5a099; }
-      </style></head>
-      <body>
-        <p class="title">สรุปยอด${member?.name ? ' — ' + escHtml(member.name) : ''}${member?.code ? ` (รหัส ${escHtml(member.code)})` : ''}</p>
-        <p class="sub">รอบ ${escHtml(fmtDate(data.start))} - ${escHtml(fmtDate(data.end))}</p>
-        <div class="banner">
-          <div class="lbl">ตัดไปแล้วรวมรอบนี้</div>
-          <div class="val">${fmtQty(grandTotal)} ${escHtml(unit)}</div>
-        </div>
-        <table>
-          <thead><tr><th>วันที่เบิก</th>${headHtml}</tr></thead>
-          <tbody>${rowsHtml}${totalRowHtml}</tbody>
-        </table>
-        <p class="foot">พิมพ์เมื่อ ${escHtml(fmtDate(todayLocal()))}</p>
-        <script>window.onload = () => window.print();<\/script>
-      </body></html>
-    `);
-    w.document.close();
+  // ถ่ายภาพการ์ด+ตารางที่แสดงอยู่จริง (รวมคอลัมน์ที่ยังไม่ได้เลื่อนไปดู) แล้วฝังเป็นไฟล์ PDF ให้ดาวน์โหลดทันที ไม่ต้องผ่านหน้าต่างพิมพ์
+  const exportPdf = async () => {
+    const el = summaryRef.current;
+    if (!el || exporting) return;
+    setExporting(true);
+    try {
+      const scrollBox = el.querySelector('.overflow-x-auto') as HTMLElement | null;
+      const prevWidth = scrollBox?.style.width;
+      const prevOverflow = scrollBox?.style.overflow;
+      if (scrollBox) {
+        scrollBox.style.width = `${scrollBox.scrollWidth}px`;
+        scrollBox.style.overflow = 'visible';
+      }
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+      if (scrollBox) {
+        scrollBox.style.width = prevWidth || '';
+        scrollBox.style.overflow = prevOverflow || '';
+      }
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [canvas.width, canvas.height],
+      });
+      pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`สรุปยอด-${member?.code || 'สมาชิก'}${data?.cycle ? `-${data.cycle}` : ''}.pdf`);
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -411,8 +381,8 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
           {data && <p className="text-xs text-gray-400">รอบ {fmtDate(data.start)} - {fmtDate(data.end)}</p>}
         </div>
         {rows.length > 0 && (
-          <button onClick={exportPdf} className="p-2.5 rounded-full hover:bg-gray-100 text-gray-500 shrink-0" title="ส่งออกเป็น PDF">
-            <Printer size={20} />
+          <button onClick={exportPdf} disabled={exporting} className="p-2.5 rounded-full hover:bg-gray-100 text-gray-500 shrink-0 disabled:opacity-50" title="ดาวน์โหลดเป็น PDF">
+            {exporting ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
           </button>
         )}
       </div>
@@ -427,6 +397,7 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
           </div>
         ) : (
           <>
+            <div ref={summaryRef} className="bg-slate-50 space-y-4">
             <div className="bg-purple-50 border-2 border-purple-200 rounded-2xl p-5 text-center">
               <p className="text-sm text-purple-700 font-medium">ตัดไปแล้วรวมรอบนี้</p>
               <p className="text-4xl font-bold text-purple-800 mt-1">{fmtQty(grandTotal)} <span className="text-lg font-normal">{unit}</span></p>
@@ -469,6 +440,7 @@ function CuttingSummaryScreen({ token, member, onCancel }: { token: string; memb
                   </tr>
                 </tbody>
               </table>
+            </div>
             </div>
             <p className="text-center text-xs text-gray-400">ปัดขวาเพื่อดูสินค้าชนิดอื่น</p>
           </>
