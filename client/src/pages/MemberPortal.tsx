@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { SARABUN_REGULAR_BASE64, SARABUN_BOLD_BASE64 } from '../assets/fonts/sarabun-base64';
@@ -37,6 +37,12 @@ function registerSarabunFont(doc: jsPDF) {
   doc.setFont('Sarabun', 'normal');
 }
 const fmtMoneyForPdf = (n: number) => `${Number(n || 0).toLocaleString('th-TH')} บาท`;
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const v = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const n = parseInt(v, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 const statusInfo: Record<string, { label: string; cls: string; icon: any }> = {
   pending: { label: 'รอตรวจสอบ', cls: 'bg-amber-100 text-amber-700', icon: Clock },
@@ -57,105 +63,6 @@ function parseProductLabel(name: string) {
   const num = name.match(/-(\d+)/)?.[1] || '';
   const label = name.match(/\(([^)]+)\)/)?.[1] || name;
   return { num, label };
-}
-
-/* ── ฟอร์มแจ้งคืนงาน (เต็มจอ ทีละขั้นตอน ปุ่มใหญ่ กดง่าย) ── */
-function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: any; onDone: () => void; onCancel: () => void }) {
-  const [good, setGood] = useState('');
-  const [hasProblem, setHasProblem] = useState(false);
-  const [ngCut, setNgCut] = useState('');
-  const [ngFactory, setNgFactory] = useState('');
-  const [lost, setLost] = useState('');
-  const [returnedAt, setReturnedAt] = useState(todayLocal());
-  const [error, setError] = useState('');
-
-  const mut = useMutation({
-    mutationFn: () => portalApi.submitReturn(token, {
-      issue_id: issue.id,
-      good_qty: good || 0,
-      ng_cut: ngCut || 0,
-      ng_factory: ngFactory || 0,
-      lost_qty: lost || 0,
-      returned_at: returnedAt,
-    }),
-    onSuccess: onDone,
-    onError: (e: any) => setError(e.response?.data?.error || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง'),
-  });
-
-  const total = (parseFloat(good) || 0) + (parseFloat(ngCut) || 0) + (parseFloat(ngFactory) || 0) + (parseFloat(lost) || 0);
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
-        <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
-        <div className="min-w-0">
-          <p className="font-bold text-lg text-gray-800 truncate">{issue.product_name}</p>
-          <p className="text-sm text-gray-500">เบิกไป {fmtQty(issue.quantity)} {issue.unit} · คงเหลือ {fmtQty(issue.remaining)} {issue.unit}</p>
-        </div>
-      </div>
-
-      <div className="flex-1 p-4 space-y-5 max-w-md mx-auto w-full">
-        <div className="bg-white rounded-2xl border p-4 flex items-center justify-between gap-3">
-          <label className="text-sm font-medium text-gray-600 shrink-0">วันที่คืน</label>
-          <input type="date" className="input !w-auto text-right" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
-        </div>
-
-        <div className="bg-white rounded-3xl border-2 border-blue-200 p-5 text-center">
-          <label className="block text-lg font-semibold text-gray-700 mb-3">ตัดเสร็จแล้วกี่เส้น?</label>
-          <input
-            type="number" inputMode="numeric" min={0} autoFocus
-            className="w-full text-center text-5xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-2 bg-transparent"
-            placeholder="0"
-            value={good}
-            onChange={e => setGood(e.target.value)}
-          />
-          <p className="text-sm text-gray-400 mt-2">{issue.unit}</p>
-        </div>
-
-        {!hasProblem ? (
-          <button
-            type="button"
-            onClick={() => setHasProblem(true)}
-            className="w-full text-center text-gray-500 text-base py-2 underline"
-          >
-            มีของเสีย / ของหายไหม?
-          </button>
-        ) : (
-          <div className="bg-white rounded-2xl border p-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-600">มีปัญหาด้วย — ระบุจำนวน (ใส่เฉพาะที่มี)</p>
-            <div>
-              <label className="text-sm text-gray-500">จำนวนงานเสียจากการตัด (เส้น)</label>
-              <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngCut} onChange={e => setNgCut(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">จำนวนงานเสียจากโรงงาน (เส้น)</label>
-              <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngFactory} onChange={e => setNgFactory(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm text-gray-500">จำนวนงานหาย (เส้น)</label>
-              <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={lost} onChange={e => setLost(e.target.value)} />
-            </div>
-          </div>
-        )}
-
-        {total > issue.remaining + 0.001 && (
-          <p className="text-rose-600 text-sm text-center font-medium">⚠️ รวมแล้วเกินจำนวนที่เบิกไป (คงเหลือ {fmtQty(issue.remaining)} {issue.unit})</p>
-        )}
-        {error && <p className="text-rose-600 text-sm text-center font-medium">{error}</p>}
-
-        <button
-          type="button"
-          disabled={total <= 0 || total > issue.remaining + 0.001 || mut.isPending}
-          onClick={() => mut.mutate()}
-          className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-xl py-4 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
-        >
-          {mut.isPending ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} />}
-          ส่งแจ้งคืนงาน
-        </button>
-        <p className="text-center text-xs text-gray-400">เจ้าหน้าที่จะตรวจนับของจริงแล้วยืนยันอีกครั้ง</p>
-      </div>
-    </div>
-  );
 }
 
 /* ── เบิกงานใหม่ — เลือกได้หลายชนิด กรอกจำนวนแต่ละชนิดไว้ก่อน แล้วค่อยกด "ส่ง" ครั้งเดียวรวมกันท้ายสุด ── */
@@ -284,10 +191,58 @@ function IssueRequestScreen({ token, products, onDone, onCancel }: { token: stri
   );
 }
 
-/* ── คืนงาน — รายการงานค้างเบิก กดเข้ามาถึงเห็น (หน้าแรกไม่โชว์รายละเอียด) ── */
-function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[]; onSelect: (i: any) => void; onCancel: () => void }) {
+/* ── คืนงาน — เลือกได้หลายรายการ กรอกจำนวนแต่ละรายการไว้ก่อน แล้วค่อยกด "ส่ง" ครั้งเดียวรวมกันท้ายสุด ── */
+function ReturnListScreen({ token, openIssues, onDone, onCancel }: { token: string; openIssues: any[]; onDone: () => void; onCancel: () => void }) {
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [goodQty, setGoodQty] = useState<Record<number, string>>({});
+  const [hasProblem, setHasProblem] = useState<Record<number, boolean>>({});
+  const [ngCut, setNgCut] = useState<Record<number, string>>({});
+  const [ngFactory, setNgFactory] = useState<Record<number, string>>({});
+  const [lost, setLost] = useState<Record<number, string>>({});
+  const [returnedAt, setReturnedAt] = useState(todayLocal());
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const toggle = (id: number) => setExpanded(e => ({ ...e, [id]: !e[id] }));
+  const totalFor = (id: number) => (parseFloat(goodQty[id]) || 0) + (parseFloat(ngCut[id]) || 0) + (parseFloat(ngFactory[id]) || 0) + (parseFloat(lost[id]) || 0);
+
+  const picked = openIssues
+    .map((i: any) => ({ issue: i, good: parseFloat(goodQty[i.id]) || 0, ngC: parseFloat(ngCut[i.id]) || 0, ngF: parseFloat(ngFactory[i.id]) || 0, lostQ: parseFloat(lost[i.id]) || 0 }))
+    .filter((x: any) => (x.good + x.ngC + x.ngF + x.lostQ) > 0);
+
+  const submit = async () => {
+    if (picked.length === 0 || submitting) return;
+    setSubmitting(true); setError('');
+    const failedNames: string[] = [];
+    for (const it of picked) {
+      try {
+        await portalApi.submitReturn(token, {
+          issue_id: it.issue.id,
+          good_qty: it.good,
+          ng_cut: it.ngC,
+          ng_factory: it.ngF,
+          lost_qty: it.lostQ,
+          returned_at: returnedAt,
+        });
+        const id = it.issue.id;
+        setGoodQty(q => ({ ...q, [id]: '' }));
+        setNgCut(q => ({ ...q, [id]: '' }));
+        setNgFactory(q => ({ ...q, [id]: '' }));
+        setLost(q => ({ ...q, [id]: '' }));
+      } catch {
+        failedNames.push(it.issue.product_name);
+      }
+    }
+    setSubmitting(false);
+    if (failedNames.length > 0) {
+      setError(`ส่งไม่สำเร็จ: ${failedNames.join(', ')} — รายการอื่นส่งสำเร็จแล้ว ลองส่งรายการที่เหลือใหม่อีกครั้ง`);
+    } else {
+      onDone();
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col pb-28">
       <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
         <p className="font-bold text-lg text-gray-800">คืนงาน</p>
@@ -299,35 +254,95 @@ function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[
             ตอนนี้ไม่มีงานค้างเบิก
           </div>
         ) : (
-          openIssues.map((i: any) => (
-            <div key={i.id} className="bg-white rounded-2xl border p-4">
-              <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 mb-2.5">
-                <Calendar size={12} /> เบิกเมื่อ {fmtDate(i.issued_at)}
-              </span>
-              <div className="flex items-center gap-2">
-                {i.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
-                <p className="font-bold text-gray-800">{i.product_name}</p>
-              </div>
-              <div className="flex items-center justify-between mt-3">
-                <div>
-                  <p className="text-xs text-gray-400">คงเหลือที่ต้องคืน</p>
-                  <p className="text-xl font-bold text-blue-700">{fmtQty(i.remaining)} <span className="text-sm font-normal text-gray-400">{i.unit}</span></p>
-                </div>
-                <button
-                  disabled={i.remaining <= 0}
-                  onClick={() => onSelect(i)}
-                  className="bg-blue-600 disabled:bg-gray-300 text-white font-bold px-5 py-3 rounded-xl active:scale-[0.97] transition-transform"
-                >
-                  คืนงาน
-                </button>
-              </div>
-              {i.pending_total > 0 && (
-                <p className="text-xs text-amber-600 mt-2">🕐 มีคำขอรอตรวจสอบอยู่ {fmtQty(i.pending_total)} {i.unit}</p>
-              )}
+          <>
+            <p className="text-sm text-gray-500 px-1">เลือกได้หลายรายการ กรอกจำนวนไว้ทีละรายการ แล้วค่อยกดส่งรวมกันทีเดียวด้านล่าง</p>
+
+            <div className="bg-white rounded-2xl border p-4 flex items-center justify-between gap-3">
+              <label className="text-sm font-medium text-gray-600 shrink-0">วันที่คืน</label>
+              <input type="date" className="input !w-auto text-right" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
             </div>
-          ))
+
+            {openIssues.map((i: any) => {
+              const open = !!expanded[i.id];
+              const total = totalFor(i.id);
+              const hasQty = total > 0;
+              const over = total > i.remaining + 0.001;
+              return (
+                <div key={i.id} className={`bg-white rounded-2xl border-2 overflow-hidden transition-colors ${hasQty ? (over ? 'border-rose-300' : 'border-blue-400') : 'border-gray-100'}`}>
+                  <button type="button" onClick={() => toggle(i.id)} className="w-full p-4 text-left active:scale-[0.99] transition-transform">
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 mb-2.5">
+                      <Calendar size={12} /> เบิกเมื่อ {fmtDate(i.issued_at)}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {i.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                      <span className="flex-1 font-bold text-gray-800">{i.product_name}</span>
+                      {hasQty && !open && (
+                        <span className="text-sm font-bold text-blue-700 bg-blue-50 rounded-lg px-2.5 py-1 shrink-0">{fmtQty(total)} {i.unit}</span>
+                      )}
+                      {open ? <ChevronDown size={20} className="text-blue-500 shrink-0" /> : <ChevronRight size={20} className="text-gray-300 shrink-0" />}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">คงเหลือที่ต้องคืน <b className="text-gray-600">{fmtQty(i.remaining)} {i.unit}</b></p>
+                  </button>
+                  {open && (
+                    <div className="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+                      <div className="text-center">
+                        <label className="block text-sm font-semibold text-gray-700 mb-1.5">ตัดเสร็จแล้วกี่{i.unit}?</label>
+                        <input
+                          type="number" inputMode="numeric" min={0} autoFocus
+                          className="w-full text-center text-3xl font-bold text-blue-700 border-b-4 border-blue-200 focus:border-blue-500 outline-none py-1 bg-transparent"
+                          placeholder="0"
+                          value={goodQty[i.id] || ''}
+                          onChange={e => setGoodQty(q => ({ ...q, [i.id]: e.target.value }))}
+                        />
+                      </div>
+                      {!hasProblem[i.id] ? (
+                        <button type="button" onClick={() => setHasProblem(h => ({ ...h, [i.id]: true }))} className="w-full text-center text-gray-500 text-sm py-1 underline">
+                          มีของเสีย / ของหายไหม?
+                        </button>
+                      ) : (
+                        <div className="space-y-2 pt-1">
+                          <div>
+                            <label className="text-xs text-gray-500">งานเสียจากการตัด</label>
+                            <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngCut[i.id] || ''} onChange={e => setNgCut(q => ({ ...q, [i.id]: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">งานเสียจากโรงงาน</label>
+                            <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngFactory[i.id] || ''} onChange={e => setNgFactory(q => ({ ...q, [i.id]: e.target.value }))} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">งานหาย</label>
+                            <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={lost[i.id] || ''} onChange={e => setLost(q => ({ ...q, [i.id]: e.target.value }))} />
+                          </div>
+                        </div>
+                      )}
+                      {over && <p className="text-rose-600 text-xs text-center font-medium">⚠️ รวมแล้วเกินจำนวนที่เบิกไป</p>}
+                      {i.pending_total > 0 && <p className="text-xs text-amber-600 text-center">🕐 มีคำขอรอตรวจสอบอยู่ {fmtQty(i.pending_total)} {i.unit}</p>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
+
+      {openIssues.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 z-10">
+          <div className="max-w-md mx-auto w-full">
+            {error && <p className="text-rose-600 text-sm text-center font-medium mb-2">{error}</p>}
+            <button
+              type="button"
+              disabled={picked.length === 0 || submitting}
+              onClick={submit}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:bg-gray-300 text-white font-bold text-lg py-3.5 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
+            >
+              {submitting ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+              {picked.length === 0 ? 'ส่งแจ้งคืนงาน' : `ส่งแจ้งคืนงาน (${picked.length} รายการ)`}
+            </button>
+            <p className="text-center text-xs text-gray-400 mt-2">เจ้าหน้าที่จะตรวจนับของจริงแล้วยืนยันอีกครั้ง</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -361,36 +376,38 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
     try {
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       registerSarabunFont(doc);
+      // เพิ่มระยะบรรทัดจากค่าเริ่มต้น (1.15) ให้สระ/วรรณยุกต์ไทยที่ซ้อนกันมีที่หายใจ ไม่ดูอัดแน่น
+      doc.setLineHeightFactor(1.4);
 
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 14;
 
-      doc.setFont('Sarabun', 'bold'); doc.setFontSize(16); doc.setTextColor(32, 31, 28);
-      doc.text('สรุปยอดตัดสายไฟ', margin, margin + 4);
-      doc.setFont('Sarabun', 'normal'); doc.setFontSize(11); doc.setTextColor(90, 86, 78);
-      doc.text(`${member?.name || ''}${member?.code ? ` (รหัส ${member.code})` : ''}`, margin, margin + 11);
-      doc.setFontSize(9.5); doc.setTextColor(150, 145, 135);
-      doc.text(`รอบ ${fmtDate(data.start)} - ${fmtDate(data.end)}`, margin, margin + 16.5);
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(19); doc.setTextColor(32, 31, 28);
+      doc.text('สรุปยอดตัดสายไฟ', margin, margin + 5);
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(12.5); doc.setTextColor(90, 86, 78);
+      doc.text(`${member?.name || ''}${member?.code ? ` (รหัส ${member.code})` : ''}`, margin, margin + 12.5);
+      doc.setFontSize(10.5); doc.setTextColor(150, 145, 135);
+      doc.text(`รอบ ${fmtDate(data.start)} - ${fmtDate(data.end)}`, margin, margin + 18.5);
 
-      const boxY = margin + 22;
-      const boxHeight = 22;
+      const boxY = margin + 25;
+      const boxHeight = 24;
       const boxGap = 6;
       const boxWidth = (pageWidth - margin * 2 - boxGap) / 2;
 
       doc.setFillColor(243, 232, 255);
       doc.roundedRect(margin, boxY, boxWidth, boxHeight, 3, 3, 'F');
-      doc.setFont('Sarabun', 'normal'); doc.setFontSize(10); doc.setTextColor(91, 33, 182);
-      doc.text('ตัดไปแล้วรวมรอบนี้', margin + boxWidth / 2, boxY + 8, { align: 'center' });
-      doc.setFont('Sarabun', 'bold'); doc.setFontSize(17);
-      doc.text(`${fmtQty(grandTotal)} ${unit}`, margin + boxWidth / 2, boxY + 16.5, { align: 'center' });
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(11); doc.setTextColor(91, 33, 182);
+      doc.text('ตัดไปแล้วรวมรอบนี้', margin + boxWidth / 2, boxY + 9, { align: 'center' });
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(19);
+      doc.text(`${fmtQty(grandTotal)} ${unit}`, margin + boxWidth / 2, boxY + 18, { align: 'center' });
 
       const boxBX = margin + boxWidth + boxGap;
       doc.setFillColor(209, 250, 229);
       doc.roundedRect(boxBX, boxY, boxWidth, boxHeight, 3, 3, 'F');
-      doc.setFont('Sarabun', 'normal'); doc.setFontSize(10); doc.setTextColor(4, 120, 87);
-      doc.text('คิดเป็นเงินประมาณ (ไม่เป็นทางการ)', boxBX + boxWidth / 2, boxY + 8, { align: 'center' });
-      doc.setFont('Sarabun', 'bold'); doc.setFontSize(17);
-      doc.text(fmtMoneyForPdf(wage), boxBX + boxWidth / 2, boxY + 16.5, { align: 'center' });
+      doc.setFont('Sarabun', 'normal'); doc.setFontSize(11); doc.setTextColor(4, 120, 87);
+      doc.text('คิดเป็นเงินประมาณ (ไม่เป็นทางการ)', boxBX + boxWidth / 2, boxY + 9, { align: 'center' });
+      doc.setFont('Sarabun', 'bold'); doc.setFontSize(19);
+      doc.text(fmtMoneyForPdf(wage), boxBX + boxWidth / 2, boxY + 18, { align: 'center' });
 
       const head = [['วันที่เบิก', ...products.map((p: any) => {
         const { num, label } = parseProductLabel(p.name);
@@ -410,8 +427,8 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
         head, body, foot,
         theme: 'grid',
         margin: { left: margin, right: margin },
-        styles: { font: 'Sarabun', fontSize: 9, cellPadding: 2.4, halign: 'center', valign: 'middle', lineColor: [232, 228, 220], lineWidth: 0.2, textColor: [32, 31, 28] },
-        headStyles: { font: 'Sarabun', fontStyle: 'bold', fillColor: [248, 247, 244], textColor: [90, 86, 78] },
+        styles: { font: 'Sarabun', fontSize: 10.5, cellPadding: 3, halign: 'center', valign: 'middle', lineColor: [232, 228, 220], lineWidth: 0.2, textColor: [32, 31, 28] },
+        headStyles: { font: 'Sarabun', fontStyle: 'bold', fontSize: 10.5, fillColor: [248, 247, 244], textColor: [90, 86, 78], cellPadding: { top: 6.5, right: 2, bottom: 2.5, left: 2 } },
         columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
         didParseCell: (d) => {
           if (d.section === 'foot') {
@@ -420,9 +437,21 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
             d.cell.styles.fontStyle = 'bold';
           }
         },
+        // จุดสีแสดงสินค้าตรงหัวคอลัมน์ (ขาว/ชมพู/เขียว ฯลฯ) ให้ตรงกับหน้าจอจริง — ใช้ 'FD' (fill+draw) กันจุดสีขาวจมหายไปกับพื้นหลัง
+        didDrawCell: (d) => {
+          if (d.section === 'head' && d.column.index > 0) {
+            const p = products[d.column.index - 1];
+            if (p?.color) {
+              const [r, g, b] = hexToRgb(p.color);
+              doc.setFillColor(r, g, b);
+              doc.setDrawColor(200, 196, 188);
+              doc.circle(d.cell.x + d.cell.width / 2, d.cell.y + 3.2, 1.2, 'FD');
+            }
+          }
+        },
         didDrawPage: () => {
           const pageHeight = doc.internal.pageSize.getHeight();
-          doc.setFont('Sarabun', 'normal'); doc.setFontSize(8); doc.setTextColor(165, 160, 153);
+          doc.setFont('Sarabun', 'normal'); doc.setFontSize(9); doc.setTextColor(165, 160, 153);
           doc.text(`พิมพ์เมื่อ ${fmtDate(todayLocal())} · ไม่เป็นทางการ`, margin, pageHeight - 8);
           doc.text(`หน้า ${(doc as any).internal.getCurrentPageInfo().pageNumber}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
         },
@@ -524,7 +553,6 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
 export default function MemberPortal() {
   const { token } = useParams<{ token: string }>();
   const qc = useQueryClient();
-  const [activeIssue, setActiveIssue] = useState<any>(null);
   const [requestingIssue, setRequestingIssue] = useState(false);
   const [showReturnList, setShowReturnList] = useState(false);
   const [showCuttingSummary, setShowCuttingSummary] = useState(false);
@@ -553,17 +581,6 @@ export default function MemberPortal() {
     );
   }
 
-  if (activeIssue) {
-    return (
-      <ReturnForm
-        token={token!}
-        issue={activeIssue}
-        onCancel={() => setActiveIssue(null)}
-        onDone={() => { setActiveIssue(null); setShowReturnList(false); setJustSubmitted('return'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
-      />
-    );
-  }
-
   if (requestingIssue) {
     return (
       <IssueRequestScreen
@@ -578,9 +595,10 @@ export default function MemberPortal() {
   if (showReturnList) {
     return (
       <ReturnListScreen
+        token={token!}
         openIssues={data.open_issues || []}
         onCancel={() => setShowReturnList(false)}
-        onSelect={(i) => setActiveIssue(i)}
+        onDone={() => { setShowReturnList(false); setJustSubmitted('return'); refresh(); setTimeout(() => setJustSubmitted(null), 4000); }}
       />
     );
   }
