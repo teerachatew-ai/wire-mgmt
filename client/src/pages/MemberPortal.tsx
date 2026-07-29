@@ -6,6 +6,12 @@ import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, Pa
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 const money = (n: number) => `฿${Number(n || 0).toLocaleString('th-TH')}`;
+// วันที่วันนี้ตามเวลาเครื่อง (local) ของสมาชิก — ห้ามใช้ toISOString() ตรงๆ เพราะแปลงเป็น UTC ก่อน
+// ทำให้ช่วงเที่ยงคืนถึงตี 7 เวลาไทย จะได้ "เมื่อวาน" แทนวันนี้จริง (ประเทศไทยเร็วกว่า UTC 7 ชม.)
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function greetingText() {
   const h = new Date().getHours();
   if (h < 11) return 'สวัสดีตอนเช้า';
@@ -47,7 +53,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
   const [ngCut, setNgCut] = useState('');
   const [ngFactory, setNgFactory] = useState('');
   const [lost, setLost] = useState('');
-  const [returnedAt, setReturnedAt] = useState(new Date().toISOString().split('T')[0]);
+  const [returnedAt, setReturnedAt] = useState(todayLocal());
   const [error, setError] = useState('');
 
   const mut = useMutation({
@@ -143,7 +149,7 @@ function ReturnForm({ token, issue, onDone, onCancel }: { token: string; issue: 
 function IssueRequestScreen({ token, products, onDone, onCancel }: { token: string; products: any[]; onDone: () => void; onCancel: () => void }) {
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [qty, setQty] = useState<Record<number, string>>({});
-  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
+  const [issuedAt, setIssuedAt] = useState(todayLocal());
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 

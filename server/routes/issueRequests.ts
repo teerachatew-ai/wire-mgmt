@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
+import { todayThai } from '../payCycle';
 import { userOf } from '../reqUser';
 
 const router = Router();
@@ -31,7 +32,7 @@ router.post('/:id/confirm', (req, res) => {
   const { product_id, quantity, issued_at, due_date, notes } = req.body;
   const productId = product_id || request.product_id;
   const qty = quantity !== undefined ? (parseFloat(quantity) || 0) : request.quantity;
-  const issuedAt = issued_at || request.issued_at || new Date().toISOString().split('T')[0];
+  const issuedAt = issued_at || request.issued_at || todayThai();
   if (qty <= 0) return res.status(400).json({ error: 'กรุณาระบุจำนวน' });
 
   const settings = getSettings();

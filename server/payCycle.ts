@@ -5,6 +5,12 @@
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const fmt = (y: number, m: number, d: number) => `${y}-${pad(m)}-${pad(d)}`;
+
+// วันนี้ตามเวลาไทย (Asia/Bangkok) เสมอ ไม่ว่าเซิร์ฟเวอร์จะตั้งโซนเวลาอะไรก็ตาม (เซิร์ฟเวอร์คลาวด์ส่วนใหญ่ตั้งเป็น UTC)
+// กัน bug วันที่คลาดเคลื่อนไปหนึ่งวัน ช่วงเที่ยงคืนถึงตี 7 เวลาไทย ถ้าใช้ new Date().toISOString() ตรงๆ (เป็น UTC) จะยังนับเป็น "เมื่อวาน"
+export function todayThai(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
+}
 const lastDayOfMonth = (y: number, m: number) => new Date(y, m, 0).getDate(); // m = 1-12
 const dow = (y: number, m: number, d: number) => new Date(y, m - 1, d).getDay(); // 0=Sun..6=Sat
 

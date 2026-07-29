@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { loadCutoffConfig, computePayCycle, payCycleWindow } from '../payCycle';
+import { loadCutoffConfig, computePayCycle, payCycleWindow, todayThai } from '../payCycle';
 
 const router = Router();
 
@@ -21,7 +21,7 @@ function currentCycleSummary(memberId: number) {
   const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
   const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayThai();
   const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
   const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
 
@@ -128,7 +128,7 @@ router.post('/:token/return-request', (req, res) => {
     return res.status(400).json({ error: `แจ้งจำนวนเกินยอดที่เบิกไป (คงเหลือให้แจ้งได้ ${remaining})` });
   }
 
-  const retAt = returned_at || new Date().toISOString().split('T')[0];
+  const retAt = returned_at || todayThai();
   const result = prepare(
     `INSERT INTO return_requests (issue_id, good_qty, ng_cut, ng_factory, waste_qty, lost_qty, notes, returned_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(issue_id, gQty, ngCut, ngFac, wQty, lQty, notes || null, retAt);
@@ -149,7 +149,7 @@ router.post('/:token/issue-request', (req, res) => {
   const qty = parseFloat(quantity) || 0;
   if (qty <= 0) return res.status(400).json({ error: 'กรุณาระบุจำนวน' });
 
-  const issuedAt = issued_at || new Date().toISOString().split('T')[0];
+  const issuedAt = issued_at || todayThai();
   const result = prepare(
     `INSERT INTO issue_requests (member_id, product_id, quantity, notes, issued_at) VALUES (?, ?, ?, ?, ?)`
   ).run(member.id, product_id, qty, notes || null, issuedAt);
@@ -164,7 +164,7 @@ router.get('/:token/cutting-summary', (req, res) => {
 
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayThai();
   const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
   const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
 
