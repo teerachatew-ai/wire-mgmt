@@ -326,9 +326,9 @@ function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: ()
 
   const rows: any[] = data?.rows || [];
   const products: any[] = data?.products || [];
-  const dates = Array.from(new Set(rows.map((r: any) => r.returned_at))).sort();
+  const dates = Array.from(new Set(rows.map((r: any) => r.issued_at))).sort();
   const qtyOf = (date: string, productId: number) => {
-    const r = rows.find((x: any) => x.returned_at === date && x.product_id === productId);
+    const r = rows.find((x: any) => x.issued_at === date && x.product_id === productId);
     return r ? Number(r.good_qty) || 0 : 0;
   };
   const totalOf = (productId: number) => rows.filter((r: any) => r.product_id === productId).reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
@@ -364,7 +364,7 @@ function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: ()
               <table className="text-sm border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b">
-                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 border-r whitespace-nowrap">วันที่รับงาน</th>
+                    <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 border-r whitespace-nowrap">วันที่เบิก</th>
                     {products.map((p: any) => {
                       const { num, label } = parseProductLabel(p.name);
                       return (

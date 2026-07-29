@@ -12,6 +12,8 @@ function getMemberByToken(token: string) {
 // 3 สาย คือ 1 ชุด = 3 เส้น (1 ชิ้นต่อรุ่นย่อยทั้ง 3 รุ่นในกลุ่ม) — โครงการอื่นนอกเหนือจากนี้ไม่แปลงหน่วย
 const PROJECT_SET_SIZE: Record<string, number> = { COT091: 2, COT092: 2, COT102: 3 };
 const PROJECT_CHIP_LABEL: Record<string, string> = { COT091: 'ป้ายขาว', COT092: 'ป้ายชมพู', COT102: '3 สาย' };
+// ลำดับคอลัมน์ที่สมาชิกคุ้นเคย — ป้ายขาวก่อน ป้ายชมพู แล้ว 3 สายไว้ขวาสุด (โครงการอื่นที่ไม่รู้จักจะถูกเรียงไว้ท้ายสุด)
+const PROJECT_ORDER: Record<string, number> = { COT091: 0, COT092: 1, COT102: 2 };
 
 // สรุปรายได้โดยประมาณ + จำนวนที่ตัด ของสมาชิกคนนี้ในรอบตัดค่าแรงปัจจุบัน — นับเฉพาะรายการคืนที่เจ้าหน้าที่ยืนยันแล้ว (ตาราง returns)
 // เท่านั้น ไม่รวมคำขอที่ยังรอตรวจสอบ ใช้สูตรเดียวกับ /reports/payroll-cumulative (หักค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาท) เพื่อให้ตรงกับยอดที่เจ้าหน้าที่เห็น
@@ -168,23 +170,34 @@ router.get('/:token/cutting-summary', (req, res) => {
   const cycle = computePayCycle(today, holidays, overrides, cutoffDay);
   const { start, end } = payCycleWindow(cycle, holidays, overrides, cutoffDay);
 
+  // จัดกลุ่มตาม "วันที่เบิก" (issued_at) ไม่ใช่วันที่รับคืน — งานหนึ่งชิ้นมีทั้งวันเบิกและวันคืน ให้ยึดวันเบิกเป็นหลักตามที่สมาชิกคุ้นเคย
   const rows = prepare(`
-    SELECT r.returned_at, p.id as product_id, p.name as product_name, p.color, p.unit,
+    SELECT i.issued_at as issued_at, p.id as product_id, p.name as product_name, p.color, p.unit,
       SUM(r.good_qty) as good_qty
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
-    GROUP BY r.returned_at, p.id
-    ORDER BY r.returned_at, p.id
+    GROUP BY i.issued_at, p.id
+    ORDER BY i.issued_at, p.id
   `).all(member.id, cycle) as any[];
 
   const productMap = new Map<number, any>();
   for (const r of rows) {
     if (!productMap.has(r.product_id)) productMap.set(r.product_id, { id: r.product_id, name: r.product_name, color: r.color, unit: r.unit });
   }
+  // เรียงคอลัมน์: ป้ายขาว -> ป้ายชมพู -> 3 สาย (ใช้ project ของสินค้าจริงจากตาราง products อ้างอิง PROJECT_ORDER)
+  const productProjectMap = new Map<number, string | null>(
+    (prepare(`SELECT id, project FROM products`).all() as any[]).map((p: any) => [p.id, p.project])
+  );
+  const products = Array.from(productMap.values()).sort((a: any, b: any) => {
+    const pa = PROJECT_ORDER[productProjectMap.get(a.id) || ''] ?? 99;
+    const pb = PROJECT_ORDER[productProjectMap.get(b.id) || ''] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return a.id - b.id;
+  });
 
-  res.json({ cycle, start, end, rows, products: Array.from(productMap.values()) });
+  res.json({ cycle, start, end, rows, products });
 });
 
 export default router;
