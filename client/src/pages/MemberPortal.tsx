@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { portalApi } from '../api';
-import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Printer } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
 const money = (n: number) => `฿${Number(n || 0).toLocaleString('th-TH')}`;
+const escHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 // วันที่วันนี้ตามเวลาเครื่อง (local) ของสมาชิก — ห้ามใช้ toISOString() ตรงๆ เพราะแปลงเป็น UTC ก่อน
 // ทำให้ช่วงเที่ยงคืนถึงตี 7 เวลาไทย จะได้ "เมื่อวาน" แทนวันนี้จริง (ประเทศไทยเร็วกว่า UTC 7 ชม.)
 function todayLocal() {
@@ -320,7 +321,7 @@ function ReturnListScreen({ openIssues, onSelect, onCancel }: { openIssues: any[
 }
 
 /* ── สรุปจำนวนงานที่ตัด — รอบตัดค่าแรงปัจจุบัน ไม่แสดงจำนวนเงิน ── */
-function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: () => void }) {
+function CuttingSummaryScreen({ token, member, onCancel }: { token: string; member: any; onCancel: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['portal-cutting-summary', token],
     queryFn: () => portalApi.cuttingSummary(token),
@@ -337,14 +338,83 @@ function CuttingSummaryScreen({ token, onCancel }: { token: string; onCancel: ()
   const grandTotal = rows.reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0);
   const unit = products[0]?.unit || '';
 
+  // ส่งออกตารางสรุปยอดเป็น PDF — แนวนอน A4 ให้พอดีกับคอลัมน์สินค้าหลายชนิด
+  const exportPdf = () => {
+    if (!data) return;
+    const w = window.open('', '_blank');
+    if (!w) return;
+
+    const headHtml = products.map((p: any) => {
+      const { num, label } = parseProductLabel(p.name);
+      return `<th>${p.color ? `<span class="pdot" style="background:${escHtml(p.color)}"></span>` : ''}${escHtml(num)}<br/><span class="plabel">${escHtml(label)}</span></th>`;
+    }).join('');
+
+    const rowsHtml = dates.map((d: string) => `
+      <tr>
+        <td class="dcell">${escHtml(fmtDate(d))}</td>
+        ${products.map((p: any) => {
+          const q = qtyOf(d, p.id);
+          return `<td>${q > 0 ? fmtQty(q) : '-'}</td>`;
+        }).join('')}
+      </tr>`).join('');
+
+    const totalRowHtml = `
+      <tr class="totalrow">
+        <td class="dcell">รวม</td>
+        ${products.map((p: any) => `<td>${fmtQty(totalOf(p.id))}</td>`).join('')}
+      </tr>`;
+
+    w.document.write(`
+      <html><head><title>สรุปยอด ${escHtml(member?.code || '')}</title>
+      <style>
+        @page { size: A4 landscape; margin: 14mm; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { margin: 0; font-family: 'Tahoma', 'Segoe UI', sans-serif; color: #201f1c; }
+        .title { font-size: 18px; font-weight: 800; margin: 0; }
+        .sub { font-size: 12px; color: #6f6b63; margin: 3px 0 16px; }
+        .banner { display: inline-block; background: #f3e8ff; border: 1.5px solid #ddd6fe; border-radius: 14px; padding: 10px 24px; margin-bottom: 18px; text-align: center; }
+        .banner .lbl { font-size: 11px; color: #6d28d9; font-weight: 600; }
+        .banner .val { font-size: 26px; font-weight: 800; color: #5b21b6; margin-top: 2px; }
+        table { border-collapse: collapse; width: 100%; font-size: 11px; }
+        th, td { border: 1px solid #e8e4dc; padding: 6px 7px; text-align: center; }
+        th { background: #f8f7f4; font-weight: 700; }
+        .plabel { display: block; font-weight: 400; font-size: 9px; color: #8a8578; }
+        .pdot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; border: 1px solid #ccc; }
+        .dcell { text-align: left; white-space: nowrap; font-weight: 600; }
+        .totalrow td { background: #f3e8ff; color: #5b21b6; font-weight: 800; }
+        .foot { margin-top: 16px; font-size: 10px; color: #a5a099; }
+      </style></head>
+      <body>
+        <p class="title">สรุปยอด${member?.name ? ' — ' + escHtml(member.name) : ''}${member?.code ? ` (รหัส ${escHtml(member.code)})` : ''}</p>
+        <p class="sub">รอบ ${escHtml(fmtDate(data.start))} - ${escHtml(fmtDate(data.end))}</p>
+        <div class="banner">
+          <div class="lbl">ตัดไปแล้วรวมรอบนี้</div>
+          <div class="val">${fmtQty(grandTotal)} ${escHtml(unit)}</div>
+        </div>
+        <table>
+          <thead><tr><th>วันที่เบิก</th>${headHtml}</tr></thead>
+          <tbody>${rowsHtml}${totalRowHtml}</tbody>
+        </table>
+        <p class="foot">พิมพ์เมื่อ ${escHtml(fmtDate(todayLocal()))}</p>
+        <script>window.onload = () => window.print();<\/script>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <div className="bg-white border-b px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
         <button onClick={onCancel} className="p-2 -ml-2 rounded-full hover:bg-gray-100"><ArrowLeft size={24} /></button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-bold text-lg text-gray-800">สรุปยอด</p>
           {data && <p className="text-xs text-gray-400">รอบ {fmtDate(data.start)} - {fmtDate(data.end)}</p>}
         </div>
+        {rows.length > 0 && (
+          <button onClick={exportPdf} className="p-2.5 rounded-full hover:bg-gray-100 text-gray-500 shrink-0" title="ส่งออกเป็น PDF">
+            <Printer size={20} />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 p-4 space-y-4 max-w-md mx-auto w-full">
@@ -473,7 +543,7 @@ export default function MemberPortal() {
   }
 
   if (showCuttingSummary) {
-    return <CuttingSummaryScreen token={token!} onCancel={() => setShowCuttingSummary(false)} />;
+    return <CuttingSummaryScreen token={token!} member={data.member} onCancel={() => setShowCuttingSummary(false)} />;
   }
 
   const { member, recent_requests, recent_issue_requests } = data;
