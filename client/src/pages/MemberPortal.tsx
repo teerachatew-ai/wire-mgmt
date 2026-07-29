@@ -475,7 +475,7 @@ export default function MemberPortal() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <div className="relative overflow-hidden px-5 pt-8 pb-8 rounded-b-[2rem] shrink-0 bg-[radial-gradient(130%_150%_at_15%_-20%,#6a3fae_0%,#4a2f8c_46%,#262459_100%)]">
+      <div className="relative overflow-hidden px-5 pt-8 pb-8 shrink-0 bg-[radial-gradient(130%_150%_at_15%_-20%,#6a3fae_0%,#4a2f8c_46%,#262459_100%)]">
         <div className="absolute -right-16 -top-24 w-64 h-64 rounded-full bg-white/10 blur-2xl pointer-events-none" />
         <div className="absolute -left-16 -bottom-24 w-48 h-48 rounded-full bg-white/[0.06] blur-2xl pointer-events-none" />
         <div className="relative flex items-center justify-between gap-3">
