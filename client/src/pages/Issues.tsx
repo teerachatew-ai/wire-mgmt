@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
+import { issueApi, memberApi, productApi, reportApi, receiveApi, returnApi, issueRequestApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
@@ -602,6 +602,20 @@ export default function Issues() {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
   }, {})) as any[];
 
+  // งานที่สมาชิกคืนมาในช่วงที่กำลังกรองดูอยู่ (ใช้ตัวกรองเดียวกับตารางใบเบิก) — ให้เห็นทั้งเบิกออก+คืนเข้าพร้อมกันในหน้าเดียว
+  const { data: returnsOfPeriod = [] } = useQuery({
+    queryKey: ['returns', 'issues-page', dateFilter],
+    queryFn: () => returnApi.list(dateFilter),
+  });
+  const productUnitMap = new Map((products as any[]).map((p: any) => [p.name, p.unit]));
+  const productColorMap = new Map((products as any[]).map((p: any) => [p.name, p.color]));
+  const returnSummary = Object.values((returnsOfPeriod as any[]).reduce((a: any, r: any) => {
+    const k = r.product_name;
+    (a[k] ??= { name: k, unit: productUnitMap.get(k), color: productColorMap.get(k), qty: 0 }).qty += Number(r.good_qty) || 0;
+    return a;
+  }, {})) as any[];
+  const returnMemberCount = new Set((returnsOfPeriod as any[]).map((r: any) => r.member_name)).size;
+
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -677,6 +691,7 @@ export default function Issues() {
       )}
 
       <DaySummary groups={summary} note={dateFilterLabel(dateFilter)} unitLabel="เบิก" memberCount={memberCount} />
+      <DaySummary groups={returnSummary} note={dateFilterLabel(dateFilter)} unitLabel="คืน" memberCount={returnMemberCount} title="🔄 งานที่คืนแล้ว" />
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
