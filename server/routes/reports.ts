@@ -196,6 +196,32 @@ router.get('/performance', (req, res) => {
   const managerCompBaseAll = shipMonths.reduce((s, m) => s + managerCompForMonth(m).reduce((a, x) => a + (x.computed || 0), 0), 0);
   const managerCompMonth = managerCompBaseMonth + expToCompMonth;
   const managerCompAll = managerCompBaseAll + expToCompAll;
+
+  // ค่าตอบแทนผู้บริหารแยกรายคน — รวมทั้งส่วนอัตโนมัติ/กำหนดเอง (managerCompForMonth) และรายการ "เพิ่มเองรายเดือน" ที่จ่ายให้คนนั้นๆ โดยตรง
+  const managerExtraByPerson = (month: string | null) => {
+    const rows = (month
+      ? prepare(`SELECT paid_to_id, COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type = 'manager' GROUP BY paid_to_id`).all(month)
+      : prepare(`SELECT paid_to_id, COALESCE(SUM(amount),0) v FROM expenses WHERE paid_to_type = 'manager' GROUP BY paid_to_id`).all()) as any[];
+    return new Map(rows.map((r: any) => [r.paid_to_id, r.v]));
+  };
+  const extraByPersonMonth = managerExtraByPerson(thisMonth);
+  const managerBreakdownMonth = managerCompForMonth(thisMonth).map((m: any) => ({
+    id: m.id, name: m.name, role: m.role || '',
+    computed: (m.computed || 0) + (extraByPersonMonth.get(m.id) || 0),
+  }));
+  const allManagers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
+  const managerBreakdownAllMap = new Map<number, any>(allManagers.map((mg: any) => [mg.id, { id: mg.id, name: mg.name, role: mg.role || '', computed: 0 }]));
+  for (const mo of shipMonths) {
+    for (const mg of managerCompForMonth(mo)) {
+      const cur = managerBreakdownAllMap.get(mg.id);
+      if (cur) cur.computed += mg.computed || 0;
+    }
+  }
+  for (const [id, extra] of managerExtraByPerson(null)) {
+    const cur = managerBreakdownAllMap.get(id);
+    if (cur) cur.computed += extra;
+  }
+  const managerBreakdownAll = Array.from(managerBreakdownAllMap.values());
   const taxRate = withholdingTaxPct / 100;
   const taxMonth = revMonthVal * taxRate;
   const taxAll = revAllVal * taxRate;
@@ -241,6 +267,8 @@ router.get('/performance', (req, res) => {
     tax_all: taxAll,
     manager_comp_month: managerCompMonth,
     manager_comp_all: managerCompAll,
+    manager_breakdown_month: managerBreakdownMonth,
+    manager_breakdown_all: managerBreakdownAll,
     final_net_month: finalNetMonth,
     final_net_all: finalNetAll,
     // ประมาณการจากงานรับเข้า

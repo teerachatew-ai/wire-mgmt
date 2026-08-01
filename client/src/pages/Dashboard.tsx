@@ -281,16 +281,24 @@ export default function Dashboard() {
               <span className="text-[11px] text-slate-400">(ถ้าคืนครบทั้งหมด ฿{thb2(profit + data.outstanding_gross)})</span>
             </div>
           )}
-          {[
-            [`หัก ภาษี ณ ที่จ่าย ${taxPct}%`, -(isM ? data.tax_month : data.tax_all), 'text-rose-600'],
-            ['หัก ค่าตอบแทนผู้บริหาร', -(isM ? data.manager_comp_month : data.manager_comp_all), 'text-rose-600'],
-            ['หัก ค่าใช้จ่ายบริหารจัดการ', -(isM ? data.expenses_month : data.expenses_all), 'text-rose-600'],
-          ].map(([label, val, cls]: any) => (
-            <div key={label} className="flex justify-between">
-              <span className="text-slate-600">{label}</span>
-              <span className={cls}>{val < 0 ? '−' : ''}฿{thb2(Math.abs(val))}</span>
+          <div className="flex justify-between">
+            <span className="text-slate-600">{`หัก ภาษี ณ ที่จ่าย ${taxPct}%`}</span>
+            <span className="text-rose-600">−฿{thb2(isM ? data.tax_month : data.tax_all)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-600">หัก ค่าตอบแทนผู้บริหาร</span>
+            <span className="text-rose-600">−฿{thb2(isM ? data.manager_comp_month : data.manager_comp_all)}</span>
+          </div>
+          {((isM ? data.manager_breakdown_month : data.manager_breakdown_all) as any[] || []).map((m: any) => (
+            <div key={m.id} className="flex justify-between -mt-0.5">
+              <span className="text-[11px] text-slate-400 pl-3">↳ {m.name}{m.role ? ` (${m.role})` : ''}</span>
+              <span className="text-[11px] text-slate-400">฿{thb2(m.computed)}</span>
             </div>
           ))}
+          <div className="flex justify-between">
+            <span className="text-slate-600">หัก ค่าใช้จ่ายบริหารจัดการ</span>
+            <span className="text-rose-600">−฿{thb2(isM ? data.expenses_month : data.expenses_all)}</span>
+          </div>
           <div className="flex justify-between pt-2 mt-1 border-t border-slate-300 font-bold text-base">
             <span className="text-slate-800">กำไรสุทธิสุดท้าย (bottom line)</span>
             <span className="text-violet-700">฿{thb2(isM ? data.final_net_month : data.final_net_all)} <span className="text-xs px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 ml-1">{margin.toFixed(1)}%</span></span>
