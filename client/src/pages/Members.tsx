@@ -18,28 +18,28 @@ const escHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '
 // CSS ของบัตรประจำตัวสมาชิก 1 ใบ — ใช้ร่วมกันทั้งพิมพ์ทีละใบและพิมพ์รวมหลายใบ
 const ID_CARD_CSS = `
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-  .card { width: 54mm; height: 90mm; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
-  .header { position: relative; overflow: hidden; padding: 4mm 3.5mm 5mm; text-align: center; flex-shrink: 0;
+  .card { width: 70mm; height: 110mm; background: #fff; display: flex; flex-direction: column; overflow: hidden; }
+  .header { position: relative; overflow: hidden; padding: 5mm 4.5mm 6mm; text-align: center; flex-shrink: 0;
     background: radial-gradient(140% 160% at 12% -25%, #6a3fae 0%, #4a2f8c 48%, #262459 100%); }
-  .header::before { content: ""; position: absolute; width: 18mm; height: 18mm; right: -6mm; top: -8mm; border-radius: 50%;
+  .header::before { content: ""; position: absolute; width: 22mm; height: 22mm; right: -7.5mm; top: -10mm; border-radius: 50%;
     background: radial-gradient(circle, rgba(255,255,255,0.18), rgba(255,255,255,0) 70%); }
-  .title { position: relative; color: #fff; font-size: 2.8mm; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
-  .body { flex: 1; padding: 0 3.5mm 3mm; display: flex; flex-direction: column; min-height: 0; }
-  .id-block { position: relative; margin: -3mm 0 0; background: #fff; border-radius: 2mm; box-shadow: 0 6px 16px -8px rgba(38,36,89,.3); padding: 2.4mm 2.6mm; flex-shrink: 0; }
-  .name { font-size: 3mm; font-weight: 800; color: #201f1c; margin: 0; line-height: 1.2; }
-  .nick { font-size: 2mm; font-weight: 500; color: #6f6b63; }
-  .pill { display: inline-flex; margin-top: 1.3mm; padding: 0.6mm 1.8mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 1.9mm; font-weight: 700; }
-  .info-list { margin-top: 2.4mm; display: flex; flex-direction: column; gap: 1.6mm; }
-  .info-row { display: flex; align-items: flex-start; gap: 1.3mm; }
-  .info-icon { width: 2.6mm; height: 2.6mm; border-radius: 1mm; background: #f0ecfd; flex-shrink: 0; }
-  .info-icon svg { width: 2.6mm; height: 2.6mm; display: block; }
-  .info-text { font-size: 2.1mm; color: #201f1c; line-height: 1.35; padding-top: 0.2mm; }
-  .divider { border: none; border-top: .25mm solid #e8e4dc; margin: 2.4mm 0; flex-shrink: 0; }
+  .title { position: relative; color: #fff; font-size: 3.5mm; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+  .body { flex: 1; padding: 0 4.5mm 4mm; display: flex; flex-direction: column; min-height: 0; }
+  .id-block { position: relative; margin: -4mm 0 0; background: #fff; border-radius: 2.5mm; box-shadow: 0 6px 16px -8px rgba(38,36,89,.3); padding: 3mm 3.2mm; flex-shrink: 0; }
+  .name { font-size: 3.8mm; font-weight: 800; color: #201f1c; margin: 0; line-height: 1.2; }
+  .nick { font-size: 2.5mm; font-weight: 500; color: #6f6b63; }
+  .pill { display: inline-flex; margin-top: 1.6mm; padding: 0.8mm 2.2mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 2.4mm; font-weight: 700; }
+  .info-list { margin-top: 3mm; display: flex; flex-direction: column; gap: 2mm; }
+  .info-row { display: flex; align-items: flex-start; gap: 1.6mm; }
+  .info-icon { width: 3.2mm; height: 3.2mm; border-radius: 1.2mm; background: #f0ecfd; flex-shrink: 0; }
+  .info-icon svg { width: 3.2mm; height: 3.2mm; display: block; }
+  .info-text { font-size: 2.6mm; color: #201f1c; line-height: 1.35; padding-top: 0.25mm; }
+  .divider { border: none; border-top: .25mm solid #e8e4dc; margin: 3mm 0; flex-shrink: 0; }
   .qr-block { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 0; }
-  .qr-frame { padding: 1.2mm; border-radius: 1.6mm; border: .3mm solid #e8e4dc; }
-  .qr-frame img { display: block; width: 30mm; height: 30mm; }
-  .qr-caption { font-size: 1.9mm; font-weight: 600; color: #201f1c; margin: 1.5mm 0 0; }
-  .qr-subcaption { font-size: 1.6mm; color: #a5a099; margin: .5mm 0 0; }
+  .qr-frame { padding: 1.5mm; border-radius: 2mm; border: .3mm solid #e8e4dc; }
+  .qr-frame img { display: block; width: 37mm; height: 37mm; }
+  .qr-caption { font-size: 2.4mm; font-weight: 600; color: #201f1c; margin: 1.8mm 0 0; }
+  .qr-subcaption { font-size: 2mm; color: #a5a099; margin: .6mm 0 0; }
 `;
 
 function idCardHtml(member: any, dataUrl: string): string {
@@ -79,14 +79,14 @@ function QrModal({ member, onClose }: { member: any; onClose: () => void }) {
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
   };
 
-  // บัตรประจำตัวสมาชิกแนวตั้ง — พิมพ์ที่ขนาดจริง 54x90มม. โทนเดียวกับพอร์ทัลสมาชิก
+  // บัตรประจำตัวสมาชิกแนวตั้ง — พิมพ์ที่ขนาดจริง 70x110มม. โทนเดียวกับพอร์ทัลสมาชิก
   const print = () => {
     const w = window.open('', '_blank', 'width=420,height=640');
     if (!w) return;
     w.document.write(`
       <html><head><title>บัตรสมาชิก ${escHtml(member.name)}</title>
       <style>
-        @page { size: 54mm 90mm; margin: 0; }
+        @page { size: 70mm 110mm; margin: 0; }
         * { box-sizing: border-box; }
         body { margin: 0; font-family: 'Tahoma', 'Segoe UI', sans-serif; background: #f4f2ee; }
         ${ID_CARD_CSS}
@@ -742,7 +742,7 @@ export default function Members() {
   const openAdd = () => { setEditing(null); setApiError(''); setModal('add'); };
   const openEdit = (m: any) => { setEditing(m); setApiError(''); setModal('edit'); };
 
-  // พิมพ์บัตรสมาชิกทุกคนพร้อมกันเป็น PDF — เรียง 3x3 ต่อหน้า A4 (ขนาดจริง 54x90มม./ใบ) ไปเรื่อยๆ จนครบทุกคน
+  // พิมพ์บัตรสมาชิกทุกคนพร้อมกันเป็น PDF — เรียง 2x2 ต่อหน้า A4 (ขนาดจริง 70x110มม./ใบ) ไปเรื่อยๆ จนครบทุกคน
   const printAllCards = async () => {
     const withToken = all.filter((m: any) => m.portal_token);
     if (withToken.length === 0 || printingAll) return;
@@ -753,7 +753,7 @@ export default function Members() {
       );
       const cards = withToken.map((m: any, i: number) => idCardHtml(m, qrs[i]));
       const pages: string[] = [];
-      for (let i = 0; i < cards.length; i += 9) pages.push(`<div class="page">${cards.slice(i, i + 9).join('')}</div>`);
+      for (let i = 0; i < cards.length; i += 4) pages.push(`<div class="page">${cards.slice(i, i + 4).join('')}</div>`);
 
       const w = window.open('', '_blank');
       if (!w) return;
@@ -767,8 +767,8 @@ export default function Members() {
           .card { outline: .3mm dashed #ccc; outline-offset: 2mm; }
           .page {
             width: 210mm; height: 297mm;
-            display: grid; grid-template-columns: repeat(3, 54mm); grid-template-rows: repeat(3, 90mm);
-            gap: 5mm; justify-content: center; align-content: center;
+            display: grid; grid-template-columns: repeat(2, 70mm); grid-template-rows: repeat(2, 110mm);
+            gap: 6mm; justify-content: center; align-content: center;
             page-break-after: always;
           }
           .page:last-child { page-break-after: auto; }
@@ -790,7 +790,7 @@ export default function Members() {
         <h1 className="text-xl font-bold text-gray-800">ทะเบียนสมาชิก</h1>
         <div className="flex items-center gap-2">
           <ExportExcelButton filename={`รายชื่อสมาชิก-${new Date().toISOString().split('T')[0]}`} rows={membersToRows(data as any[])} />
-          <button className="btn-secondary btn-sm flex items-center gap-2" disabled={printingAll} onClick={printAllCards} title="พิมพ์บัตรประจำตัวสมาชิกทุกคนรวมเป็นไฟล์เดียว เรียง 9 ใบต่อหน้า A4">
+          <button className="btn-secondary btn-sm flex items-center gap-2" disabled={printingAll} onClick={printAllCards} title="พิมพ์บัตรประจำตัวสมาชิกทุกคนรวมเป็นไฟล์เดียว เรียง 4 ใบต่อหน้า A4">
             {printingAll ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
             พิมพ์บัตรสมาชิกทั้งหมด
           </button>
