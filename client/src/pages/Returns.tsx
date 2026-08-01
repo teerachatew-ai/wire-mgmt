@@ -189,6 +189,7 @@ function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
 
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
+import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 
 /* ── แถวคำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจนับของจริงแล้วยืนยัน) ── */
 function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => void; onChange: (id: number, data: any) => void }) {
@@ -342,9 +343,9 @@ export default function Returns() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
-  const [dayFilter, setDayFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
-  const { data: returnsRaw = [], isLoading } = useQuery({ queryKey: ['returns', dayFilter], queryFn: () => returnApi.list({ date: dayFilter || undefined }) });
+  const { data: returnsRaw = [], isLoading } = useQuery({ queryKey: ['returns', dateFilter], queryFn: () => returnApi.list(dateFilter) });
   // ค้นหา: เลขที่คืน / เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
   const rq = search.trim().toLowerCase();
   const returns_ = (returnsRaw as any[]).filter((r: any) => !rq
@@ -434,8 +435,7 @@ export default function Returns() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input className="input w-52 text-sm" placeholder="🔍 เลขที่คืน/ใบเบิก/ชื่อ/ชื่อเล่น" value={search} onChange={e => setSearch(e.target.value)} />
-          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่คืน" />
-          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
           <ExportExcelButton filename="รับคืนงาน" rows={(returns_ as any[]).map(r => ({
             'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
             'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
@@ -454,7 +454,7 @@ export default function Returns() {
         groups={Object.values((returns_ as any[]).reduce((a: any, r: any) => {
           const k = r.product_name; (a[k] ??= { name: k, qty: 0 }).qty += Number(r.good_qty) || 0; return a;
         }, {})) as any[]}
-        note={dayFilter || 'ทั้งหมด'} unitLabel="งานดีคืน"
+        note={dateFilterLabel(dateFilter)} unitLabel="งานดีคืน"
         memberCount={new Set((returns_ as any[]).map((r: any) => r.member_name)).size} />
 
       <div className="card p-0 overflow-x-auto">

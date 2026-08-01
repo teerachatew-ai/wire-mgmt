@@ -21,12 +21,14 @@ function updateIssueStatus(issueId: number) {
 }
 
 router.get('/', (req, res) => {
-  const { issue_id, date } = req.query;
+  const { issue_id, date, from, to } = req.query;
   let sql = `SELECT r.*, i.code as issue_code, i.issued_at as issued_at, m.name as member_name, m.nickname as member_nickname, p.name as product_name, p.color as product_color FROM returns r
     JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE 1=1`;
   const params: any[] = [];
   if (issue_id) { sql += ` AND r.issue_id = ?`; params.push(issue_id); }
   if (date) { sql += ` AND r.returned_at LIKE ?`; params.push(`${date}%`); }
+  if (from) { sql += ` AND r.returned_at >= ?`; params.push(from); }
+  if (to) { sql += ` AND r.returned_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.returned_at DESC, r.id DESC`;
   res.json(prepare(sql).all(...params));
 });

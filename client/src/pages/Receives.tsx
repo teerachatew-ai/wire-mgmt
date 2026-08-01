@@ -6,6 +6,7 @@ import { colorDot } from '../colorDot';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
+import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import { Plus, X, ArrowDownToLine, Trash2, Edit2, ScanLine, Upload, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 
 function Modal({ title, onClose, children }: any) {
@@ -222,9 +223,9 @@ export default function Receives() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
 
-  const [dayFilter, setDayFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
-  const { data: receivesRaw = [], isLoading } = useQuery({ queryKey: ['receives', dayFilter], queryFn: () => receiveApi.list({ date: dayFilter || undefined }) });
+  const { data: receivesRaw = [], isLoading } = useQuery({ queryKey: ['receives', dateFilter], queryFn: () => receiveApi.list(dateFilter) });
   // ค้นหา: เลขที่ใบรับ / เลขอ้างอิงโรงงาน / สินค้า
   const rq = search.trim().toLowerCase();
   const receives = (receivesRaw as any[]).filter((r: any) => !rq
@@ -250,8 +251,7 @@ export default function Receives() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input className="input w-52 text-sm" placeholder="🔍 เลขใบรับ / Ref / สินค้า" value={search} onChange={e => setSearch(e.target.value)} />
-          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่รับ" />
-          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
           <ExportExcelButton filename="รับของจากโรงงาน" rows={(receives as any[]).map(r => ({
             'เลขที่รับ': r.code, 'วันที่': r.received_at, 'สินค้า': r.product_name, 'จำนวน': r.quantity, 'หน่วย': r.unit,
             'เลขเอกสารโรงงาน': r.factory_ref || '', 'หมายเหตุ': r.notes || '', 'ผู้บันทึก': r.created_by || '',
@@ -266,7 +266,7 @@ export default function Receives() {
         groups={Object.values((receives as any[]).reduce((a: any, r: any) => {
           const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
         }, {})) as any[]}
-        note={dayFilter || 'ทั้งหมด'} unitLabel="รับเข้า" />
+        note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" />
 
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">

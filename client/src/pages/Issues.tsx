@@ -7,6 +7,7 @@ import { colorDot } from '../colorDot';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
+import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -574,12 +575,12 @@ export default function Issues() {
   const [editing, setEditing] = useState<any>(null);
   const [deleting, setDeleting] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState('');
-  const [dayFilter, setDayFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
 
   const { data: issues = [], isLoading } = useQuery({
-    queryKey: ['issues', statusFilter, dayFilter],
-    queryFn: () => issueApi.list({ status: statusFilter || undefined, date: dayFilter || undefined })
+    queryKey: ['issues', statusFilter, dateFilter],
+    queryFn: () => issueApi.list({ status: statusFilter || undefined, ...dateFilter })
   });
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => memberApi.list() });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
@@ -591,12 +592,11 @@ export default function Issues() {
     enabled: !!detailId
   });
 
-  // ของเข้าจากโรงงานในวันที่กำลังดูอยู่ (ถ้าไม่ได้กรองวันที่ ใช้ "วันนี้") — เผื่อดูก่อนตัดสินใจเบิกให้สมาชิก
+  // ของเข้าจากโรงงานวันนี้เสมอ (ไม่ผูกกับตัวกรองตาราง) — เผื่อดูก่อนตัดสินใจเบิกให้สมาชิก ไม่ว่ากำลังกรองดูช่วงไหนอยู่
   const todayStr = new Date().toISOString().split('T')[0];
-  const receiveDate = dayFilter || todayStr;
   const { data: receivesOfDay = [] } = useQuery({
-    queryKey: ['receives', 'day', receiveDate],
-    queryFn: () => receiveApi.list({ date: receiveDate }),
+    queryKey: ['receives', 'day', todayStr],
+    queryFn: () => receiveApi.list({ date: todayStr }),
   });
   const receiveGroups = Object.values((receivesOfDay as any[]).reduce((a: any, r: any) => {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
@@ -630,8 +630,7 @@ export default function Issues() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <input className="input w-52 text-sm" placeholder="🔍 เลขใบเบิก / ชื่อ / ชื่อเล่น" value={search} onChange={e => setSearch(e.target.value)} />
-          <input type="date" className="input w-40 text-sm" value={dayFilter} onChange={e => setDayFilter(e.target.value)} title="ดูเฉพาะวันที่" />
-          {dayFilter && <button className="text-xs text-gray-500 hover:text-gray-700 underline" onClick={() => setDayFilter('')}>ล้างวันที่</button>}
+          <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
           <select className="input w-36 text-sm" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="">ทุกสถานะ</option>
             <option value="pending">ค้างส่ง</option>
@@ -661,7 +660,7 @@ export default function Issues() {
         <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4">
           <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
             <span className="text-sm font-semibold text-emerald-800">
-              📦 มีของเข้าจากโรงงาน{dayFilter ? ` — วันที่ ${receiveDate}` : ' วันนี้'}
+              📦 มีของเข้าจากโรงงานวันนี้
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -677,7 +676,7 @@ export default function Issues() {
         </div>
       )}
 
-      <DaySummary groups={summary} note={dayFilter || 'ทั้งหมด'} unitLabel="เบิก" memberCount={memberCount} />
+      <DaySummary groups={summary} note={dateFilterLabel(dateFilter)} unitLabel="เบิก" memberCount={memberCount} />
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
