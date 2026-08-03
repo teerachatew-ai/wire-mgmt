@@ -290,9 +290,21 @@ export default function Dashboard() {
             <span className="text-rose-600">−฿{thb2(isM ? data.manager_comp_month : data.manager_comp_all)}</span>
           </div>
           {((isM ? data.manager_breakdown_month : data.manager_breakdown_all) as any[] || []).map((m: any) => (
-            <div key={m.id} className="flex justify-between -mt-0.5">
-              <span className="text-[11px] text-slate-400 pl-3">↳ {m.name}{m.role ? ` (${m.role})` : ''}</span>
-              <span className="text-[11px] text-slate-400">฿{thb2(m.computed)}</span>
+            <div key={m.id} className="pt-0.5">
+              <div className="flex justify-between">
+                <span className="text-[11px] text-slate-500 pl-3">↳ {m.name}{m.role ? ` (${m.role})` : ''}</span>
+                <span className="text-[11px] font-medium text-slate-500">฿{thb2(m.computed)}</span>
+              </div>
+              <div className="flex justify-between -mt-0.5">
+                <span className="text-[10px] text-slate-300 pl-6">{m.compensation_type === 'percent' ? `ค่าตอบแทน ${m.rate}% ของรายได้` : 'ค่าตอบแทนคงที่'}</span>
+                <span className="text-[10px] text-slate-300">฿{thb2(m.formula_amount)}</span>
+              </div>
+              {m.extra_amount > 0 && (
+                <div className="flex justify-between -mt-0.5">
+                  <span className="text-[10px] text-slate-300 pl-6">ค่าตอบแทนอื่นๆ (เพิ่มเองรายเดือน)</span>
+                  <span className="text-[10px] text-slate-300">฿{thb2(m.extra_amount)}</span>
+                </div>
+              )}
             </div>
           ))}
           <div className="flex justify-between">

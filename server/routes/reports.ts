@@ -205,21 +205,30 @@ router.get('/performance', (req, res) => {
     return new Map(rows.map((r: any) => [r.paid_to_id, r.v]));
   };
   const extraByPersonMonth = managerExtraByPerson(thisMonth);
-  const managerBreakdownMonth = managerCompForMonth(thisMonth).map((m: any) => ({
-    id: m.id, name: m.name, role: m.role || '',
-    computed: (m.computed || 0) + (extraByPersonMonth.get(m.id) || 0),
-  }));
+  const managerBreakdownMonth = managerCompForMonth(thisMonth).map((m: any) => {
+    const formula_amount = m.computed || 0;
+    const extra_amount = extraByPersonMonth.get(m.id) || 0;
+    return {
+      id: m.id, name: m.name, role: m.role || '',
+      compensation_type: m.compensation_type, rate: m.amount,
+      formula_amount, extra_amount, computed: formula_amount + extra_amount,
+    };
+  });
   const allManagers = prepare(`SELECT * FROM managers WHERE active = 1 ORDER BY sort_order, id`).all() as any[];
-  const managerBreakdownAllMap = new Map<number, any>(allManagers.map((mg: any) => [mg.id, { id: mg.id, name: mg.name, role: mg.role || '', computed: 0 }]));
+  const managerBreakdownAllMap = new Map<number, any>(allManagers.map((mg: any) => [mg.id, {
+    id: mg.id, name: mg.name, role: mg.role || '',
+    compensation_type: mg.compensation_type, rate: mg.amount,
+    formula_amount: 0, extra_amount: 0, computed: 0,
+  }]));
   for (const mo of shipMonths) {
     for (const mg of managerCompForMonth(mo)) {
       const cur = managerBreakdownAllMap.get(mg.id);
-      if (cur) cur.computed += mg.computed || 0;
+      if (cur) { cur.formula_amount += mg.computed || 0; cur.computed += mg.computed || 0; }
     }
   }
   for (const [id, extra] of managerExtraByPerson(null)) {
     const cur = managerBreakdownAllMap.get(id);
-    if (cur) cur.computed += extra;
+    if (cur) { cur.extra_amount += extra; cur.computed += extra; }
   }
   const managerBreakdownAll = Array.from(managerBreakdownAllMap.values());
   const taxRate = withholdingTaxPct / 100;
