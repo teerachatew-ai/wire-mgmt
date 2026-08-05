@@ -30,7 +30,7 @@ const ID_CARD_CSS = `
   .id-block { position: relative; margin: -4mm 0 0; background: #fff; border-radius: 2.5mm; box-shadow: 0 6px 16px -8px rgba(38,36,89,.3); padding: 3mm 3.2mm; flex-shrink: 0; }
   .name { font-size: 3.8mm; font-weight: 800; color: #201f1c; margin: 0; line-height: 1.2; }
   .nick { font-size: 2.5mm; font-weight: 500; color: #6f6b63; }
-  .pill { display: inline-flex; margin-top: 1.6mm; padding: 0.8mm 2.2mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 2.4mm; font-weight: 700; }
+  .pill { display: inline-flex; margin-top: 2.2mm; padding: 1.3mm 3.2mm; border-radius: 100px; background: #f0ecfd; color: #4e2fb8; font-size: 4mm; font-weight: 800; }
   .info-list { margin-top: 3mm; display: flex; flex-direction: column; gap: 2mm; }
   .info-row { display: flex; align-items: flex-start; gap: 1.6mm; }
   .info-icon { width: 3.2mm; height: 3.2mm; border-radius: 1.2mm; background: #f0ecfd; flex-shrink: 0; }
