@@ -8,6 +8,8 @@ import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, Trash2, Edit2, Smartp
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -574,6 +576,8 @@ export default function Issues() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [editing, setEditing] = useState<any>(null);
   const [deleting, setDeleting] = useState<any>(null);
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
@@ -615,6 +619,19 @@ export default function Issues() {
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
+  // ลบหลายใบพร้อมกัน — ใช้ force=1 ตรงๆ ทุกใบ (ข้ามขั้นยืนยันซ้อนแบบทีละใบ) เพราะเตือนเรื่องการลบรายการรับคืนที่ผูกอยู่ไว้ใน confirm() ครั้งเดียวตั้งแต่ต้นแล้ว
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบใบเบิกที่เลือกไว้ ${ids.length} ใบ? ถ้าใบไหนมีรายการรับคืนผูกอยู่ จะลบรายการรับคืนนั้นไปด้วย`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => issueApi.delete(id, true));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['issues'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    alert(bulkDeleteSummary(result));
   };
 
   // ค้นหา: เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
@@ -727,10 +744,15 @@ export default function Issues() {
       </div>
 
       {/* Desktop table view */}
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} label="ใบ" />
       <div className="hidden md:block card p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={visibleIssues.length > 0 && visibleIssues.every((i: any) => selected.has(i.id))}
+                  onChange={() => toggleAll(visibleIssues.map((i: any) => i.id))} />
+              </th>
               <th className="px-4 py-3 font-medium">เลขใบเบิก</th>
               <th className="px-4 py-3 font-medium">วันที่/กำหนดคืน</th>
               <th className="px-4 py-3 font-medium">สมาชิก</th>
@@ -743,14 +765,15 @@ export default function Issues() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={9} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
-            {!isLoading && visibleIssues.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-gray-400">{q ? 'ไม่พบที่ค้นหา' : 'ยังไม่มีรายการ'}</td></tr>}
+            {isLoading && <tr><td colSpan={10} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {!isLoading && visibleIssues.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">{q ? 'ไม่พบที่ค้นหา' : 'ยังไม่มีรายการ'}</td></tr>}
             {visibleIssues.map((i: any) => {
               const returned = i.returned_good + i.returned_defect + i.returned_waste;
               const remaining = i.quantity - returned;
               const overdue = i.status !== 'closed' && i.due_date && i.due_date < new Date().toISOString().split('T')[0];
               return (
-                <tr key={i.id} className={`border-b border-gray-50 hover:bg-gray-50 ${overdue ? 'bg-red-50' : ''}`}>
+                <tr key={i.id} className={`border-b border-gray-50 hover:bg-gray-50 ${overdue ? 'bg-red-50' : selected.has(i.id) ? 'bg-blue-50/50' : ''}`}>
+                  <td className="px-4 py-3"><input type="checkbox" checked={selected.has(i.id)} onChange={() => toggle(i.id)} /></td>
                   <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{i.code}</td>
                   <td className="px-4 py-3 text-xs text-gray-600">
                     <div>{i.issued_at}</div>
@@ -783,7 +806,7 @@ export default function Issues() {
                 </tr>
               );
             })}
-            {!isLoading && (issues as any[]).length === 0 && <tr><td colSpan={9} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && (issues as any[]).length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>

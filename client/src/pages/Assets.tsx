@@ -4,6 +4,8 @@ import { useForm } from 'react-hook-form';
 import { assetApi } from '../api';
 import { Boxes, Plus, X, Edit2, Trash2, Coins, Loader2 } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -58,6 +60,19 @@ function RepaymentModal({ asset, onClose }: any) {
     mutationFn: (rid: number) => assetApi.deleteRepayment(rid),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['repay', asset.id] }); qc.invalidateQueries({ queryKey: ['assets'] }); },
   });
+  const { selected: selectedRepay, toggle: toggleRepay, toggleAll: toggleAllRepay, clear: clearRepay } = useBulkSelect();
+  const [bulkDeletingRepay, setBulkDeletingRepay] = useState(false);
+  const handleBulkDeleteRepay = async () => {
+    const ids = Array.from(selectedRepay);
+    if (ids.length === 0 || !confirm(`ลบรายการคืนเงินที่เลือกไว้ ${ids.length} รายการ?`)) return;
+    setBulkDeletingRepay(true);
+    const result = await bulkDelete(ids, (id) => assetApi.deleteRepayment(id));
+    setBulkDeletingRepay(false);
+    clearRepay();
+    qc.invalidateQueries({ queryKey: ['repay', asset.id] });
+    qc.invalidateQueries({ queryKey: ['assets'] });
+    alert(bulkDeleteSummary(result));
+  };
   const totalRepaid = (list as any[]).reduce((s, r) => s + (r.amount || 0), 0);
   const remaining = Math.max(0, (asset.price || 0) - totalRepaid);
 
@@ -81,9 +96,18 @@ function RepaymentModal({ asset, onClose }: any) {
       </div>
       <p className="label">ประวัติการคืน</p>
       {(list as any[]).length === 0 && <p className="text-sm text-gray-400 py-3 text-center">ยังไม่มีการคืนเงิน</p>}
+      {(list as any[]).length > 0 && (
+        <div className="flex items-center gap-2 pb-1">
+          <input type="checkbox" checked={(list as any[]).every((r: any) => selectedRepay.has(r.id))}
+            onChange={() => toggleAllRepay((list as any[]).map((r: any) => r.id))} />
+          <span className="text-xs text-gray-400">เลือกทั้งหมด</span>
+        </div>
+      )}
+      <BulkActionBar count={selectedRepay.size} onDelete={handleBulkDeleteRepay} onClear={clearRepay} deleting={bulkDeletingRepay} />
       <div className="space-y-1">
         {(list as any[]).map((r: any) => (
           <div key={r.id} className="flex items-center justify-between text-sm border-b border-gray-50 py-1.5">
+            <input type="checkbox" checked={selectedRepay.has(r.id)} onChange={() => toggleRepay(r.id)} className="mr-2" />
             <span className="text-gray-500 text-xs w-24">{r.paid_at || '-'}</span>
             <span className="font-medium text-green-700">{fmt(r.amount)}</span>
             <span className="text-gray-400 text-xs flex-1 px-2 truncate">{r.note || ''}</span>
@@ -108,6 +132,19 @@ export default function Assets() {
   const createMut = useMutation({ mutationFn: assetApi.create, onSuccess: () => { qc.invalidateQueries({ queryKey: ['assets'] }); setModal(null); } });
   const updateMut = useMutation({ mutationFn: ({ id, data }: any) => assetApi.update(id, data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['assets'] }); setModal(null); } });
   const deleteMut = useMutation({ mutationFn: (id: number) => assetApi.delete(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['assets'] }) });
+
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบสินทรัพย์ที่เลือกไว้ ${ids.length} รายการ? ถ้ารายการไหนมีประวัติการคืนเงินผูกอยู่ จะลบประวัตินั้นไปด้วย`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => assetApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['assets'] });
+    alert(bulkDeleteSummary(result));
+  };
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -137,10 +174,16 @@ export default function Assets() {
         <div className="card"><div className="text-xs text-gray-500">ค้างคืนเจ้าของ</div><div className="text-xl font-bold text-rose-600">{fmt(totals.total_remaining)}</div></div>
       </div>
 
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
+
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-gray-50 border-b text-xs text-gray-500">
             <tr>
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={assets.length > 0 && assets.every((a: any) => selected.has(a.id))}
+                  onChange={() => toggleAll(assets.map((a: any) => a.id))} />
+              </th>
               <th className="px-4 py-3 text-left font-medium">สินทรัพย์</th>
               <th className="px-4 py-3 text-left font-medium">วันที่ซื้อ</th>
               <th className="px-4 py-3 text-right font-medium">ราคาซื้อ</th>
@@ -151,10 +194,11 @@ export default function Assets() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={7} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
-            {!isLoading && assets.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-gray-400">ยังไม่มีสินทรัพย์ — กด "เพิ่มสินทรัพย์"</td></tr>}
+            {isLoading && <tr><td colSpan={8} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {!isLoading && assets.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-gray-400">ยังไม่มีสินทรัพย์ — กด "เพิ่มสินทรัพย์"</td></tr>}
             {assets.map((a: any) => (
-              <tr key={a.id} className="border-b border-gray-50 hover:bg-gray-50">
+              <tr key={a.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(a.id) ? 'bg-blue-50/50' : ''}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} /></td>
                 <td className="px-4 py-3 font-medium text-gray-800">{a.name}{a.note && <div className="text-xs text-gray-400 font-normal">{a.note}</div>}</td>
                 <td className="px-4 py-3 text-gray-500">{a.purchase_date || '-'}</td>
                 <td className="px-4 py-3 text-right font-medium">{fmt(a.price)}</td>

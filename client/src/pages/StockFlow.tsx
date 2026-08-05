@@ -11,6 +11,8 @@ import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -653,6 +655,20 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
     }
   });
 
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบรายการส่งออกที่เลือกไว้ ${ids.length} รายการ?`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => shipmentApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['shipments'] });
+    qc.invalidateQueries({ queryKey: ['stock-flow'] });
+    alert(bulkDeleteSummary(result));
+  };
+
   return (
     <div className="space-y-4">
       {/* Current stock ready */}
@@ -728,6 +744,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             return a;
           }, {})) as any[]}
           note={dateFilterLabel(dateFilter)} unitLabel="ส่งออก" />
+        <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
         {isLoading && <div className="py-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
         {!isLoading && (shipments as any[]).length === 0 && (
           <div className="py-10 text-center text-gray-400 border rounded-xl">
@@ -740,6 +757,10 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             <table className="w-full text-sm min-w-[720px]">
               <thead className="bg-gray-50 border-b text-xs text-gray-500">
                 <tr>
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" checked={(shipments as any[]).length > 0 && (shipments as any[]).every((sh: any) => selected.has(sh.id))}
+                      onChange={() => toggleAll((shipments as any[]).map((sh: any) => sh.id))} />
+                  </th>
                   <th className="px-4 py-3 text-left font-medium">วันที่ส่ง</th>
                   <th className="px-4 py-3 text-left font-medium">เลขที่</th>
                   <th className="px-4 py-3 text-left font-medium">สินค้า</th>
@@ -754,7 +775,8 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
               <tbody>
                 {(shipments as any[]).flatMap((sh: any) =>
                   (sh.items.length ? sh.items : [{}]).map((it: any, i: number) => (
-                    <tr key={`${sh.id}-${i}`} className={`hover:bg-gray-50 ${i === 0 ? 'border-t border-gray-100' : ''}`}>
+                    <tr key={`${sh.id}-${i}`} className={`hover:bg-gray-50 ${i === 0 ? 'border-t border-gray-100' : ''} ${i === 0 && selected.has(sh.id) ? 'bg-blue-50/50' : ''}`}>
+                      <td className="px-4 py-2.5">{i === 0 && <input type="checkbox" checked={selected.has(sh.id)} onChange={() => toggle(sh.id)} />}</td>
                       <td className="px-4 py-2.5 text-gray-600">{i === 0 ? sh.shipped_at : ''}{i === 0 && sh.created_by && <div className="text-xs text-gray-400">โดย {sh.created_by}</div>}</td>
                       <td className="px-4 py-2.5 font-mono text-xs text-blue-600 font-semibold">{i === 0 ? sh.code : ''}</td>
                       <td className="px-4 py-2.5 text-gray-700">
@@ -792,7 +814,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                   ))
                 )}
                 <tr className="bg-gray-50 border-t font-semibold text-gray-700">
-                  <td className="px-4 py-2.5" colSpan={5}>รวมส่งออกทั้งหมด</td>
+                  <td className="px-4 py-2.5" colSpan={6}>รวมส่งออกทั้งหมด</td>
                   <td className="px-4 py-2.5 text-right">{fmt((shipments as any[]).reduce((s: number, sh: any) => s + sh.total_qty, 0))} หน่วย</td>
                   <td colSpan={2}></td>
                 </tr>

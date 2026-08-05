@@ -7,6 +7,8 @@ import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 import { Plus, X, ArrowDownToLine, Trash2, Edit2, ScanLine, Upload, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 
 function Modal({ title, onClose, children }: any) {
@@ -242,6 +244,20 @@ export default function Receives() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['receives'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); }
   });
 
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบรายการรับของที่เลือกไว้ ${ids.length} รายการ?`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => receiveApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['receives'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    alert(bulkDeleteSummary(result));
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -268,10 +284,16 @@ export default function Receives() {
         }, {})) as any[]}
         note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" />
 
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
+
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={receives.length > 0 && receives.every((r: any) => selected.has(r.id))}
+                  onChange={() => toggleAll(receives.map((r: any) => r.id))} />
+              </th>
               <th className="px-4 py-3 font-medium">เลขที่รับ</th>
               <th className="px-4 py-3 font-medium">วันที่</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
@@ -282,9 +304,10 @@ export default function Receives() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={7} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={8} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {receives.map((r: any) => (
-              <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+              <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(r.id) ? 'bg-blue-50/50' : ''}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{r.code}</td>
                 <td className="px-4 py-3 text-gray-600">{r.received_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
                 <td className="px-4 py-3 font-medium text-gray-800">
@@ -309,7 +332,7 @@ export default function Receives() {
                 </td>
               </tr>
             ))}
-            {!isLoading && receives.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && receives.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>

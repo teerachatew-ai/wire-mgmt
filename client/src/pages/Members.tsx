@@ -4,6 +4,8 @@ import { useForm } from 'react-hook-form';
 import { memberApi, ocrApi, smartcardApi, reportApi } from '../api';
 import { UserPlus, Search, X, Edit2, Trash2, ScanLine, Upload, CheckCircle, AlertCircle, Loader2, CreditCard, ShieldCheck, FileText, History, QrCode, Copy, Printer } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 import { compressImageToDataUrl } from '../utils/compressImage';
 import QRCode from 'qrcode';
 
@@ -707,6 +709,18 @@ export default function Members() {
   const [history, setHistory] = useState<any>(null);
   const [qrMember, setQrMember] = useState<any>(null);
   const [printingAll, setPrintingAll] = useState(false);
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบสมาชิกที่เลือกไว้ ${ids.length} คน? ถ้าใครมีประวัติงานผูกอยู่ จะลบประวัตินั้นไปด้วย`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => memberApi.delete(id, true));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['members'] });
+    alert(bulkDeleteSummary(result));
+  };
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['members', q],
@@ -894,10 +908,16 @@ export default function Members() {
         ))}
       </div>
 
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} label="คน" />
+
       <div className="hidden md:block card p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={(data as any[]).length > 0 && (data as any[]).every((m: any) => selected.has(m.id))}
+                  onChange={() => toggleAll((data as any[]).map((m: any) => m.id))} />
+              </th>
               <th className="px-4 py-3 font-medium">รหัส</th>
               <th className="px-4 py-3 font-medium">ชื่อ-สกุล</th>
               <th className="px-4 py-3 font-medium">เลขบัตร</th>
@@ -910,12 +930,13 @@ export default function Members() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={9} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={10} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {!isLoading && (data as any[]).length === 0 && (
-              <tr><td colSpan={9} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>
+              <tr><td colSpan={10} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>
             )}
             {(data as any[]).map((m: any) => (
-              <tr key={m.id} className={`border-b hover:brightness-95 transition-colors ${m.status === 'active' ? 'bg-white' : 'bg-gray-50'}`}>
+              <tr key={m.id} className={`border-b hover:brightness-95 transition-colors ${selected.has(m.id) ? 'bg-blue-50/50' : m.status === 'active' ? 'bg-white' : 'bg-gray-50'}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} /></td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{m.code}</td>
                 <td className={`px-4 py-3 font-medium whitespace-nowrap ${m.status === 'active' ? 'text-gray-800' : 'text-gray-400'}`}>
                   {m.name}

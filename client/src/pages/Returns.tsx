@@ -190,6 +190,8 @@ function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 /* ── แถวคำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจนับของจริงแล้วยืนยัน) ── */
 function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => void; onChange: (id: number, data: any) => void }) {
@@ -334,6 +336,8 @@ export default function Returns() {
   const [saving, setSaving] = useState(false);
   const [editingReturn, setEditingReturn] = useState<any>(null);
   const [deletingReturn, setDeletingReturn] = useState<any>(null);
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const refetchAll = () => {
     qc.invalidateQueries({ queryKey: ['returns'] });
@@ -341,6 +345,17 @@ export default function Returns() {
     qc.invalidateQueries({ queryKey: ['issues-open'] });
     qc.invalidateQueries({ queryKey: ['issues-partial'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบรายการรับคืนที่เลือกไว้ ${ids.length} รายการ?`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => returnApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    refetchAll();
+    alert(bulkDeleteSummary(result));
   };
 
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
@@ -457,10 +472,16 @@ export default function Returns() {
         note={dateFilterLabel(dateFilter)} unitLabel="งานดีคืน"
         memberCount={new Set((returns_ as any[]).map((r: any) => r.member_name)).size} />
 
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
+
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm min-w-[860px]">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={(returns_ as any[]).length > 0 && (returns_ as any[]).every((r: any) => selected.has(r.id))}
+                  onChange={() => toggleAll((returns_ as any[]).map((r: any) => r.id))} />
+              </th>
               <th className="px-4 py-3 font-medium">เลขที่คืน</th>
               <th className="px-4 py-3 font-medium">อ้างใบเบิก</th>
               <th className="px-4 py-3 font-medium">วันที่เบิก</th>
@@ -477,9 +498,10 @@ export default function Returns() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={13} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={14} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {(returns_ as any[]).map((r: any) => (
-              <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50">
+              <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(r.id) ? 'bg-blue-50/50' : ''}`}>
+                <td className="px-4 py-3"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
                 <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
                 <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
                 <td className="px-4 py-3 text-gray-500 text-xs">{r.issued_at ? fmtDate(r.issued_at) : '-'}</td>
@@ -500,7 +522,7 @@ export default function Returns() {
                 </td>
               </tr>
             ))}
-            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={13} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={14} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>

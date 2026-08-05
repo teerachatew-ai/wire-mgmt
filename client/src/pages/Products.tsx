@@ -4,6 +4,8 @@ import { useForm } from 'react-hook-form';
 import { productApi } from '../api';
 import { Plus, X, Edit2, Trash2 } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 // แสดงราคาทศนิยมสูงสุด 4 ตำแหน่ง (ตัดศูนย์ท้าย)
 const price = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -153,6 +155,19 @@ export default function Products() {
     }
   };
 
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบสินค้าที่เลือกไว้ ${ids.length} รายการ? ถ้ารายการไหนถูกใช้งานอยู่แล้ว (มีใบเบิก/รับของ/ส่งของผูกอยู่) จะลบข้อมูลที่เกี่ยวข้องไปด้วย`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => productApi.delete(id, true));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['products'] });
+    alert(bulkDeleteSummary(result));
+  };
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -169,10 +184,16 @@ export default function Products() {
         </div>
       </div>
 
+      <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
+
       <div className="card p-0 overflow-x-auto">
         <table className="w-full text-sm min-w-[920px]">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
+              <th className="px-4 py-3 w-8">
+                <input type="checkbox" checked={(data as any[]).length > 0 && (data as any[]).every((p: any) => selected.has(p.id))}
+                  onChange={() => toggleAll((data as any[]).map((p: any) => p.id))} />
+              </th>
               <th className="px-4 py-3 font-medium">รหัส</th>
               <th className="px-4 py-3 font-medium">โครงการ</th>
               <th className="px-4 py-3 font-medium">ชื่อ/รุ่น</th>
@@ -186,14 +207,15 @@ export default function Products() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={10} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={11} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {groupKeys.map((proj) => {
               const items = groups[proj];
               const sumProfit = items.reduce((s: number, p: any) => s + ((p.factory_price ?? 0) - p.wage_per_unit), 0);
               return (
                 <Fragment key={proj}>
                   {items.map((p: any) => (
-                    <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <tr key={p.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(p.id) ? 'bg-blue-50/50' : ''}`}>
+                      <td className="px-4 py-3"><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} /></td>
                       <td className="px-4 py-3 font-mono text-xs text-blue-600 font-semibold">{p.code}</td>
                       <td className="px-4 py-3 text-gray-600">{p.project || '-'}</td>
                       <td className="px-4 py-3 font-medium text-gray-800">
@@ -227,7 +249,7 @@ export default function Products() {
                   ))}
                   {/* แถวสรุปกำไรต่อหน่วยรวมของโครงการ */}
                   <tr className="bg-green-50 border-b-2 border-green-200 font-semibold">
-                    <td colSpan={6} className="px-4 py-2.5 text-green-800">
+                    <td colSpan={7} className="px-4 py-2.5 text-green-800">
                       รวมกำไรต่อหน่วย — โครงการ {proj} <span className="font-normal text-green-600">({items.length} รุ่น)</span>
                     </td>
                     <td className="px-4 py-2.5 text-right text-green-800">{price(sumProfit)} บาท</td>
@@ -236,7 +258,7 @@ export default function Products() {
                 </Fragment>
               );
             })}
-            {!isLoading && data.length === 0 && <tr><td colSpan={10} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>}
+            {!isLoading && data.length === 0 && <tr><td colSpan={11} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>}
           </tbody>
         </table>
       </div>

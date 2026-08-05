@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { reportApi, managerApi } from '../api';
 import { Building2, Users, Plus, Edit2, Trash2, X, Loader2 } from 'lucide-react';
+import BulkActionBar from './BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -101,6 +103,19 @@ export default function CompensationStructure() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['managers'] }),
   });
 
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบผู้บริหารที่เลือกไว้ ${ids.length} คน?`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => managerApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    qc.invalidateQueries({ queryKey: ['managers'] });
+    alert(bulkDeleteSummary(result));
+  };
+
   const saveGroupPct = async () => {
     setSavingSettings(true);
     try {
@@ -175,9 +190,14 @@ export default function CompensationStructure() {
         )}
         {(managers as any[]).length > 0 && (
           <div className="overflow-x-auto">
+          <div className="px-4 pt-3"><BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} label="คน" /></div>
           <table className="w-full text-sm min-w-[640px]">
             <thead className="border-b">
               <tr className="text-left text-xs text-gray-500">
+                <th className="px-4 py-3 w-8">
+                  <input type="checkbox" checked={(managers as any[]).every((mg: any) => selected.has(mg.id))}
+                    onChange={() => toggleAll((managers as any[]).map((mg: any) => mg.id))} />
+                </th>
                 <th className="px-4 py-3 font-medium">ลำดับ</th>
                 <th className="px-4 py-3 font-medium">ชื่อ</th>
                 <th className="px-4 py-3 font-medium">ตำแหน่ง</th>
@@ -189,7 +209,8 @@ export default function CompensationStructure() {
             </thead>
             <tbody>
               {(managers as any[]).map((mg: any, i: number) => (
-                <tr key={mg.id} className="border-b border-gray-50 hover:bg-gray-50">
+                <tr key={mg.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(mg.id) ? 'bg-blue-50/50' : ''}`}>
+                  <td className="px-4 py-3"><input type="checkbox" checked={selected.has(mg.id)} onChange={() => toggle(mg.id)} /></td>
                   <td className="px-4 py-3 text-gray-400 text-xs">คนที่ {i + 1}</td>
                   <td className="px-4 py-3 font-medium text-gray-800">{mg.name}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{mg.role || '-'}</td>

@@ -6,6 +6,8 @@ import {
   AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText
 } from 'lucide-react';
 import { downloadBlob } from '../utils/downloadBlob';
+import BulkActionBar from '../components/BulkActionBar';
+import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 /* ── Monthly management expenses manager ── */
 function ExpensesManager({ month }: { month: string }) {
@@ -35,6 +37,18 @@ function ExpensesManager({ month }: { month: string }) {
     onSuccess: () => { setDesc(''); setAmt(''); setPayTo('general'); refresh(); }
   });
   const del = useMutation({ mutationFn: (id: number) => expenseApi.delete(id), onSuccess: refresh });
+  const { selected, toggle, toggleAll, clear } = useBulkSelect();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0 || !confirm(`ลบรายการค่าใช้จ่ายที่เลือกไว้ ${ids.length} รายการ?`)) return;
+    setBulkDeleting(true);
+    const result = await bulkDelete(ids, (id) => expenseApi.delete(id));
+    setBulkDeleting(false);
+    clear();
+    refresh();
+    alert(bulkDeleteSummary(result));
+  };
   const total = (list as any[]).reduce((s, e) => s + e.amount, 0);
   const fmt2 = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const recipientLabel = (e: any) =>
@@ -51,8 +65,17 @@ function ExpensesManager({ month }: { month: string }) {
       </div>
       <div className="p-4 space-y-2">
         {(list as any[]).length === 0 && <p className="text-sm text-slate-400 text-center py-2">ยังไม่มีรายการ</p>}
+        {(list as any[]).length > 0 && (
+          <div className="flex items-center gap-2 pb-1">
+            <input type="checkbox" checked={(list as any[]).every((e: any) => selected.has(e.id))}
+              onChange={() => toggleAll((list as any[]).map((e: any) => e.id))} />
+            <span className="text-xs text-slate-400">เลือกทั้งหมด</span>
+          </div>
+        )}
+        <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
         {(list as any[]).map((e: any) => (
           <div key={e.id} className="flex items-center gap-2 text-sm border-b border-slate-50 pb-2">
+            <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
             <span className="flex-1 text-slate-700">
               {e.description || '(ไม่มีคำอธิบาย)'}
               {recipientLabel(e) && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{recipientLabel(e)}</span>}
