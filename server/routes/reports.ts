@@ -1408,4 +1408,209 @@ router.post('/recompute-paycycles', (_req, res) => {
   res.json({ ok: true, recomputed: recomputeAllPayCycles() });
 });
 
+// ── งบการเงิน (Financial Statements) — งบกำไรขาดทุนแบบ "จับคู่ต้นทุน-รายรับ" ─────
+// แยกต่างหากจาก buildPL()/{/pl-export} เดิมโดยสิ้นเชิง (ไม่ใช้ร่วมกัน ไม่แก้ของเดิม) กันกระทบหน้า "ภาพรวม" เดิม
+// จุดต่างจาก buildPL(): ใช้ wage_billed (= ปริมาณที่ "ส่งออกจริงเดือนนี้" x ค่าแรงต่อหน่วย) เป็นต้นทุนขาย
+// แทน payCycleWage (ค่าแรงที่จ่ายจริงตามรอบตัด) เพื่อให้ต้นทุนกับรายรับอยู่คนละเดือนตรงกันตามหลักการจับคู่ (matching principle)
+function buildMatchedPL(month: string) {
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const taxRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
+  const revenue = monthRevenueOf(month);
+  const reconcile = buildWageReconcile(month);
+  const cogs = reconcile.totals.wage_billed;              // ต้นทุนค่าแรงของ "ของที่ส่งออกจริง" เดือนนี้เท่านั้น
+  const cashBasisWage = reconcile.totals.wage_payroll_net; // ยอดที่จ่ายจริงตามรอบตัด (วิธีเดิมที่หน้าภาพรวมใช้อยู่)
+  const gross = revenue - cogs;
+  const tax = revenue * taxRate;
+  const managerLines = managerCompForMonth(month).map((m: any) => ({ name: m.name, role: m.role || '', computed: m.computed || 0 }));
+  const managerBase = managerLines.reduce((s, m) => s + m.computed, 0);
+  const compExpLines = prepare(`SELECT description, paid_to_type, paid_to_name, amount FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager') ORDER BY id`).all(month) as any[];
+  const compExpTotal = compExpLines.reduce((s, e) => s + (e.amount || 0), 0);
+  const generalExpLines = prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[];
+  const generalExpTotal = generalExpLines.reduce((s, e) => s + (e.amount || 0), 0);
+  const managerComp = managerBase + compExpTotal;
+  const netMatched = revenue - tax - cogs - managerComp - generalExpTotal;
+  const netCashBasis = revenue - tax - cashBasisWage - managerComp - generalExpTotal;
+
+  return {
+    month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
+    revenue, cogs, gross, tax,
+    manager_base: managerBase, manager_lines: managerLines,
+    comp_exp_total: compExpTotal, comp_exp_lines: compExpLines,
+    manager_comp: managerComp,
+    general_exp_total: generalExpTotal, general_exp_lines: generalExpLines,
+    net_matched: netMatched,
+    // เทียบกับวิธีคิดแบบเดิม (ตามรอบจ่ายค่าแรง) — ให้เห็นที่มาของส่วนต่าง
+    cash_basis_wage: cashBasisWage,
+    net_cash_basis: netCashBasis,
+    variance: netCashBasis - netMatched,
+    // สรุปสินทรัพย์/หนี้สินที่เกี่ยวข้องกับงานตัดสายไฟ ณ สิ้นเดือน (ไม่ใช่งบดุลฉบับเต็ม — ไม่รวมเงินสด/ทุน)
+    inventory_open: reconcile.totals.reserve_open,
+    inventory_close: reconcile.totals.reserve_close,
+    accrued_wages_payable: cashBasisWage,
+    org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
+  };
+}
+
+router.get('/financial-statement', (req, res) => {
+  const month = (typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month))
+    ? req.query.month : new Date().toISOString().substring(0, 7);
+  res.json(buildMatchedPL(month));
+});
+
+router.post('/financial-statement-export', (req, res) => {
+  const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
+  if (!month) return res.status(400).json({ error: 'month required' });
+  const wantPdf = req.query.format === 'pdf';
+  const data = buildMatchedPL(month);
+  const root = process.cwd();
+  const script = path.join(root, 'server', 'scripts', 'matched_pl_export.py');
+  const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `financial-statement-${month}.xlsx`);
+  const pdfFile = path.join(tmpDir, `financial-statement-${month}.pdf`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+
+  const sendFile = (file: string, type: string, name: string) => {
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  };
+
+  const py = spawn(PYTHON, [script, dataFile, xlsxFile], { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `financial-statement-${month}.xlsx`);
+
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
+    let psErr = '';
+    const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 90000);
+    ps.stderr.on('data', (c) => { psErr += c.toString(); });
+    ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
+    ps.on('close', () => {
+      clearTimeout(killTimer);
+      if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
+      sendFile(pdfFile, 'application/pdf', `financial-statement-${month}.pdf`);
+    });
+  });
+});
+
+// ── รายงานใบเบิกงานรายวัน (Issue Daily) — matrix: แถว=สมาชิก, คอลัมน์=ชนิดสินค้า, 1 หน้า/วัน ─────
+// แยกต่างหากจาก ExportExcelButton เดิมในหน้า "เบิกงาน" โดยสิ้นเชิง (ปุ่ม Excel เดิมยังอยู่ ไม่แตะ)
+function buildIssueDaily(filters: { date?: string; from?: string; to?: string; status?: string }) {
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+
+  let sql = `SELECT i.issued_at, i.quantity, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
+    p.name as product_name, p.color, p.unit
+    FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE 1=1`;
+  const params: any[] = [];
+  if (filters.status) { sql += ` AND i.status = ?`; params.push(filters.status); }
+  if (filters.date) { sql += ` AND i.issued_at LIKE ?`; params.push(`${filters.date}%`); }
+  if (filters.from) { sql += ` AND i.issued_at >= ?`; params.push(filters.from); }
+  if (filters.to) { sql += ` AND i.issued_at <= ?`; params.push(filters.to); }
+  sql += ` ORDER BY i.issued_at, m.code`;
+  const issueRows = prepare(sql).all(...params) as any[];
+
+  let rsql = `SELECT r.received_at, r.quantity, p.name as product_name, p.color, p.unit
+    FROM receives r JOIN products p ON r.product_id = p.id WHERE 1=1`;
+  const rparams: any[] = [];
+  if (filters.date) { rsql += ` AND r.received_at LIKE ?`; rparams.push(`${filters.date}%`); }
+  if (filters.from) { rsql += ` AND r.received_at >= ?`; rparams.push(filters.from); }
+  if (filters.to) { rsql += ` AND r.received_at <= ?`; rparams.push(filters.to); }
+  rsql += ` ORDER BY r.received_at`;
+  const receiveRows = prepare(rsql).all(...rparams) as any[];
+
+  const products: Record<string, { color: string; unit: string }> = {};
+  const dayMap: Record<string, { date: string; memberMap: Record<string, any> }> = {};
+  for (const r of issueRows) {
+    products[r.product_name] ??= { color: r.color, unit: r.unit };
+    const day = (dayMap[r.issued_at] ??= { date: r.issued_at, memberMap: {} });
+    const mm = (day.memberMap[r.member_code] ??= {
+      member_code: r.member_code, member_name: r.member_name, member_nickname: r.member_nickname,
+      qty: {} as Record<string, number>, total: 0,
+    });
+    mm.qty[r.product_name] = (mm.qty[r.product_name] || 0) + r.quantity;
+    mm.total += r.quantity;
+  }
+
+  const receiveByDay: Record<string, Record<string, number>> = {};
+  for (const r of receiveRows) {
+    products[r.product_name] ??= { color: r.color, unit: r.unit };
+    const day = (receiveByDay[r.received_at] ??= {});
+    day[r.product_name] = (day[r.product_name] || 0) + r.quantity;
+  }
+
+  const days = Object.keys(dayMap).sort().map(dt => ({
+    date: dt,
+    members: Object.values(dayMap[dt].memberMap).sort((a: any, b: any) => a.member_code.localeCompare(b.member_code)),
+    receives: receiveByDay[dt] || {},
+  }));
+
+  return {
+    org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
+    products, days,
+  };
+}
+
+router.post('/issue-daily-export', (req, res) => {
+  const filters = {
+    date: typeof req.body?.date === 'string' ? req.body.date : undefined,
+    from: typeof req.body?.from === 'string' ? req.body.from : undefined,
+    to: typeof req.body?.to === 'string' ? req.body.to : undefined,
+    status: typeof req.body?.status === 'string' ? req.body.status : undefined,
+  };
+  const wantPdf = req.query.format === 'pdf';
+  const data = buildIssueDaily(filters);
+  if (data.days.length === 0) return res.status(400).json({ error: 'ไม่มีข้อมูลใบเบิกในช่วงที่เลือก' });
+  const root = process.cwd();
+  const script = path.join(root, 'server', 'scripts', 'issue_daily_export.py');
+  const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-daily-'));
+  const dataFile = path.join(tmpDir, 'data.json');
+  const xlsxFile = path.join(tmpDir, `issue-daily.xlsx`);
+  const pdfFile = path.join(tmpDir, `issue-daily.pdf`);
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {} };
+  fs.writeFileSync(dataFile, JSON.stringify(data), 'utf-8');
+
+  const sendFile = (file: string, type: string, name: string) => {
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const stream = fs.createReadStream(file);
+    stream.pipe(res);
+    stream.on('close', cleanup);
+  };
+
+  const py = spawn(PYTHON, [script, dataFile, xlsxFile], { env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8' } });
+  let errOut = '';
+  py.stderr.on('data', (c) => { errOut += c.toString(); });
+  py.on('error', (e) => { cleanup(); res.status(500).json({ error: 'python spawn failed: ' + e.message }); });
+  py.on('close', (code) => {
+    if (code !== 0 || !fs.existsSync(xlsxFile)) { cleanup(); return res.status(500).json({ error: 'export failed', detail: errOut }); }
+    if (!wantPdf) return sendFile(xlsxFile, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `issue-daily.xlsx`);
+
+    const isWin = process.platform === 'win32';
+    const ps = isWin
+      ? spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', pdfScript, '-In', xlsxFile, '-Out', pdfFile])
+      : spawn('libreoffice', ['--headless', '--calc', '--convert-to', 'pdf', '--outdir', tmpDir, xlsxFile]);
+    let psErr = '';
+    const killTimer = setTimeout(() => { try { ps.kill(); } catch {} }, 120000);
+    ps.stderr.on('data', (c) => { psErr += c.toString(); });
+    ps.on('error', (e) => { clearTimeout(killTimer); cleanup(); res.status(500).json({ error: 'pdf convert spawn failed: ' + e.message }); });
+    ps.on('close', () => {
+      clearTimeout(killTimer);
+      if (!fs.existsSync(pdfFile)) { cleanup(); return res.status(500).json({ error: 'pdf convert failed', detail: psErr }); }
+      sendFile(pdfFile, 'application/pdf', `issue-daily.pdf`);
+    });
+  });
+});
+
 export default router;

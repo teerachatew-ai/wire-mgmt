@@ -10,6 +10,7 @@ import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
+import { downloadBlob } from '../utils/downloadBlob';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -581,6 +582,7 @@ export default function Issues() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
+  const [dailyPdfBusy, setDailyPdfBusy] = useState(false);
 
   const { data: issues = [], isLoading } = useQuery({
     queryKey: ['issues', statusFilter, dateFilter],
@@ -634,6 +636,21 @@ export default function Issues() {
     alert(bulkDeleteSummary(result));
   };
 
+  // รายงานใบเบิกงานรายวัน (PDF) — matrix แยกวัน: แถว=สมาชิก, คอลัมน์=ชนิดสินค้า + subtotal + ยอดรับเข้าจากโรงงานวันนั้น
+  const downloadIssueDaily = async () => {
+    const noFilter = !dateFilter.date && !dateFilter.from && !dateFilter.to;
+    if (noFilter && !confirm('ยังไม่ได้กรองช่วงวันที่ — จะสร้างรายงานทุกวันที่มีข้อมูลทั้งหมด (อาจมีหลายสิบหน้า) ดำเนินการต่อหรือไม่?')) return;
+    setDailyPdfBusy(true);
+    try {
+      const blob = await reportApi.issueDailyExport({ ...dateFilter, status: statusFilter || undefined }, 'pdf');
+      downloadBlob(blob, `ใบเบิกงานรายวัน-${dateFilterLabel(dateFilter)}.pdf`);
+    } catch {
+      alert('สร้างรายงานไม่สำเร็จ (อาจไม่มีข้อมูลใบเบิกในช่วงที่เลือก)');
+    } finally {
+      setDailyPdfBusy(false);
+    }
+  };
+
   // ค้นหา: เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
   const q = search.trim().toLowerCase();
   const visibleIssues = (issues as any[]).filter((i: any) => !q
@@ -675,6 +692,10 @@ export default function Issues() {
             'คงเหลือ': i.quantity - (i.returned_good + i.returned_defect + i.returned_waste),
             'สถานะ': statusLabel[i.status] || i.status, 'ผู้บันทึก': i.created_by || '',
           }))} />
+          <button type="button" className="btn-secondary btn-sm flex items-center gap-1.5" disabled={dailyPdfBusy}
+            onClick={downloadIssueDaily} title="รายงานใบเบิกงานรายวัน แยกเป็นวันๆ (PDF)">
+            {dailyPdfBusy ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} PDF รายวัน
+          </button>
           <button className="btn-primary btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={18} /> สร้างใบเบิก
           </button>

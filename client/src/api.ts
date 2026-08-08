@@ -89,6 +89,10 @@ export const reportApi = {
   wageReconcile: (month: string) => api.get('/reports/wage-reconcile', { params: { month } }).then(r => r.data),
   memberReconcile: (month: string) => api.get('/reports/member-reconcile', { params: { month } }).then(r => r.data),
   shipmentPlan: (month: string) => api.get('/reports/shipment-plan', { params: { month } }).then(r => r.data),
+  financialStatement: (month: string) => api.get('/reports/financial-statement', { params: { month } }).then(r => r.data),
+  financialStatementExport: (month: string, format?: 'pdf') => api.post('/reports/financial-statement-export', { month }, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
+  issueDailyExport: (filters: { date?: string; from?: string; to?: string; status?: string }, format?: 'pdf') =>
+    api.post('/reports/issue-daily-export', filters, { params: format ? { format } : {}, responseType: 'blob', timeout: 120000 }).then(r => r.data),
 };
 
 export const ocrApi = {
