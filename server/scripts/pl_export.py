@@ -86,19 +86,19 @@ section("หัก ต้นทุนและค่าใช้จ่าย")
 line("ค่าแรงสมาชิก (ค่าตัด)", d["wage"], color=RED, sign="-")
 line(f"ภาษี ณ ที่จ่าย {d.get('tax_pct', 3)}%", d["tax"], color=RED, sign="-")
 
-# ค่าตอบแทนผู้บริหาร (ฐาน + จ่ายให้สมาชิก/ผู้บริหาร)
-line("ค่าตอบแทนผู้บริหาร (รวม)", d["manager_comp"], color=RED, sign="-")
+# ค่าตอบแทนผู้บริหาร (ฐาน + จ่ายให้สมาชิก/ผู้บริหาร) — รายการย่อยก่อน แล้วค่อยยอดรวมปิดท้าย อ่านเป็นธรรมชาติกว่า (เห็นที่มาก่อนเห็นผลรวม)
 for mg in d.get("manager_lines", []):
     if mg["computed"]:
         detail(f'{mg["name"]}{(" · " + mg["role"]) if mg.get("role") else ""}', mg["computed"])
 for e in d.get("comp_exp_lines", []):
     who = e.get("paid_to_name") or ("ผู้บริหาร" if e.get("paid_to_type") == "manager" else "สมาชิก")
     detail(f'{e.get("description") or "จ่ายพิเศษ"} → {who}', e["amount"])
+line("รวมค่าตอบแทนผู้บริหาร", d["manager_comp"], color=RED, sign="-", bold=True)
 
-# ค่าบริหารจัดการทั่วไป
-line("ค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-")
+# ค่าบริหารจัดการทั่วไป — เช่นเดียวกัน รายการย่อยก่อน ยอดรวมปิดท้าย
 for e in d.get("general_exp_lines", []):
     detail(e.get("description"), e["amount"])
+line("รวมค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-", bold=True)
 
 # ── กำไรสุทธิ ──
 row += 1
