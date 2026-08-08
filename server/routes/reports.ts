@@ -373,7 +373,7 @@ router.get('/member-paycycle/:memberId', (req, res) => {
     JOIN issues i ON r.issue_id = i.id
     JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
-    ORDER BY r.returned_at, i.code
+    ORDER BY i.issued_at, i.code, r.returned_at
   `).all(defectWagePct, req.params.memberId, cycle) as any[];
   // สรุปต่อประเภทงาน
   const g: Record<string, any> = {};

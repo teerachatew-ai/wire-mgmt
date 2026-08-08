@@ -60,7 +60,7 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
               <table className="w-full text-sm">
                 <thead className="border-b text-xs text-gray-500">
                   <tr>
-                    <th className="px-3 py-2 text-left font-medium">วันที่คืน</th>
+                    <th className="px-3 py-2 text-left font-medium">วันที่เบิก</th>
                     <th className="px-3 py-2 text-left font-medium">เบิก / คืน</th>
                     <th className="px-3 py-2 text-left font-medium">ประเภทงาน</th>
                     <th className="px-3 py-2 text-right font-medium text-green-600">งานดี</th>
@@ -71,10 +71,10 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
                 <tbody>
                   {rows.map((r: any) => (
                     <tr key={r.id} className="border-b border-gray-50">
-                      <td className="px-3 py-2 text-gray-700">{String(r.returned_at || '').slice(0, 10)}</td>
+                      <td className="px-3 py-2 text-gray-700">{String(r.issued_at || '').slice(0, 10)}</td>
                       <td className="px-3 py-2 text-xs text-gray-500">
                         <span className="font-mono text-blue-600">{r.issue_code}</span>
-                        {r.issued_at && <span className="block text-gray-400">เบิก {String(r.issued_at).slice(0, 10)}</span>}
+                        {r.returned_at && <span className="block text-gray-400">คืน {String(r.returned_at).slice(0, 10)}</span>}
                       </td>
                       <td className="px-3 py-2 text-gray-700 inline-flex items-center gap-1.5">
                         {r.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: r.color }} />}{r.product_name}
