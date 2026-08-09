@@ -619,13 +619,15 @@ export default function Issues() {
   }, {})) as any[];
 
   // บัตรคุมสต็อก (stock ledger) — cross check รับเข้า vs เบิก รายวันทีละสินค้า พร้อมยอดคงเหลือสะสม
+  // แสดงประวัติทั้งหมดของสินค้าที่เลือกเสมอ ไม่ผูกกับตัวกรองวันที่ของตารางใบเบิกด้านบน (คนละวัตถุประสงค์กัน —
+  // ตัวกรองด้านบนไว้ดูใบเบิกเฉพาะช่วง แต่บัตรคุมสต็อกต้องเห็นภาพรวมทั้งหมดถึงจะเห็นว่าวันไหนของแต่ละรุ่นเบิกหมดจริงๆ)
   const [ledgerProductId, setLedgerProductId] = useState<string>('');
   useEffect(() => {
     if (!ledgerProductId && (products as any[]).length > 0) setLedgerProductId(String((products as any[])[0].id));
   }, [products, ledgerProductId]);
   const { data: ledger } = useQuery({
-    queryKey: ['stock-ledger', ledgerProductId, dateFilter],
-    queryFn: () => reportApi.stockLedger(Number(ledgerProductId), dateFilter),
+    queryKey: ['stock-ledger', ledgerProductId],
+    queryFn: () => reportApi.stockLedger(Number(ledgerProductId), {}),
     enabled: !!ledgerProductId,
   });
   const ledgerRows = (ledger?.rows || []) as any[];
@@ -745,7 +747,10 @@ export default function Issues() {
 
       <div className="card overflow-x-auto">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <p className="text-sm font-semibold text-gray-700">📋 บัตรคุมสต็อก — cross check รับเข้า vs เบิก รายวัน</p>
+          <div>
+            <p className="text-sm font-semibold text-gray-700">📋 บัตรคุมสต็อก — cross check รับเข้า vs เบิก รายวัน</p>
+            <p className="text-xs text-gray-400">แสดงประวัติทั้งหมดของสินค้าที่เลือก ไม่ขึ้นกับตัวกรองวันที่ด้านบน</p>
+          </div>
           <select className="input w-auto text-sm py-1.5" value={ledgerProductId} onChange={e => setLedgerProductId(e.target.value)}>
             {(products as any[]).map((p: any) => (
               <option key={p.id} value={p.id}>{p.name}</option>
