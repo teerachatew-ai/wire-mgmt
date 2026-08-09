@@ -1649,4 +1649,74 @@ router.post('/issue-daily-export', (req, res) => {
   });
 });
 
+// ── ของรับเข้าเบิกหมดวันไหน (Receive → clear-out lag) ─────────────────────
+// สำหรับสินค้าล็อตที่รับเข้าวันหนึ่งๆ เช็คว่ายอดเบิกสะสมไล่ทันยอดรับเข้าสะสม ณ วันนั้นเมื่อไร (แบบ FIFO — มาก่อนเบิกก่อน)
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000);
+}
+
+function buildReceiveClearStatus(filters: { date?: string; from?: string; to?: string }) {
+  let rsql = `SELECT product_id, received_at as d, SUM(quantity) as qty FROM receives WHERE 1=1`;
+  const rparams: any[] = [];
+  if (filters.date) { rsql += ` AND received_at LIKE ?`; rparams.push(`${filters.date}%`); }
+  if (filters.from) { rsql += ` AND received_at >= ?`; rparams.push(filters.from); }
+  if (filters.to) { rsql += ` AND received_at <= ?`; rparams.push(filters.to); }
+  rsql += ` GROUP BY product_id, received_at`;
+  const batchRows = prepare(rsql).all(...rparams) as any[];
+  if (batchRows.length === 0) return { batches: [] };
+
+  const today = todayThai();
+  const products = Object.fromEntries((prepare(`SELECT id, name, color, unit FROM products`).all() as any[]).map((p: any) => [p.id, p]));
+
+  // แคชอนุกรมสะสมรายวัน (รับเข้า/เบิก) ทั้งประวัติของแต่ละสินค้า — คำนวณครั้งเดียวต่อสินค้า ใช้ซ้ำได้กับทุกล็อตของสินค้านั้น
+  const seriesCache: Record<number, { R: Map<string, number>; I: Map<string, number>; dates: string[] }> = {};
+  const getSeries = (productId: number) => {
+    if (seriesCache[productId]) return seriesCache[productId];
+    const recvDaily = prepare(`SELECT received_at as d, SUM(quantity) as q FROM receives WHERE product_id=? GROUP BY received_at ORDER BY received_at`).all(productId) as any[];
+    const issDaily = prepare(`SELECT issued_at as d, SUM(quantity) as q FROM issues WHERE product_id=? GROUP BY issued_at ORDER BY issued_at`).all(productId) as any[];
+    const dates = [...new Set([...recvDaily.map((r: any) => r.d), ...issDaily.map((r: any) => r.d), today])].sort();
+    const R = new Map<string, number>(); const I = new Map<string, number>();
+    let rc = 0, ic = 0, ri = 0, ii = 0;
+    for (const d of dates) {
+      while (ri < recvDaily.length && recvDaily[ri].d === d) { rc += recvDaily[ri].q; ri++; }
+      while (ii < issDaily.length && issDaily[ii].d === d) { ic += issDaily[ii].q; ii++; }
+      R.set(d, rc); I.set(d, ic);
+    }
+    const result = { R, I, dates };
+    seriesCache[productId] = result;
+    return result;
+  };
+
+  const batches = batchRows.map((b: any) => {
+    const { R, I, dates } = getSeries(b.product_id);
+    const RD = R.get(b.d) ?? 0;
+    let clearedOn: string | null = null;
+    for (const d of dates) {
+      if (d < b.d) continue;
+      if ((I.get(d) ?? 0) >= RD) { clearedOn = d; break; }
+    }
+    const q = b.qty;
+    const remaining = clearedOn ? 0 : Math.max(0, Math.min(q, RD - (I.get(today) ?? 0)));
+    const lagDays = clearedOn ? daysBetween(b.d, clearedOn) : null;
+    const status: 'same' | 'late' | 'open' = clearedOn ? (lagDays === 0 ? 'same' : 'late') : 'open';
+    const p = products[b.product_id] || {};
+    return {
+      date: b.d, product_id: b.product_id, product_name: p.name, color: p.color, unit: p.unit,
+      received_qty: q, cleared_on: clearedOn, lag_days: lagDays, remaining, status,
+      days_elapsed: status === 'open' ? daysBetween(b.d, today) : null,
+    };
+  }).sort((a, b) => b.date.localeCompare(a.date) || (a.product_name || '').localeCompare(b.product_name || ''));
+
+  return { batches };
+}
+
+router.get('/receive-clear-status', (req, res) => {
+  const filters = {
+    date: typeof req.query.date === 'string' ? req.query.date : undefined,
+    from: typeof req.query.from === 'string' ? req.query.from : undefined,
+    to: typeof req.query.to === 'string' ? req.query.to : undefined,
+  };
+  res.json(buildReceiveClearStatus(filters));
+});
+
 export default router;

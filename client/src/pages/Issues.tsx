@@ -618,6 +618,13 @@ export default function Issues() {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
   }, {})) as any[];
 
+  // ของที่รับเข้าแต่ละล็อต (แยกวัน/สินค้า) เบิกให้สมาชิกหมดวันไหน — เทียบยอดรับเข้า/เบิกสะสมทั้งประวัติแบบ FIFO ไม่ใช่แค่ในช่วงที่กรองอยู่
+  const { data: clearStatus } = useQuery({
+    queryKey: ['receive-clear-status', dateFilter],
+    queryFn: () => reportApi.receiveClearStatus(dateFilter),
+  });
+  const clearBatches = (clearStatus?.batches || []) as any[];
+
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -660,7 +667,7 @@ export default function Issues() {
     || String(i.product_name || '').toLowerCase().includes(q));
 
   const summary = Object.values(visibleIssues.reduce((a: any, i: any) => {
-    const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, qty: 0 }).qty += Number(i.quantity) || 0; return a;
+    const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, color: i.color, qty: 0 }).qty += Number(i.quantity) || 0; return a;
   }, {})) as any[];
   // จำนวนสมาชิกที่มาเบิก (คนเดียวเบิกหลายชนิด/หลายใบ นับ 1)
   const memberCount = new Set(visibleIssues.map((i: any) => i.member_id ?? i.member_code ?? i.member_name)).size;
@@ -730,6 +737,49 @@ export default function Issues() {
 
       <DaySummary groups={summary} note={dateFilterLabel(dateFilter)} unitLabel="เบิก" memberCount={memberCount} />
       <DaySummary groups={receiveSummaryOfPeriod} note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" title="📦 งานที่มาส่งจากโรงงาน" />
+
+      {clearBatches.length > 0 && (
+        <div className="card overflow-x-auto">
+          <p className="text-sm font-semibold text-gray-700 mb-3">⏱️ ของที่รับเข้าแต่ละล็อต เบิกหมดวันไหน</p>
+          <table className="w-full text-sm min-w-[560px]">
+            <thead className="bg-gray-50 border-b">
+              <tr className="text-left text-gray-500">
+                <th className="px-3 py-2 font-medium">วันที่รับเข้า</th>
+                <th className="px-3 py-2 font-medium">สินค้า</th>
+                <th className="px-3 py-2 font-medium text-right">รับเข้า</th>
+                <th className="px-3 py-2 font-medium">เบิกหมดวันที่</th>
+                <th className="px-3 py-2 font-medium">สถานะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clearBatches.map((b: any, idx: number) => (
+                <tr key={idx} className="border-b last:border-0 hover:bg-gray-50/70">
+                  <td className="px-3 py-2 text-gray-600">{b.date}</td>
+                  <td className="px-3 py-2 text-gray-800">
+                    {b.color && <span className="inline-block w-2.5 h-2.5 rounded-full border border-gray-300 mr-1.5 align-middle" style={{ backgroundColor: b.color }} />}
+                    {b.product_name}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium text-gray-700">{Number(b.received_qty).toLocaleString()} {b.unit}</td>
+                  <td className="px-3 py-2 text-gray-600">{b.cleared_on || '–'}</td>
+                  <td className="px-3 py-2">
+                    {b.status === 'same' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700">✅ เบิกหมดวันนี้เลย</span>
+                    )}
+                    {b.status === 'late' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-700">📅 เบิกหมด (+{b.lag_days} วัน)</span>
+                    )}
+                    {b.status === 'open' && (
+                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-rose-100 text-rose-700">
+                        ⏳ ยังไม่หมด ค้าง {Number(b.remaining).toLocaleString()} ({b.days_elapsed} วัน)
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
