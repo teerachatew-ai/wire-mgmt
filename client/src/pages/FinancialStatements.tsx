@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import {
   Factory, Scissors, TrendingUp, TrendingDown, ArrowLeftRight, Boxes, Clock,
-  Info, FileDown, FileText, Loader2, Scale,
+  Info, FileDown, FileText, Loader2, Scale, PiggyBank, ArrowDownCircle, ArrowUpCircle,
 } from 'lucide-react';
 import { downloadBlob } from '../utils/downloadBlob';
 
@@ -174,6 +174,54 @@ export default function FinancialStatements() {
               <p className="text-xs text-slate-500 leading-relaxed">
                 ส่วนต่างเกิดจากค่าแรงตามรอบจ่ายรวมงานของเดือนอื่นปนอยู่ (ตัดเสร็จเดือนนี้แต่ยังไม่ส่งออก หรือส่งออกเดือนนี้แต่ตัดเสร็จเดือนก่อน)
                 ทำให้ไม่ตรงกับรายรับที่รับรู้เดือนนี้ — ตัวเลข "กำไรสุทธิ (แบบจับคู่ต้นทุน-รายรับ)" ด้านบนคือกำไรที่แท้จริงของเดือนนี้
+              </p>
+            </div>
+          </div>
+
+          {/* Fund advance / loan mechanic */}
+          <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-teal-100 text-teal-600"><PiggyBank size={16} /></span>
+              <h2 className="font-bold text-slate-800">เงินทดรองจ่ายจากกองทุนวิสาหกิจ</h2>
+            </div>
+            <div className="px-5 pt-4 text-xs text-slate-500 leading-relaxed">
+              เดือนไหนจ่ายค่าแรง (ตามรอบตัด) มากกว่าต้นทุนขายที่จับคู่ได้ (ตามรอบส่งออก) — คือตัดงานเก็บสต๊อกไว้มากกว่าที่ส่งออกเดือนนั้น —
+              กลุ่มต้องขอยืมเงินกองทุนวิสาหกิจมาจ่ายให้สมาชิกไปก่อน แล้วเดือนที่ส่งของออกมากกว่าที่ตัดใหม่ (เบิกสต๊อกเก่ามาส่ง) จะมีกำไรส่วนเกินนำไปคืนกองทุนได้
+            </div>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              {data.advance_needed > 0.005 ? (
+                <div className="rounded-xl bg-rose-50 p-3 border border-rose-100">
+                  <p className="text-xs text-rose-500 mb-1 flex items-center gap-1"><ArrowUpCircle size={12} /> ต้องยืมกองทุนเพิ่มเดือนนี้</p>
+                  <p className="text-lg font-bold tabular-nums text-rose-700">฿{thb2(data.advance_needed)}</p>
+                </div>
+              ) : data.advance_needed < -0.005 ? (
+                <div className="rounded-xl bg-emerald-50 p-3 border border-emerald-100">
+                  <p className="text-xs text-emerald-600 mb-1 flex items-center gap-1"><ArrowDownCircle size={12} /> มีกำไรส่วนเกิน คืนกองทุนได้เดือนนี้</p>
+                  <p className="text-lg font-bold tabular-nums text-emerald-700">฿{thb2(-data.advance_needed)}</p>
+                </div>
+              ) : (
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <p className="text-xs text-slate-400 mb-1">ส่วนต่างเดือนนี้</p>
+                  <p className="text-lg font-bold tabular-nums text-slate-600">พอดี ไม่ต้องยืม/คืน</p>
+                </div>
+              )}
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-xs text-slate-400 mb-1">ยอดหนี้กองทุน ยกมา</p>
+                <p className="text-lg font-bold tabular-nums text-slate-600">฿{thb2(data.fund_loan_open)}</p>
+              </div>
+              <div className="rounded-xl bg-teal-50 p-3 border border-teal-100">
+                <p className="text-xs text-teal-600 mb-1 flex items-center gap-1"><PiggyBank size={12} /> ยอดหนี้กองทุน ยกไป</p>
+                <p className="text-lg font-bold tabular-nums text-teal-700">฿{thb2(data.fund_loan_close)}</p>
+                <p className="text-[11px] text-teal-400 mt-0.5">ยอดที่ยังติดค้างกองทุนอยู่สิ้นเดือนนี้</p>
+              </div>
+            </div>
+            <div className="px-5 pb-5 -mt-1 space-y-1">
+              <p className="text-xs text-slate-500 leading-relaxed">
+                ยอดนี้ควรใกล้เคียงกับ "สินค้าคงเหลือ ยกไป" ในตารางด้านล่าง เพราะเป็นเงินที่จ่ายล่วงหน้าไปสำหรับงานที่ตัดเสร็จแต่ยังไม่ได้ส่งออก
+              </p>
+              <p className="text-xs text-amber-600 leading-relaxed">
+                หมายเหตุ: เป็นยอดประมาณการสะสมจากข้อมูลในระบบตั้งแต่เดือน {data.fund_loan_earliest_month ? monthLabel(data.fund_loan_earliest_month) : '-'}
+                {' '}ถ้ายอดยืม/คืนจริงในอดีตไม่ตรงตามสูตรนี้เป๊ะ หรือมีการยืมค้างไว้ก่อนเริ่มใช้ระบบ ควรตรวจสอบยอดกับบัญชีจริงของกลุ่มอีกครั้ง
               </p>
             </div>
           </div>

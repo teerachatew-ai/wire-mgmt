@@ -148,6 +148,11 @@ for day in d["days"]:
     ws.row_dimensions[1].height = 28
     ws.row_dimensions[2].height = 24
 
+    member_count = day.get("member_count", len(day["members"]))
+    ws.merge_cells(f"A3:{LAST_LETTER}3")
+    cell(ws, "A3", f'จำนวนสมาชิกที่เบิกงานวันนี้ {member_count} คน', font=Font(name=FONT, size=10.5, bold=True, color=SKY), align=CW)
+    ws.row_dimensions[3].height = 20
+
     row = 4
     headers = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["รวม"]
     for ci, h in enumerate(headers, start=1):

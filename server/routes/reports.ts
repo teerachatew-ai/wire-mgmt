@@ -1412,6 +1412,36 @@ router.post('/recompute-paycycles', (_req, res) => {
 // แยกต่างหากจาก buildPL()/{/pl-export} เดิมโดยสิ้นเชิง (ไม่ใช้ร่วมกัน ไม่แก้ของเดิม) กันกระทบหน้า "ภาพรวม" เดิม
 // จุดต่างจาก buildPL(): ใช้ wage_billed (= ปริมาณที่ "ส่งออกจริงเดือนนี้" x ค่าแรงต่อหน่วย) เป็นต้นทุนขาย
 // แทน payCycleWage (ค่าแรงที่จ่ายจริงตามรอบตัด) เพื่อให้ต้นทุนกับรายรับอยู่คนละเดือนตรงกันตามหลักการจับคู่ (matching principle)
+// ยอดเงินทดรองจ่าย (ยืม) จากกองทุนวิสาหกิจ — สะสมย้อนหลังตั้งแต่เดือนแรกที่มีข้อมูลในระบบ
+// ที่มา: รอบจ่ายค่าแรง (ตัดงาน) กับรอบรับรู้รายได้ (ส่งของ) คนละช่วงเวลากัน — เดือนไหนจ่ายค่าแรงมากกว่าต้นทุนขายที่จับคู่ได้
+// (คือตัดงานเก็บสต๊อกไว้มากกว่าที่ส่งออกเดือนนั้น) กลุ่มต้องยืมเงินกองทุนมาจ่ายส่วนเกินไปก่อน แล้วเดือนที่ส่งของออกมากกว่าที่ตัดใหม่
+// (เบิกสต๊อกเก่ามาส่ง) จะมีกำไรส่วนเกินไปคืนกองทุนได้ — ยอดคงเหลือจึงไม่มีวันติดลบ (คืนได้มากสุดเท่าที่ค้างยืมอยู่ ส่วนเกินกลายเป็นกำไรจริง ไม่ใช่เครดิตยกไป)
+function fundLoanBalance(uptoMonth: string): { open: number; close: number; earliest_month: string | null } {
+  const earliestRow = prepare(`
+    SELECT MIN(m) as m FROM (
+      SELECT MIN(pay_cycle) as m FROM returns WHERE pay_cycle IS NOT NULL AND pay_cycle != ''
+      UNION ALL
+      SELECT MIN(SUBSTR(shipped_at,1,7)) as m FROM shipments
+    )
+  `).get() as any;
+  const earliest = earliestRow?.m || null;
+  if (!earliest || earliest > uptoMonth) return { open: 0, close: 0, earliest_month: earliest };
+
+  let loan = 0;
+  let m = earliest;
+  while (m < uptoMonth) {
+    const cashWage = payCycleWage(m);
+    const cogsM = buildWageReconcile(m).totals.wage_billed;
+    loan = Math.max(0, loan + (cashWage - cogsM));
+    m = nextMonth(m);
+  }
+  const open = loan;
+  const cashWageTarget = payCycleWage(uptoMonth);
+  const cogsTarget = buildWageReconcile(uptoMonth).totals.wage_billed;
+  const close = Math.max(0, loan + (cashWageTarget - cogsTarget));
+  return { open, close, earliest_month: earliest };
+}
+
 function buildMatchedPL(month: string) {
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
   const taxRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
@@ -1430,6 +1460,7 @@ function buildMatchedPL(month: string) {
   const managerComp = managerBase + compExpTotal;
   const netMatched = revenue - tax - cogs - managerComp - generalExpTotal;
   const netCashBasis = revenue - tax - cashBasisWage - managerComp - generalExpTotal;
+  const fundLoan = fundLoanBalance(month);
 
   return {
     month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
@@ -1443,6 +1474,12 @@ function buildMatchedPL(month: string) {
     cash_basis_wage: cashBasisWage,
     net_cash_basis: netCashBasis,
     variance: netCashBasis - netMatched,
+    // เงินทดรองจ่ายจากกองทุนวิสาหกิจ — บวก = เดือนนี้ต้องยืมกองทุนเพิ่ม (ตัดงานเก็บสต๊อกมากกว่าที่ส่งออก)
+    // ลบ = เดือนนี้มีกำไรส่วนเกินคืนกองทุนได้ (ส่งของออกมากกว่าที่ตัดใหม่ คือเบิกสต๊อกเก่ามาขาย)
+    advance_needed: cashBasisWage - cogs,
+    fund_loan_open: fundLoan.open,
+    fund_loan_close: fundLoan.close,
+    fund_loan_earliest_month: fundLoan.earliest_month,
     // สรุปสินทรัพย์/หนี้สินที่เกี่ยวข้องกับงานตัดสายไฟ ณ สิ้นเดือน (ไม่ใช่งบดุลฉบับเต็ม — ไม่รวมเงินสด/ทุน)
     inventory_open: reconcile.totals.reserve_open,
     inventory_close: reconcile.totals.reserve_close,
@@ -1549,11 +1586,10 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
     day[r.product_name] = (day[r.product_name] || 0) + r.quantity;
   }
 
-  const days = Object.keys(dayMap).sort().map(dt => ({
-    date: dt,
-    members: Object.values(dayMap[dt].memberMap).sort((a: any, b: any) => a.member_code.localeCompare(b.member_code)),
-    receives: receiveByDay[dt] || {},
-  }));
+  const days = Object.keys(dayMap).sort().map(dt => {
+    const members = Object.values(dayMap[dt].memberMap).sort((a: any, b: any) => a.member_code.localeCompare(b.member_code));
+    return { date: dt, members, member_count: members.length, receives: receiveByDay[dt] || {} };
+  });
 
   return {
     org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
