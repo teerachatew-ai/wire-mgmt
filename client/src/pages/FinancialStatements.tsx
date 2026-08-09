@@ -236,11 +236,15 @@ export default function FinancialStatements() {
             <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="rounded-xl bg-slate-50 p-3">
                 <p className="text-xs text-slate-400 mb-1">สินค้าคงเหลือ ยกมา</p>
-                <p className="text-lg font-bold tabular-nums text-slate-600">฿{thb2(data.inventory_open)}</p>
+                <p className={`text-lg font-bold tabular-nums ${data.inventory_open < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                  {data.inventory_open < 0 ? '−' : ''}฿{thb2(Math.abs(data.inventory_open))}
+                </p>
               </div>
               <div className="rounded-xl bg-violet-50 p-3 border border-violet-100">
                 <p className="text-xs text-violet-500 mb-1 flex items-center gap-1"><Boxes size={12} /> สินค้าคงเหลือ ยกไป</p>
-                <p className="text-lg font-bold tabular-nums text-violet-700">฿{thb2(data.inventory_close)}</p>
+                <p className={`text-lg font-bold tabular-nums ${data.inventory_close < 0 ? 'text-rose-600' : 'text-violet-700'}`}>
+                  {data.inventory_close < 0 ? '−' : ''}฿{thb2(Math.abs(data.inventory_close))}
+                </p>
               </div>
               <div className="rounded-xl bg-rose-50 p-3 border border-rose-100">
                 <p className="text-xs text-rose-500 mb-1 flex items-center gap-1"><Clock size={12} /> ค่าแรงค้างจ่าย</p>

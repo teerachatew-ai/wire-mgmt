@@ -789,9 +789,13 @@ function WageReconcileTab() {
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-green-700">{fmtQty(p.ret_good_cyc)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{fmtQty(p.ship_good_cal)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-medium text-orange-700">{p.fg_close > 0 ? fmtQty(p.fg_close) : '-'}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${p.fg_close < 0 ? 'text-rose-600' : 'text-orange-700'}`}>
+                      {p.fg_close < 0 ? `−${fmtQty(Math.abs(p.fg_close))}` : p.fg_close > 0 ? fmtQty(p.fg_close) : '-'}
+                    </td>
                     <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{p.wage}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-amber-700">{p.reserve_close > 0 ? money(p.reserve_close) : '-'}</td>
+                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${p.reserve_close < 0 ? 'text-rose-600' : 'text-amber-700'}`}>
+                      {p.reserve_close < 0 ? `−${money(Math.abs(p.reserve_close))}` : p.reserve_close > 0 ? money(p.reserve_close) : '-'}
+                    </td>
                   </tr>
                 ))}
                 <tr className="bg-amber-50 border-t font-semibold">

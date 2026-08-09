@@ -1104,8 +1104,10 @@ function buildWageReconcile(m: string) {
     const wage_timing = (p.ret_good_cyc - p.ret_good_cal) * wage;  // T (เหลื่อมรอบตัดยอด)
     const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * defectWagePct; // X
     const wage_payroll = wage_billed + wage_dFG + wage_timing + wage_extra;  // B (gross)
-    const reserve_open = Math.max(0, fg_open) * wage;
-    const reserve_close = Math.max(0, fg_close) * wage;       // เงินกันข้ามเดือน (ต่อสินค้า) — เปลี่ยนตามเส้นตัดยอดที่ตั้งไว้
+    // ไม่ clamp ที่ 0 ต่อสินค้า — ถ้าสินค้าไหนส่งออกมากกว่าที่คืนงานสะสม (fg ติดลบ) ต้องปล่อยให้ติดลบจริง
+    // เพื่อให้หักล้าง (net) กับสินค้าอื่นที่มีของค้างบวกอยู่ได้ถูกต้องตอนรวมยอด — ถ้า clamp ทีละตัวก่อนรวม ยอดรวมจะสูงเกินจริง
+    const reserve_open = fg_open * wage;
+    const reserve_close = fg_close * wage;                    // เงินกันข้ามเดือน (ต่อสินค้า) — เปลี่ยนตามเส้นตัดยอดที่ตั้งไว้
     return {
       id: p.id, name: p.name, color: p.color, unit: p.unit, wage,
       ret_good_cyc: p.ret_good_cyc, ship_good_cal: p.ship_good_cal,
