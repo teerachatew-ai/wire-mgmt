@@ -392,6 +392,24 @@ CREATE TABLE IF NOT EXISTS managers (
     }
   }
 
+  // ── ดัชนี (index) เพิ่มความเร็วคิวรี — คอลัมน์เหล่านี้ถูก join/filter บ่อยมากในหน้ารายงานต่างๆ (ยอดคืนงานต่อใบเบิก,
+  // ยอดต่อสมาชิก/สินค้า, กรองตามวันที่/รอบจ่าย ฯลฯ) ไม่เคยมีดัชนีมาก่อนเลย ทำให้ query ที่มี subquery ซ้อนต้อง scan
+  // ทั้งตารางทุกครั้ง ยิ่งข้อมูลสะสมเยอะยิ่งช้า (ยืนยันจริงจาก /api/issues ที่ใช้เวลา 7 วิบน production) — สร้างครั้งเดียว
+  // แล้วอยู่ถาวร ไม่กระทบข้อมูลเดิม
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_returns_issue_id ON returns(issue_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_returns_pay_cycle ON returns(pay_cycle)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_returns_returned_at ON returns(returned_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_issues_member_id ON issues(member_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_issues_product_id ON issues(product_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_issues_issued_at ON issues(issued_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_receives_product_id ON receives(product_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_receives_received_at ON receives(received_at)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shipment_items_shipment_id ON shipment_items(shipment_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shipment_items_product_id ON shipment_items(product_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_shipments_shipped_at ON shipments(shipped_at)`);
+  save();
+
   // default settings
   const defaults = [
     ['max_pending_units', '500'],
