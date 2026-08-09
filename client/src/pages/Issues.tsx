@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
@@ -14,6 +14,30 @@ import { downloadBlob } from '../utils/downloadBlob';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
+}
+
+// อธิบายว่ายอดคงเหลือสะสมติดลบของวันนี้ เกิดจาก "เบิกวันนี้มากกว่ารับเข้าวันนี้" ล้วนๆ (ของใหม่ยังไม่ทันรับเข้าก็เบิกไปแล้ว)
+// หรือแค่ทยอยแจกงานที่มีคงเหลือสะสมจากวันก่อนหน้าอยู่แล้ว (ปกติ ไม่ใช่ปัญหา) — คำนวณย้อนจากตัวเลขในแถวนั้นเอง ไม่ต้องพึ่งแถวก่อนหน้า
+function ledgerExplain(r: any): { text: string; tone: 'partial' | 'bad' } | null {
+  const dayExcess = Math.max(0, (r.issued || 0) - (r.received || 0));
+  if (dayExcess === 0) {
+    if (r.balance < 0) return { text: 'วันนี้เบิกไม่เกินยอดรับเข้าของวันนี้เอง แต่ยอดคงเหลือสะสมยังติดลบต่อเนื่องมาจากก่อนหน้า', tone: 'bad' };
+    return null;
+  }
+  if (r.balance >= 0) return null; // ยอดคงเหลือก่อนหน้าพอรองรับส่วนเกินวันนี้ได้ทั้งหมด ไม่ต้องอธิบายเพิ่ม
+  const priorBalance = r.balance - r.received + r.issued;
+  const explained = Math.max(0, Math.min(priorBalance, dayExcess));
+  const unexplained = dayExcess - explained;
+  if (explained > 0) {
+    return {
+      text: `วันนี้เบิกเกินยอดรับเข้าวันนี้ ${dayExcess.toLocaleString()} เส้น — ${explained.toLocaleString()} เส้น ใกล้เคียงกับยอดคงเหลือสะสมที่มีอยู่ก่อนหน้า (${priorBalance.toLocaleString()} เส้น) น่าจะเป็นการแจกงานที่รับเข้าไว้ก่อนหน้านี้ เหลือส่วนที่อธิบายไม่ได้จริง ${unexplained.toLocaleString()} เส้น`,
+      tone: 'partial',
+    };
+  }
+  return {
+    text: `วันนี้เบิกเกินยอดรับเข้าวันนี้ ${dayExcess.toLocaleString()} เส้น และไม่มียอดคงเหลือสะสมจากก่อนหน้ามารองรับเลย (ก่อนวันนี้อยู่ที่ ${priorBalance.toLocaleString()} เส้น) ส่วนเกินนี้ยังอธิบายไม่ได้ ควรตรวจสอบ`,
+    tone: 'bad',
+  };
 }
 
 const statusLabel: Record<string, string> = { pending: 'ค้างส่ง', partial: 'คืนบางส่วน', closed: 'ปิดแล้ว' };
@@ -622,6 +646,7 @@ export default function Issues() {
   // แสดงประวัติทั้งหมดของสินค้าที่เลือกเสมอ ไม่ผูกกับตัวกรองวันที่ของตารางใบเบิกด้านบน (คนละวัตถุประสงค์กัน —
   // ตัวกรองด้านบนไว้ดูใบเบิกเฉพาะช่วง แต่บัตรคุมสต็อกต้องเห็นภาพรวมทั้งหมดถึงจะเห็นว่าวันไหนของแต่ละรุ่นเบิกหมดจริงๆ)
   const [ledgerProductId, setLedgerProductId] = useState<string>('');
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   useEffect(() => {
     if (!ledgerProductId && (products as any[]).length > 0) setLedgerProductId(String((products as any[])[0].id));
   }, [products, ledgerProductId]);
@@ -746,12 +771,25 @@ export default function Issues() {
       <DaySummary groups={receiveSummaryOfPeriod} note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" title="📦 งานที่มาส่งจากโรงงาน" />
 
       <div className="card overflow-x-auto">
-        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-          <div>
-            <p className="text-sm font-semibold text-gray-700">📋 บัตรคุมสต็อก — cross check รับเข้า vs เบิก รายวัน</p>
-            <p className="text-xs text-gray-400">แสดงประวัติทั้งหมดของสินค้าที่เลือก ไม่ขึ้นกับตัวกรองวันที่ด้านบน</p>
+        <button type="button" className="w-full flex items-center justify-between flex-wrap gap-2 mb-0 text-left" onClick={() => setLedgerOpen(o => !o)}>
+          <div className="flex items-center gap-2">
+            {ledgerOpen ? <ChevronUp size={16} className="text-gray-400 shrink-0" /> : <ChevronDown size={16} className="text-gray-400 shrink-0" />}
+            <div>
+              <p className="text-sm font-semibold text-gray-700">📋 บัตรคุมสต็อก — cross check รับเข้า vs เบิก รายวัน</p>
+              <p className="text-xs text-gray-400">แสดงประวัติทั้งหมดของสินค้าที่เลือก ไม่ขึ้นกับตัวกรองวันที่ด้านบน</p>
+            </div>
           </div>
-          <select className="input w-auto text-sm py-1.5" value={ledgerProductId} onChange={e => setLedgerProductId(e.target.value)}>
+          {ledger && !ledgerOpen && (
+            <span className={`text-xs font-medium px-2 py-1 rounded-lg ${ledger.has_over_issue ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+              {ledger.has_over_issue ? '⚠ พบความผิดปกติ' : '✅ ปกติ'} · คงเหลือสะสม {Number(ledger.closing_balance).toLocaleString()} {ledger.unit}
+            </span>
+          )}
+        </button>
+
+        {ledgerOpen && (
+        <>
+        <div className="flex justify-end mb-3 mt-3">
+          <select className="input w-auto text-sm py-1.5" value={ledgerProductId} onChange={e => setLedgerProductId(e.target.value)} onClick={e => e.stopPropagation()}>
             {(products as any[]).map((p: any) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
@@ -788,18 +826,32 @@ export default function Issues() {
             {ledgerRows.length === 0 && (
               <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">ไม่มีการเคลื่อนไหวในช่วงที่เลือก</td></tr>
             )}
-            {ledgerRows.map((r: any) => (
-              <tr key={r.date} className={`border-b last:border-0 hover:bg-gray-50/70 ${r.balance < 0 ? 'bg-rose-50' : ''}`}>
-                <td className="px-3 py-2 text-gray-600">{r.date}</td>
-                <td className="px-3 py-2 text-right text-emerald-700">{r.received ? `+${Number(r.received).toLocaleString()}` : '–'}</td>
-                <td className="px-3 py-2 text-right text-amber-700">{r.issued ? `−${Number(r.issued).toLocaleString()}` : '–'}</td>
-                <td className={`px-3 py-2 text-right font-semibold ${r.balance < 0 ? 'text-rose-600' : 'text-gray-800'}`}>
-                  {Number(r.balance).toLocaleString()}{r.balance < 0 && ' ⚠'}
-                </td>
-              </tr>
-            ))}
+            {ledgerRows.map((r: any) => {
+              const explain = ledgerExplain(r);
+              return (
+                <Fragment key={r.date}>
+                  <tr className={`border-b ${explain ? '' : 'last:border-0'} hover:bg-gray-50/70 ${r.balance < 0 ? 'bg-rose-50' : ''}`}>
+                    <td className="px-3 py-2 text-gray-600">{r.date}</td>
+                    <td className="px-3 py-2 text-right text-emerald-700">{r.received ? `+${Number(r.received).toLocaleString()}` : '–'}</td>
+                    <td className="px-3 py-2 text-right text-amber-700">{r.issued ? `−${Number(r.issued).toLocaleString()}` : '–'}</td>
+                    <td className={`px-3 py-2 text-right font-semibold ${r.balance < 0 ? 'text-rose-600' : 'text-gray-800'}`}>
+                      {Number(r.balance).toLocaleString()}{r.balance < 0 && ' ⚠'}
+                    </td>
+                  </tr>
+                  {explain && (
+                    <tr className="border-b last:border-0">
+                      <td colSpan={4} className={`px-3 pb-2 pt-0 text-xs italic ${explain.tone === 'bad' ? 'text-rose-500 bg-rose-50' : 'text-amber-600 bg-rose-50'}`}>
+                        ↳ {explain.text}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
+        </>
+        )}
       </div>
 
       {/* Mobile card view */}
