@@ -93,8 +93,8 @@ export const reportApi = {
   financialStatementExport: (month: string, format?: 'pdf') => api.post('/reports/financial-statement-export', { month }, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
   issueDailyExport: (filters: { date?: string; from?: string; to?: string; status?: string }, format?: 'pdf') =>
     api.post('/reports/issue-daily-export', filters, { params: format ? { format } : {}, responseType: 'blob', timeout: 120000 }).then(r => r.data),
-  receiveClearStatus: (filters: { date?: string; from?: string; to?: string }) =>
-    api.get('/reports/receive-clear-status', { params: filters }).then(r => r.data),
+  stockLedger: (productId: number, filters: { date?: string; from?: string; to?: string }) =>
+    api.get('/reports/stock-ledger', { params: { product_id: productId, ...filters } }).then(r => r.data),
 };
 
 export const ocrApi = {

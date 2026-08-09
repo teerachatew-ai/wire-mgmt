@@ -618,12 +618,17 @@ export default function Issues() {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
   }, {})) as any[];
 
-  // ของที่รับเข้าแต่ละล็อต (แยกวัน/สินค้า) เบิกให้สมาชิกหมดวันไหน — เทียบยอดรับเข้า/เบิกสะสมทั้งประวัติแบบ FIFO ไม่ใช่แค่ในช่วงที่กรองอยู่
-  const { data: clearStatus } = useQuery({
-    queryKey: ['receive-clear-status', dateFilter],
-    queryFn: () => reportApi.receiveClearStatus(dateFilter),
+  // บัตรคุมสต็อก (stock ledger) — cross check รับเข้า vs เบิก รายวันทีละสินค้า พร้อมยอดคงเหลือสะสม
+  const [ledgerProductId, setLedgerProductId] = useState<string>('');
+  useEffect(() => {
+    if (!ledgerProductId && (products as any[]).length > 0) setLedgerProductId(String((products as any[])[0].id));
+  }, [products, ledgerProductId]);
+  const { data: ledger } = useQuery({
+    queryKey: ['stock-ledger', ledgerProductId, dateFilter],
+    queryFn: () => reportApi.stockLedger(Number(ledgerProductId), dateFilter),
+    enabled: !!ledgerProductId,
   });
-  const clearBatches = (clearStatus?.batches || []) as any[];
+  const ledgerRows = (ledger?.rows || []) as any[];
 
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
@@ -738,48 +743,59 @@ export default function Issues() {
       <DaySummary groups={summary} note={dateFilterLabel(dateFilter)} unitLabel="เบิก" memberCount={memberCount} />
       <DaySummary groups={receiveSummaryOfPeriod} note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" title="📦 งานที่มาส่งจากโรงงาน" />
 
-      {clearBatches.length > 0 && (
-        <div className="card overflow-x-auto">
-          <p className="text-sm font-semibold text-gray-700 mb-3">⏱️ ของที่รับเข้าแต่ละล็อต เบิกหมดวันไหน</p>
-          <table className="w-full text-sm min-w-[560px]">
-            <thead className="bg-gray-50 border-b">
-              <tr className="text-left text-gray-500">
-                <th className="px-3 py-2 font-medium">วันที่รับเข้า</th>
-                <th className="px-3 py-2 font-medium">สินค้า</th>
-                <th className="px-3 py-2 font-medium text-right">รับเข้า</th>
-                <th className="px-3 py-2 font-medium">เบิกหมดวันที่</th>
-                <th className="px-3 py-2 font-medium">สถานะ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clearBatches.map((b: any, idx: number) => (
-                <tr key={idx} className="border-b last:border-0 hover:bg-gray-50/70">
-                  <td className="px-3 py-2 text-gray-600">{b.date}</td>
-                  <td className="px-3 py-2 text-gray-800">
-                    {b.color && <span className="inline-block w-2.5 h-2.5 rounded-full border border-gray-300 mr-1.5 align-middle" style={{ backgroundColor: b.color }} />}
-                    {b.product_name}
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium text-gray-700">{Number(b.received_qty).toLocaleString()} {b.unit}</td>
-                  <td className="px-3 py-2 text-gray-600">{b.cleared_on || '–'}</td>
-                  <td className="px-3 py-2">
-                    {b.status === 'same' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-emerald-100 text-emerald-700">✅ เบิกหมดวันนี้เลย</span>
-                    )}
-                    {b.status === 'late' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-amber-100 text-amber-700">📅 เบิกหมด (+{b.lag_days} วัน)</span>
-                    )}
-                    {b.status === 'open' && (
-                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-medium bg-rose-100 text-rose-700">
-                        ⏳ ยังไม่หมด ค้าง {Number(b.remaining).toLocaleString()} ({b.days_elapsed} วัน)
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="card overflow-x-auto">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <p className="text-sm font-semibold text-gray-700">📋 บัตรคุมสต็อก — cross check รับเข้า vs เบิก รายวัน</p>
+          <select className="input w-auto text-sm py-1.5" value={ledgerProductId} onChange={e => setLedgerProductId(e.target.value)}>
+            {(products as any[]).map((p: any) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </div>
-      )}
+
+        {ledger && (
+          <div className={`mb-3 px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 ${ledger.has_over_issue ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+            {ledger.has_over_issue
+              ? <>⚠ พบวันที่ยอดเบิกสะสมเกินยอดรับเข้าสะสม — ตรวจสอบแถวที่ไฮไลท์แดงด้านล่าง</>
+              : <>✅ ไม่พบความผิดปกติ — ยอดเบิกสะสมไม่เกินยอดรับเข้าสะสมทุกวัน</>}
+            <span className="ml-auto font-normal text-xs">คงเหลือสะสมล่าสุด {Number(ledger.closing_balance).toLocaleString()} {ledger.unit}</span>
+          </div>
+        )}
+
+        <table className="w-full text-sm min-w-[480px]">
+          <thead className="bg-gray-50 border-b">
+            <tr className="text-left text-gray-500">
+              <th className="px-3 py-2 font-medium">วันที่</th>
+              <th className="px-3 py-2 font-medium text-right">รับเข้า</th>
+              <th className="px-3 py-2 font-medium text-right">เบิก</th>
+              <th className="px-3 py-2 font-medium text-right">คงเหลือสะสม</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ledger && ledger.opening_balance !== 0 && (
+              <tr className="border-b bg-gray-50/60">
+                <td className="px-3 py-2 text-gray-500 italic" colSpan={3}>ยอดคงเหลือยกมา (ก่อนช่วงที่เลือก)</td>
+                <td className={`px-3 py-2 text-right font-semibold ${ledger.opening_balance < 0 ? 'text-rose-600' : 'text-gray-700'}`}>
+                  {Number(ledger.opening_balance).toLocaleString()}
+                </td>
+              </tr>
+            )}
+            {ledgerRows.length === 0 && (
+              <tr><td colSpan={4} className="px-3 py-6 text-center text-gray-400">ไม่มีการเคลื่อนไหวในช่วงที่เลือก</td></tr>
+            )}
+            {ledgerRows.map((r: any) => (
+              <tr key={r.date} className={`border-b last:border-0 hover:bg-gray-50/70 ${r.balance < 0 ? 'bg-rose-50' : ''}`}>
+                <td className="px-3 py-2 text-gray-600">{r.date}</td>
+                <td className="px-3 py-2 text-right text-emerald-700">{r.received ? `+${Number(r.received).toLocaleString()}` : '–'}</td>
+                <td className="px-3 py-2 text-right text-amber-700">{r.issued ? `−${Number(r.issued).toLocaleString()}` : '–'}</td>
+                <td className={`px-3 py-2 text-right font-semibold ${r.balance < 0 ? 'text-rose-600' : 'text-gray-800'}`}>
+                  {Number(r.balance).toLocaleString()}{r.balance < 0 && ' ⚠'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
