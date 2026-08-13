@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { SARABUN_REGULAR_BASE64, SARABUN_BOLD_BASE64 } from '../assets/fonts/sarabun-base64';
 import { portalApi } from '../api';
+import { downloadBlob } from '../utils/downloadBlob';
 import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Download } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
@@ -457,7 +458,10 @@ function CuttingSummaryScreen({ token, member, wage, onCancel }: { token: string
         },
       });
 
-      doc.save(`สรุปยอด-${member?.code || 'สมาชิก'}${data?.cycle ? `-${data.cycle}` : ''}.pdf`);
+      // ใช้ doc.output('blob') + downloadBlob() แทน doc.save() ตรงๆ — กลไกดาวน์โหลดในตัวของ jsPDF
+      // มีความเสี่ยงแบบเดียวกับที่เจอใน XLSX.writeFile() บน Safari/macOS ใช้ downloadBlob() ที่ผ่านการทดสอบแล้วแทน
+      const blob = doc.output('blob');
+      downloadBlob(blob, `สรุปยอด-${member?.code || 'สมาชิก'}${data?.cycle ? `-${data.cycle}` : ''}.pdf`);
     } finally {
       setExporting(false);
     }
