@@ -95,6 +95,7 @@ L = Alignment(horizontal="left", vertical="center")
 C = Alignment(horizontal="center", vertical="center")
 CW = Alignment(horizontal="center", vertical="center", wrap_text=True)
 LW = Alignment(horizontal="left", vertical="center", wrap_text=True)
+RW = Alignment(horizontal="right", vertical="center", wrap_text=True)
 
 used_names = set()
 
@@ -406,7 +407,7 @@ def write_member_sheet(m, label=None):
     # ── ช่องเซ็นรับเงิน ──
     row += 2
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=LW)
+    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=RW)
     ws.row_dimensions[row].height = RH(18)
     row += 2
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
