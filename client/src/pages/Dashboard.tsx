@@ -5,7 +5,7 @@ import {
   Factory, Wallet, Sparkles, Truck, ShieldCheck, Clock,
   AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText
 } from 'lucide-react';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
@@ -249,21 +249,23 @@ export default function Dashboard() {
           </div>
           <button className="btn-secondary btn-sm flex items-center gap-1.5" disabled={plBusy === 'xlsx'}
             onClick={async () => {
+              const tab = openDownloadTab();
               setPlBusy('xlsx');
               try {
                 const blob = await reportApi.plExport(data.month);
-                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`);
-              } catch { alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(''); }
+                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.xlsx`, tab);
+              } catch { tab?.close(); alert('สร้างรายงานไม่สำเร็จ'); } finally { setPlBusy(''); }
             }}>
             {plBusy === 'xlsx' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} รายงาน Excel
           </button>
           <button className="btn-primary btn-sm flex items-center gap-1.5" disabled={plBusy === 'pdf'}
             onClick={async () => {
+              const tab = openDownloadTab();
               setPlBusy('pdf');
               try {
                 const blob = await reportApi.plExport(data.month, 'pdf');
-                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.pdf`);
-              } catch { alert('สร้างรายงาน PDF ไม่สำเร็จ'); } finally { setPlBusy(''); }
+                downloadBlob(blob, `รายงานรายรับรายจ่าย-${monthLabel(data.month)}.pdf`, tab);
+              } catch { tab?.close(); alert('สร้างรายงาน PDF ไม่สำเร็จ'); } finally { setPlBusy(''); }
             }}>
             {plBusy === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} รายงาน PDF
           </button>

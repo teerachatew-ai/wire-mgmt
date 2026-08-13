@@ -168,32 +168,35 @@ for day in d["days"]:
     ws.row_dimensions[row].height = 24
     row += 1
 
-    col_totals = {n: 0 for n in product_order}
-    grand_total = 0
+    prod_start_letter = get_column_letter(FIXED_COLS + 1)
+    prod_end_letter = get_column_letter(FIXED_COLS + n_prod) if n_prod else prod_start_letter
+    first_member_row = row
     for m in day["members"]:
         vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
         vals += [m["qty"].get(n, 0) for n in product_order]
-        vals += [m["total"]]
         for ci, v in enumerate(vals, start=1):
             col = get_column_letter(ci)
             is_prod_col = FIXED_COLS + 1 <= ci <= FIXED_COLS + n_prod
-            is_total_col = ci == LAST_COL
-            fmt = NUM_Z if is_prod_col else (NUM if is_total_col else None)
-            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=9.5, bold=is_total_col, color="111827"),
-                 align=(R if (is_prod_col or is_total_col) else L), border=box, fmt=fmt)
-        for n in product_order:
-            col_totals[n] += m["qty"].get(n, 0)
-        grand_total += m["total"]
+            fmt = NUM_Z if is_prod_col else None
+            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
+                 align=(R if is_prod_col else L), border=box, fmt=fmt)
+        # รวมต่อคน — สูตร SUM ข้ามคอลัมน์สินค้าของแถวตัวเอง
+        cell(ws, f"{LAST_LETTER}{row}", f"=SUM({prod_start_letter}{row}:{prod_end_letter}{row})",
+             font=Font(name=FONT, size=9.5, bold=True, color="111827"), align=R, border=box, fmt=NUM)
         ws.row_dimensions[row].height = 17
         row += 1
+    last_member_row = row - 1
+    has_members = last_member_row >= first_member_row
 
-    # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ ──
+    # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวสมาชิกด้านบน ──
     ws.merge_cells(f"A{row}:C{row}")
     cell(ws, f"A{row}", "รวมเบิกวันนี้", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
     for ci, n in enumerate(product_order, start=FIXED_COLS + 1):
         col = get_column_letter(ci)
-        cell(ws, f"{col}{row}", col_totals.get(n, 0), font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
-    cell(ws, f"{LAST_LETTER}{row}", grand_total, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM, border=box)
+        v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
+        cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
+    total_v = f"=SUM({LAST_LETTER}{first_member_row}:{LAST_LETTER}{last_member_row})" if has_members else 0
+    cell(ws, f"{LAST_LETTER}{row}", total_v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM, border=box)
     ws.row_dimensions[row].height = 20
     row += 2
 
@@ -202,13 +205,12 @@ for day in d["days"]:
     if receives:
         ws.merge_cells(f"A{row}:C{row}")
         cell(ws, f"A{row}", "📦 รับเข้าจากโรงงานวันนี้", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=SKY, align=R, border=box)
-        recv_total = 0
         for ci, n in enumerate(product_order, start=FIXED_COLS + 1):
             col = get_column_letter(ci)
             qty = receives.get(n, 0)
-            recv_total += qty
             cell(ws, f"{col}{row}", (qty if qty else None), font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=SKY, align=R, fmt=NUM_Z, border=box)
-        cell(ws, f"{LAST_LETTER}{row}", recv_total, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=SKY, align=R, fmt=NUM, border=box)
+        cell(ws, f"{LAST_LETTER}{row}", f"=SUM({prod_start_letter}{row}:{prod_end_letter}{row})",
+             font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=SKY, align=R, fmt=NUM, border=box)
         ws.row_dimensions[row].height = 20
         row += 1
     else:

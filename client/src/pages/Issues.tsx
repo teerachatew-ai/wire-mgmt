@@ -10,7 +10,7 @@ import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -679,11 +679,13 @@ export default function Issues() {
   const downloadIssueDaily = async (format?: 'pdf') => {
     const noFilter = !dateFilter.date && !dateFilter.from && !dateFilter.to;
     if (noFilter && !confirm('ยังไม่ได้กรองช่วงวันที่ — จะสร้างรายงานทุกวันที่มีข้อมูลทั้งหมด (อาจมีหลายสิบหน้า) ดำเนินการต่อหรือไม่?')) return;
+    const tab = openDownloadTab();
     setDailyBusy(format === 'pdf' ? 'pdf' : 'xlsx');
     try {
       const blob = await reportApi.issueDailyExport({ ...dateFilter, status: statusFilter || undefined }, format);
-      downloadBlob(blob, `ใบเบิกงานรายวัน-${dateFilterLabel(dateFilter)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+      downloadBlob(blob, `ใบเบิกงานรายวัน-${dateFilterLabel(dateFilter)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, tab);
     } catch {
+      tab?.close();
       alert('สร้างรายงานไม่สำเร็จ (อาจไม่มีข้อมูลใบเบิกในช่วงที่เลือก)');
     } finally {
       setDailyBusy('');

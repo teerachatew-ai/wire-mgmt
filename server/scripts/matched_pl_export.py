@@ -65,15 +65,17 @@ def section(title):
     ws.row_dimensions[row].height = 20
     row += 1
 
-def line(label, amount, *, bold=False, color=None, sign=""):
+def line(label, amount, *, bold=False, color=None, sign="", formula=None):
     global row
     cell(f"B{row}", label, font=Font(name=FONT, size=10.5, bold=bold, color=color or "111827"), align=Alignment(horizontal="left", vertical="center"), border=box)
     cell(f"C{row}", None, border=box)
-    disp = amount if sign != "-" else -abs(amount)
+    disp = formula if formula is not None else (amount if sign != "-" else -abs(amount))
     cell(f"D{row}", disp, font=Font(name=FONT, size=10.5, bold=bold, color=color or "111827"),
          align=R, fmt=MONEY, border=box)
+    ref = f"D{row}"
     ws.row_dimensions[row].height = 18
     row += 1
+    return ref
 
 def detail(label, amount):
     global row
@@ -92,40 +94,48 @@ def note(text, *, color=GREY):
 
 # ── รายรับ ──
 section("รายรับ")
-line("รายรับจากโรงงาน (Amphenol) — ตามยอดส่งออก/วางบิลจริงเดือนนี้", d["revenue"], bold=True, color=GREEN)
+ref_revenue = line("รายรับจากโรงงาน (Amphenol) — ตามยอดส่งออก/วางบิลจริงเดือนนี้", d["revenue"], bold=True, color=GREEN)
 
 # ── ต้นทุนขาย (COGS) ──
 section("หัก ต้นทุนขาย (ค่าแรงของงานที่ส่งออกจริงเดือนนี้)")
-line("ค่าแรงสมาชิก (COGS — เฉพาะของที่ส่งออกเดือนนี้)", d["cogs"], color=RED, sign="-")
+ref_cogs = line("ค่าแรงสมาชิก (COGS — เฉพาะของที่ส่งออกเดือนนี้)", d["cogs"], color=RED, sign="-")
 row += 1
 cell(f"B{row}", "กำไรขั้นต้น (Gross Profit)", font=Font(name=FONT, size=11, bold=True, color=NAVY), align=Alignment(horizontal="left", vertical="center"))
-cell(f"D{row}", d["gross"], font=Font(name=FONT, size=11, bold=True, color=NAVY), align=R, fmt=MONEY)
+cell(f"D{row}", f"={ref_revenue}+{ref_cogs}", font=Font(name=FONT, size=11, bold=True, color=NAVY), align=R, fmt=MONEY)
+ref_gross = f"D{row}"
 ws.row_dimensions[row].height = 20
 row += 2
 
 # ── ค่าใช้จ่ายดำเนินงาน ──
 section("หัก ค่าใช้จ่ายดำเนินงาน")
-line(f"ภาษี ณ ที่จ่าย {d.get('tax_pct', 3)}%", d["tax"], color=RED, sign="-")
+ref_tax = line(f"ภาษี ณ ที่จ่าย {d.get('tax_pct', 3)}%", d["tax"], color=RED, sign="-")
 
+mgr_detail_first = row
 for mg in d.get("manager_lines", []):
     if mg["computed"]:
         detail(f'{mg["name"]}{(" · " + mg["role"]) if mg.get("role") else ""}', mg["computed"])
 for e in d.get("comp_exp_lines", []):
     who = e.get("paid_to_name") or ("ผู้บริหาร" if e.get("paid_to_type") == "manager" else "สมาชิก")
     detail(f'{e.get("description") or "จ่ายพิเศษ"} → {who}', e["amount"])
-line("รวมค่าตอบแทนผู้บริหาร", d["manager_comp"], color=RED, sign="-", bold=True)
+mgr_detail_last = row - 1
+mgr_formula = f"=-SUM(C{mgr_detail_first}:C{mgr_detail_last})" if mgr_detail_last >= mgr_detail_first else None
+ref_mgr_comp = line("รวมค่าตอบแทนผู้บริหาร", d["manager_comp"], color=RED, sign="-", bold=True, formula=mgr_formula)
 
+gen_detail_first = row
 for e in d.get("general_exp_lines", []):
     detail(e.get("description"), e["amount"])
-line("รวมค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-", bold=True)
+gen_detail_last = row - 1
+gen_formula = f"=-SUM(C{gen_detail_first}:C{gen_detail_last})" if gen_detail_last >= gen_detail_first else None
+ref_gen_exp = line("รวมค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-", bold=True, formula=gen_formula)
 
 # ── กำไรสุทธิ (matched) ──
 row += 1
 cell(f"B{row}", "กำไรสุทธิ (แบบจับคู่ต้นทุน-รายรับ)", font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
      fill=(GREEN if d["net_matched"] >= 0 else RED), align=Alignment(horizontal="left", vertical="center"))
 cell(f"C{row}", None, fill=(GREEN if d["net_matched"] >= 0 else RED))
-cell(f"D{row}", d["net_matched"], font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
+cell(f"D{row}", f"={ref_gross}+{ref_tax}+{ref_mgr_comp}+{ref_gen_exp}", font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
      fill=(GREEN if d["net_matched"] >= 0 else RED), align=R, fmt=MONEY)
+ref_net_matched = f"D{row}"
 ws.row_dimensions[row].height = 26
 margin = (d["net_matched"] / d["revenue"] * 100) if d["revenue"] else 0
 row += 1
@@ -135,24 +145,26 @@ row += 2
 
 # ── เทียบกับวิธีคิดแบบเดิม (ตามรอบจ่ายค่าแรง) ──
 section("เทียบกับวิธีคิดแบบเดิม (ตามรอบจ่ายค่าแรง)")
-line("ค่าแรงสมาชิกตามรอบจ่าย (จ่ายจริงเดือนนี้)", d["cash_basis_wage"], color=GREY)
-line("กำไรสุทธิแบบเดิม (ตามรอบจ่ายค่าแรง)", d["net_cash_basis"], color=(GREEN if d["net_cash_basis"] >= 0 else RED), bold=True)
-line("ส่วนต่าง (แบบเดิม − แบบจับคู่)", d["variance"], color=AMBER, bold=True)
+ref_cashwage = line("ค่าแรงสมาชิกตามรอบจ่าย (จ่ายจริงเดือนนี้)", d["cash_basis_wage"], color=GREY)
+ref_net_cash = line("กำไรสุทธิแบบเดิม (ตามรอบจ่ายค่าแรง)", d["net_cash_basis"], color=(GREEN if d["net_cash_basis"] >= 0 else RED), bold=True,
+                     formula=f"={ref_revenue}+{ref_tax}-{ref_cashwage}+{ref_mgr_comp}+{ref_gen_exp}")
+line("ส่วนต่าง (แบบเดิม − แบบจับคู่)", d["variance"], color=AMBER, bold=True, formula=f"={ref_net_cash}-{ref_net_matched}")
 note("ส่วนต่างเกิดจากค่าแรงตามรอบจ่ายรวมงานของเดือนอื่นปนอยู่ (ตัดเสร็จเดือนนี้แต่ยังไม่ส่งออก หรือส่งออกเดือนนี้แต่ตัดเสร็จเดือนก่อน) "
      "ทำให้ไม่ตรงกับรายรับที่รับรู้เดือนนี้ — ตัวเลข \"แบบจับคู่\" ด้านบนคือกำไรที่แท้จริงของเดือนนี้")
 row += 1
 
-# ── เงินทดรองจ่ายจากกองทุนวิสาหกิจ ──
+# ── เงินทดรองจ่ายจากกองทุนวิสาหกิจ ── (advance = cash_basis_wage - cogs; cogs cell เป็นค่าลบอยู่แล้วเลยบวกตรงๆ ได้)
 section("เงินทดรองจ่ายจากกองทุนวิสาหกิจ")
 advance = d.get("advance_needed", 0)
 if advance > 0.005:
-    line("ต้องยืมกองทุนเพิ่มเดือนนี้", advance, color=RED, bold=True)
+    line("ต้องยืมกองทุนเพิ่มเดือนนี้", advance, color=RED, bold=True, formula=f"={ref_cashwage}+{ref_cogs}")
 elif advance < -0.005:
-    line("มีกำไรส่วนเกิน คืนกองทุนได้เดือนนี้", -advance, color=GREEN, bold=True)
+    line("มีกำไรส่วนเกิน คืนกองทุนได้เดือนนี้", -advance, color=GREEN, bold=True, formula=f"=-({ref_cashwage}+{ref_cogs})")
 else:
-    line("ส่วนต่างเดือนนี้ — พอดี ไม่ต้องยืม/คืน", 0, color=GREY)
-line("ยอดหนี้กองทุน ยกมา", d.get("fund_loan_open", 0), color=GREY)
-line("ยอดหนี้กองทุน ยกไป (ยังติดค้างกองทุนอยู่สิ้นเดือนนี้)", d.get("fund_loan_close", 0), color=NAVY, bold=True)
+    line("ส่วนต่างเดือนนี้ — พอดี ไม่ต้องยืม/คืน", 0, color=GREY, formula=f"={ref_cashwage}+{ref_cogs}")
+ref_loan_open = line("ยอดหนี้กองทุน ยกมา", d.get("fund_loan_open", 0), color=GREY)
+ref_loan_close = line("ยอดหนี้กองทุน ยกไป (ยังติดค้างกองทุนอยู่สิ้นเดือนนี้)", d.get("fund_loan_close", 0), color=NAVY, bold=True,
+                       formula=f"=MAX(0,{ref_loan_open}+{ref_cashwage}+{ref_cogs})")
 earliest = d.get("fund_loan_earliest_month")
 note("เดือนไหนจ่ายค่าแรงมากกว่าต้นทุนขายที่จับคู่ได้ (ตัดงานเก็บสต๊อกไว้มากกว่าที่ส่งออก) ต้องยืมเงินกองทุนมาจ่ายก่อน "
      "แล้วเดือนที่ส่งของออกมากกว่าที่ตัดใหม่จะมีกำไรส่วนเกินคืนกองทุนได้ — ยอดนี้ควรใกล้เคียงกับมูลค่าสินค้าคงเหลือด้านล่าง")
@@ -164,8 +176,8 @@ row += 1
 section("สินทรัพย์-หนี้สินที่เกี่ยวข้องกับงานตัดสายไฟ ณ สิ้นเดือน")
 line("สินค้าคงเหลือ (งานตัดเสร็จ รอส่งออก) ยกมา", d["inventory_open"], color=GREY)
 line("สินค้าคงเหลือ (งานตัดเสร็จ รอส่งออก) ยกไป", d["inventory_close"], color=NAVY, bold=True)
-line("ค่าแรงค้างจ่าย (จ่ายจริงวันที่ 25 ของเดือนถัดไป)", d["accrued_wages_payable"], color=RED, bold=True)
-line("เงินยืมกองทุนวิสาหกิจคงค้าง", d.get("fund_loan_close", 0), color=RED, bold=True)
+line("ค่าแรงค้างจ่าย (จ่ายจริงวันที่ 25 ของเดือนถัดไป)", d["accrued_wages_payable"], color=RED, bold=True, formula=f"={ref_cashwage}")
+line("เงินยืมกองทุนวิสาหกิจคงค้าง", d.get("fund_loan_close", 0), color=RED, bold=True, formula=f"={ref_loan_close}")
 note("รายการนี้เฉพาะส่วนที่เกี่ยวข้องกับงานตัดสายไฟที่ระบบติดตามได้ ไม่ใช่งบดุลฉบับเต็ม (ยังไม่รวมเงินสด/บัญชีธนาคาร/ทุน)", color=AMBER)
 
 # print setup

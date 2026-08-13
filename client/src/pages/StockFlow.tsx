@@ -12,6 +12,7 @@ import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
@@ -94,15 +95,12 @@ function CheckBalance() {
 
   const [exporting, setExporting] = useState(false);
   const exportExcel = async () => {
+    const tab = openDownloadTab();
     setExporting(true);
     try {
       const blob = await reportApi.stockFlowExport(month || undefined);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `stock-${month || 'all'}.xlsx`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-    } catch { alert('ดาวน์โหลดไม่สำเร็จ'); }
+      downloadBlob(blob, `stock-${month || 'all'}.xlsx`, tab);
+    } catch { tab?.close(); alert('ดาวน์โหลดไม่สำเร็จ'); }
     finally { setExporting(false); }
   };
 

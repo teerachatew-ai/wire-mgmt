@@ -5,7 +5,7 @@ import {
   Factory, Scissors, TrendingUp, TrendingDown, ArrowLeftRight, Boxes, Clock,
   Info, FileDown, FileText, Loader2, Scale, PiggyBank, ArrowDownCircle, ArrowUpCircle,
 } from 'lucide-react';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 
 const thb2 = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const monthLabel = (m: string) => {
@@ -57,11 +57,13 @@ export default function FinancialStatements() {
   });
 
   const doExport = async (format?: 'pdf') => {
+    const tab = openDownloadTab();
     setBusy(format === 'pdf' ? 'pdf' : 'xlsx');
     try {
       const blob = await reportApi.financialStatementExport(month, format);
-      downloadBlob(blob, `งบการเงิน-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+      downloadBlob(blob, `งบการเงิน-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, tab);
     } catch {
+      tab?.close();
       alert('สร้างรายงานไม่สำเร็จ');
     } finally {
       setBusy('');

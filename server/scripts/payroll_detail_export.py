@@ -139,6 +139,8 @@ for name in product_order:
 n_prod = len(product_order)
 
 # ── ตารางแบบ pivot (ชีตรายบุคคล): วันที่เบิก + คอลัมน์แต่ละชนิดสายไฟ (จำนวน) + ค่าแรงรวมของวันนั้น ──
+# แถวรวมท้ายตารางใช้สูตร =SUM(...) อ้างอิงแถวข้อมูลจริง ไม่ใช่ตัวเลขคงที่ — แก้ตัวเลขในแถวไหนใน Excel
+# แล้วยอดรวม/ค่าแรงสุทธิท้ายชีตจะคำนวณตามให้อัตโนมัติ
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
     widths = [13] + [11] * n_prod + [15]
@@ -157,16 +159,13 @@ def write_pivot_table(ws, row, rows_list):
     row += 1
 
     date_agg = {}
-    col_totals = {n: 0 for n in product_order}
-    wage_total = 0.0
     for r in rows_list:
         dt = r["issued_at"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0})
         e["qty"][r["product_name"]] = e["qty"].get(r["product_name"], 0) + r["good_qty"]
         e["wage"] += r["wage"]
-        col_totals[r["product_name"]] = col_totals.get(r["product_name"], 0) + r["good_qty"]
-        wage_total += r["wage"]
 
+    first_data_row = row
     for dt in sorted(date_agg.keys()):
         e = date_agg[dt]
         vals = [date_th(dt)] + [e["qty"].get(n, 0) for n in product_order] + [e["wage"]]
@@ -179,16 +178,27 @@ def write_pivot_table(ws, row, rows_list):
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
         ws.row_dimensions[row].height = 16
         row += 1
+    last_data_row = row - 1
 
-    # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — จำนวนที่ตัดรวมของสายไฟแต่ละเส้น + ค่าแรงรวม ──
+    # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวข้อมูลด้านบน ──
+    col_totals = {n: 0 for n in product_order}
+    wage_total = 0.0
     cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=9.5, bold=True), align=R, border=box)
-    for ci, n in enumerate(product_order, start=2):
-        col = get_column_letter(ci)
-        cell(ws, f"{col}{row}", col_totals.get(n, 0), font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=NUM_Z)
-    cell(ws, f"{LAST_P_LETTER}{row}", wage_total, font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+    if last_data_row >= first_data_row:
+        for ci, n in enumerate(product_order, start=2):
+            col = get_column_letter(ci)
+            col_totals[n] = sum(date_agg[dt]["qty"].get(n, 0) for dt in date_agg)
+            cell(ws, f"{col}{row}", f"=SUM({col}{first_data_row}:{col}{last_data_row})",
+                 font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=NUM_Z)
+        wage_total = sum(e["wage"] for e in date_agg.values())
+        cell(ws, f"{LAST_P_LETTER}{row}", f"=SUM({LAST_P_LETTER}{first_data_row}:{LAST_P_LETTER}{last_data_row})",
+             font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+    else:
+        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+    wage_total_ref = f"{LAST_P_LETTER}{row}"
     ws.row_dimensions[row].height = 18
     row += 1
-    return row, col_totals, wage_total
+    return row, col_totals, wage_total, wage_total_ref
 
 LAST_P = n_prod + 2  # วันที่เบิก + สินค้าแต่ละชนิด + ค่าแรง
 LAST_P_LETTER = get_column_letter(LAST_P)
@@ -228,6 +238,7 @@ for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
 ws0.row_dimensions[hdr_row].height = 24
 
 row = hdr_row + 1
+first_member_row = row
 grand_qty = {n: 0 for n in product_order}
 for m in d["members"]:
     pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
@@ -245,14 +256,18 @@ for m in d["members"]:
         grand_qty[n] += pw_map.get(n, {}).get("qty", 0)
     ws0.row_dimensions[row].height = 17
     row += 1
+last_member_row = row - 1
 
-# ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — จำนวนที่ตัดรวมของสายไฟแต่ละเส้นทั้งเดือน + ค่าแรงรวมทั้งหมด ──
+# ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวสมาชิกด้านบน ──
 ws0.merge_cells(f"A{row}:C{row}")
 cell(ws0, f"A{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+has_members = last_member_row >= first_member_row
 for ci, n in enumerate(product_order, start=FIXED_COLS0 + 1):
     col = get_column_letter(ci)
-    cell(ws0, f"{col}{row}", grand_qty.get(n, 0), font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
-cell(ws0, f"{last_col_letter}{row}", d["total_wage"], font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+    v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
+    cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
+wage_v = f"=SUM({last_col_letter}{first_member_row}:{last_col_letter}{last_member_row})" if has_members else 0
+cell(ws0, f"{last_col_letter}{row}", wage_v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = 20
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
@@ -284,18 +299,25 @@ for m in d["members"]:
          font=Font(name=FONT, size=9.5, color=GREY), align=L)
 
     row = 7
-    row, _col_totals, _wage_total = write_pivot_table(ws, row, m["rows"])
+    row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
+    net_formula_parts = [wage_total_ref]
     if m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
              font=Font(name=FONT, size=10, color=RED), align=R, border=box)
-        cell(ws, f"{LAST_P_LETTER}{row}", -m["ng_deduction"], font=Font(name=FONT, size=10, color=RED), align=R, fmt=MONEY, border=box)
+        # แสดงเป็นสูตรคูณตรงๆ (จำนวนเกิน x อัตราค่าปรับ) ให้เห็นที่มาของตัวเลข ไม่ใช่แค่ผลลัพธ์สำเร็จรูป
+        ng_ref = f"{LAST_P_LETTER}{row}"
+        cell(ws, ng_ref, f'=-({m["ng_excess_qty"]:g}*{d.get("ng_penalty_rate", 20):g})',
+             font=Font(name=FONT, size=10, color=RED), align=R, fmt=MONEY, border=box)
+        net_formula_parts.append(ng_ref)
         row += 1
 
     ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
     cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
-    cell(ws, f"{LAST_P_LETTER}{row}", m["total_wage"], font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+    # ปัดขึ้นเต็มบาทเหมือนสูตรฝั่งระบบ (Math.ceil) — ใช้ ROUNDUP แทน (ค่าแรงเป็นบวกเสมอ ผลเหมือนกัน)
+    net_formula = f"=ROUNDUP({'+'.join(net_formula_parts)},0)"
+    cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
     ws.row_dimensions[row].height = 20
     row += 2
 
@@ -305,7 +327,7 @@ for m in d["members"]:
              font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=AMBER, align=LW)
         ws.row_dimensions[row].height = 28
         row += 1
-        row, _carry_col_totals, _carry_wage_total = write_pivot_table(ws, row, m["carry_rows"])
+        row, _carry_col_totals, _carry_wage_total, _carry_wage_ref = write_pivot_table(ws, row, m["carry_rows"])
 
     # ── ช่องเซ็นรับเงิน ──
     row += 2

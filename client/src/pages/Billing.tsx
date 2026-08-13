@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { reportApi } from '../api';
 import { FileText, Download, Loader2, Plus, Trash2, Save, Pencil, Receipt, BadgeCheck, X } from 'lucide-react';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -142,41 +142,49 @@ export default function Billing() {
   const exportLines = () => lines.map(l => ({ ...l, quantity: Math.round(billQty(l, ngRate) * 100) / 100 }));
 
   const exportXLSX = async () => {
+    const tab = openDownloadTab();
     setExporting(true);
     try {
       const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() });
-      download(blob, `ใบวางบิล-${monthLabel(month)}.xlsx`);
+      download(blob, `ใบวางบิล-${monthLabel(month)}.xlsx`, tab);
     } catch (e) {
+      tab?.close();
       alert('สร้างไฟล์ Excel ไม่สำเร็จ');
     } finally { setExporting(false); }
   };
 
   const exportPDF = async () => {
+    const tab = openDownloadTab();
     setExportingPdf(true);
     try {
       const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() }, 'pdf');
-      download(blob, `ใบวางบิล-${monthLabel(month)}.pdf`);
+      download(blob, `ใบวางบิล-${monthLabel(month)}.pdf`, tab);
     } catch (e) {
+      tab?.close();
       alert('สร้างไฟล์ PDF ไม่สำเร็จ');
     } finally { setExportingPdf(false); }
   };
 
   const exportInvoice = async (format?: 'pdf') => {
+    const tab = openDownloadTab();
     if (format === 'pdf') setInvPdf(true); else setInvXlsx(true);
     try {
       const blob = await reportApi.invoiceExport({ month, lines_override: exportLines() }, format);
-      download(blob, `ใบแจ้งหนี้-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+      download(blob, `ใบแจ้งหนี้-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, tab);
     } catch (e) {
+      tab?.close();
       alert('สร้างใบแจ้งหนี้ไม่สำเร็จ');
     } finally { if (format === 'pdf') setInvPdf(false); else setInvXlsx(false); }
   };
 
   const exportReceipt = async () => {
+    const tab = openDownloadTab();
     setRcptPdf(true);
     try {
       const blob = await reportApi.receiptExport({ month, date: rcptDateVal, lines_override: exportLines() }, 'pdf');
-      download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.pdf`);
+      download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.pdf`, tab);
     } catch (e) {
+      tab?.close();
       alert('สร้างใบเสร็จรับเงินไม่สำเร็จ');
     } finally { setRcptPdf(false); }
   };

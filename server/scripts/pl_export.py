@@ -58,16 +58,18 @@ def section(title):
     ws.row_dimensions[row].height = 20
     row += 1
 
-def line(label, amount, *, bold=False, color=None, indent=False, sign=""):
+def line(label, amount, *, bold=False, color=None, indent=False, sign="", formula=None):
     global row
     cell(f"B{row}", ("      " if indent else "") + label,
          font=Font(name=FONT, size=10.5, bold=bold, color=color or "111827"), align=L, border=box)
     cell(f"C{row}", None, border=box)
-    disp = amount if sign != "-" else -abs(amount)
+    disp = formula if formula is not None else (amount if sign != "-" else -abs(amount))
     cell(f"D{row}", disp, font=Font(name=FONT, size=10.5, bold=bold, color=color or "111827"),
          align=R, fmt=MONEY, border=box)
+    ref = f"D{row}"
     ws.row_dimensions[row].height = 18
     row += 1
+    return ref
 
 def detail(label, amount):
     global row
@@ -79,33 +81,39 @@ def detail(label, amount):
 
 # ── รายรับ ──
 section("รายรับ")
-line(f"รายรับจากโรงงาน (Amphenol)", d["revenue"], bold=True, color=GREEN)
+ref_revenue = line(f"รายรับจากโรงงาน (Amphenol)", d["revenue"], bold=True, color=GREEN)
 
 # ── หักต้นทุน/ค่าใช้จ่าย ──
 section("หัก ต้นทุนและค่าใช้จ่าย")
-line("ค่าแรงสมาชิก (ค่าตัด)", d["wage"], color=RED, sign="-")
-line(f"ภาษี ณ ที่จ่าย {d.get('tax_pct', 3)}%", d["tax"], color=RED, sign="-")
+ref_wage = line("ค่าแรงสมาชิก (ค่าตัด)", d["wage"], color=RED, sign="-")
+ref_tax = line(f"ภาษี ณ ที่จ่าย {d.get('tax_pct', 3)}%", d["tax"], color=RED, sign="-")
 
 # ค่าตอบแทนผู้บริหาร (ฐาน + จ่ายให้สมาชิก/ผู้บริหาร) — รายการย่อยก่อน แล้วค่อยยอดรวมปิดท้าย อ่านเป็นธรรมชาติกว่า (เห็นที่มาก่อนเห็นผลรวม)
+mgr_detail_first = row
 for mg in d.get("manager_lines", []):
     if mg["computed"]:
         detail(f'{mg["name"]}{(" · " + mg["role"]) if mg.get("role") else ""}', mg["computed"])
 for e in d.get("comp_exp_lines", []):
     who = e.get("paid_to_name") or ("ผู้บริหาร" if e.get("paid_to_type") == "manager" else "สมาชิก")
     detail(f'{e.get("description") or "จ่ายพิเศษ"} → {who}', e["amount"])
-line("รวมค่าตอบแทนผู้บริหาร", d["manager_comp"], color=RED, sign="-", bold=True)
+mgr_detail_last = row - 1
+mgr_formula = f"=-SUM(C{mgr_detail_first}:C{mgr_detail_last})" if mgr_detail_last >= mgr_detail_first else None
+ref_mgr_comp = line("รวมค่าตอบแทนผู้บริหาร", d["manager_comp"], color=RED, sign="-", bold=True, formula=mgr_formula)
 
 # ค่าบริหารจัดการทั่วไป — เช่นเดียวกัน รายการย่อยก่อน ยอดรวมปิดท้าย
+gen_detail_first = row
 for e in d.get("general_exp_lines", []):
     detail(e.get("description"), e["amount"])
-line("รวมค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-", bold=True)
+gen_detail_last = row - 1
+gen_formula = f"=-SUM(C{gen_detail_first}:C{gen_detail_last})" if gen_detail_last >= gen_detail_first else None
+ref_gen_exp = line("รวมค่าใช้จ่ายบริหารจัดการ", d["general_exp_total"], color=RED, sign="-", bold=True, formula=gen_formula)
 
 # ── กำไรสุทธิ ──
 row += 1
 cell(f"B{row}", "กำไรสุทธิสุดท้าย (Net Profit)", font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
      fill=(GREEN if d["net"] >= 0 else RED), align=L)
 cell(f"C{row}", None, fill=(GREEN if d["net"] >= 0 else RED))
-cell(f"D{row}", d["net"], font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
+cell(f"D{row}", f"={ref_revenue}+{ref_wage}+{ref_tax}+{ref_mgr_comp}+{ref_gen_exp}", font=Font(name=FONT, size=12, bold=True, color="FFFFFF"),
      fill=(GREEN if d["net"] >= 0 else RED), align=R, fmt=MONEY)
 ws.row_dimensions[row].height = 26
 margin = (d["net"] / d["revenue"] * 100) if d["revenue"] else 0

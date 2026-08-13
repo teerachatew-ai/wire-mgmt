@@ -7,7 +7,7 @@ import {
   Wallet, Building2, FileText, RotateCcw, Save, X, Eye, Scale, PiggyBank, ShieldAlert, Phone
 } from 'lucide-react';
 import ExportExcelButton from '../components/ExportExcelButton';
-import { downloadBlob } from '../utils/downloadBlob';
+import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString();
 
@@ -288,11 +288,12 @@ function MonthlyTab() {
   };
 
   const downloadPayrollDetail = async (format: 'pdf' | 'xlsx') => {
+    const tab = openDownloadTab();
     setDetailBusy(format);
     try {
       const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined);
-      downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`);
-    } catch { alert('สร้างรายงานไม่สำเร็จ'); }
+      downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`, tab);
+    } catch { tab?.close(); alert('สร้างรายงานไม่สำเร็จ'); }
     finally { setDetailBusy(''); }
   };
 

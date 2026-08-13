@@ -65,6 +65,7 @@ ws.row_dimensions[HR].height = 22
 # ข้อมูล
 NUMFMT = "#,##0"
 r = HR + 1
+first_data_row = r
 totals = {key: 0 for _, key, t in cols if t == "n"}
 for p in rows:
     for i, (label, key, t) in enumerate(cols, start=1):
@@ -86,7 +87,9 @@ for p in rows:
     ws.row_dimensions[r].height = 19
     r += 1
 
-# แถวรวม
+# แถวรวม — สูตร SUM อ้างอิงแถวข้อมูลด้านบน (แก้ตัวเลขแถวไหนใน Excel แล้วยอดรวมคำนวณตามให้อัตโนมัติ)
+last_data_row = r - 1
+has_data = last_data_row >= first_data_row
 tot_fill = PatternFill("solid", fgColor="ECFDF5")
 for i, (label, key, t) in enumerate(cols, start=1):
     cell = ws.cell(row=r, column=i)
@@ -96,7 +99,8 @@ for i, (label, key, t) in enumerate(cols, start=1):
         cell.font = Font(name=FONT, size=11, bold=True, color="065F46")
         cell.alignment = Alignment(horizontal="left", vertical="center")
     else:
-        cell.value = totals.get(key, 0)
+        col_letter = get_column_letter(i)
+        cell.value = f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})" if has_data else 0
         cell.number_format = NUMFMT
         cell.font = Font(name=FONT, size=11, bold=True, color="065F46")
         cell.alignment = Alignment(horizontal="right", vertical="center")
