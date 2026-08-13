@@ -281,6 +281,7 @@ function MonthlyTab() {
   const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
   const [detailBusy, setDetailBusy] = useState('');
   const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A4');
+  const [includeCopy, setIncludeCopy] = useState(true);   // เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือตรวจทาน (ต้นฉบับอย่างเดียว) — มีผลเฉพาะ PDF
 
   const load = async () => {
     setFetching(true);
@@ -292,7 +293,7 @@ function MonthlyTab() {
     const tab = openDownloadTab();
     setDetailBusy(format);
     try {
-      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined, paperSize);
+      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined, paperSize, includeCopy);
       downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`, tab);
     } catch { tab?.close(); alert('สร้างรายงานไม่สำเร็จ'); }
     finally { setDetailBusy(''); }
@@ -338,6 +339,15 @@ function MonthlyTab() {
             <select className="input" value={paperSize} onChange={e => setPaperSize(e.target.value as 'A4' | 'A5')}>
               <option value="A4">A4</option>
               <option value="A5">A5 (แนวนอน)</option>
+            </select>
+          </div>
+        )}
+        {data?.members?.length > 0 && (
+          <div>
+            <label className="label">รูปแบบพิมพ์ (PDF)</label>
+            <select className="input" value={includeCopy ? 'full' : 'review'} onChange={e => setIncludeCopy(e.target.value === 'full')}>
+              <option value="full">เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ)</option>
+              <option value="review">ตรวจทาน (ต้นฉบับอย่างเดียว)</option>
             </select>
           </div>
         )}

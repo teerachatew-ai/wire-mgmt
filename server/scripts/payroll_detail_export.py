@@ -15,6 +15,8 @@ d = json.load(open(dataf, encoding="utf-8-sig"))
 PAPER_SIZE_CODE = {"A4": "9", "A5": "11"}
 paper_size = d.get("paper_size") if d.get("paper_size") in PAPER_SIZE_CODE else "A4"
 duplicate_for_pdf = bool(d.get("duplicate_for_pdf"))
+# print เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือแค่ตรวจทาน (ต้นฉบับอย่างเดียว) — มีผลเฉพาะตอน duplicate_for_pdf เท่านั้น
+include_copy = bool(d.get("include_copy", True))
 
 TH = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -345,14 +347,21 @@ def write_member_sheet(m, label=None):
     ws = wb.create_sheet(safe_sheet_name(sheet_label, used_names))
     ws.sheet_view.showGridLines = False
 
-    ws.merge_cells(f"A1:{LAST_P_LETTER}1")
+    # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
+    title_end = LABEL_END_LETTER if label else LAST_P_LETTER
+    ws.merge_cells(f"A1:{title_end}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
-    ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    subtitle = f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}" + (f" ({label})" if label else "")
+    ws.merge_cells(f"A2:{title_end}2")
+    subtitle = f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}"
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
-    ws.merge_cells(f"A3:{LAST_P_LETTER}3")
+    ws.merge_cells(f"A3:{title_end}3")
     cell(ws, "A3", f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}",
          font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
+    if label:
+        ws.merge_cells(f"{LAST_P_LETTER}1:{LAST_P_LETTER}3")
+        badge_fill = AMBER if label == "คู่ฉบับ" else GREEN
+        cell(ws, f"{LAST_P_LETTER}1", label, font=Font(name=FONT, size=FS(13), bold=True, color="FFFFFF"),
+             fill=badge_fill, align=CW, border=box)
     ws.row_dimensions[1].height = RH(30)
     ws.row_dimensions[2].height = RH(26)
     ws.row_dimensions[3].height = RH(18)
@@ -426,7 +435,8 @@ def write_member_sheet(m, label=None):
 for m in d["members"]:
     if duplicate_for_pdf:
         write_member_sheet(m, label="ต้นฉบับ")
-        write_member_sheet(m, label="คู่ฉบับ")
+        if include_copy:
+            write_member_sheet(m, label="คู่ฉบับ")
     else:
         write_member_sheet(m)
 

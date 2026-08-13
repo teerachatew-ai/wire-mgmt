@@ -1022,6 +1022,8 @@ router.post('/payroll-detail-export', (req, res) => {
   data.paper_size = paperSize;
   // ต้นฉบับ/คู่ฉบับ เรียงหน้าต่อกัน เฉพาะตอนแปลงเป็น PDF เท่านั้น — ไฟล์ Excel ที่ดาวน์โหลดตรงยังคง 1 ชีต/คนเหมือนเดิม
   data.duplicate_for_pdf = wantPdf;
+  // เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือตรวจทาน (ต้นฉบับอย่างเดียว) — ผู้ใช้เลือกได้เฉพาะตอน export PDF
+  data.include_copy = req.body?.include_copy !== false;
   const root = process.cwd();
   const script = path.join(root, 'server', 'scripts', 'payroll_detail_export.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
