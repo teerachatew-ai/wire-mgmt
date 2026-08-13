@@ -409,11 +409,13 @@ def write_member_sheet(m, label=None):
     cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=LW)
     ws.row_dimensions[row].height = RH(18)
     row += 2
+    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
-         font=Font(name=FONT, size=FS(10.5)), align=L)
+         font=Font(name=FONT, size=FS(10.5)), align=R)
     row += 2
+    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", "วันที่ ............ / ............ / ............",
-         font=Font(name=FONT, size=FS(10.5)), align=L)
+         font=Font(name=FONT, size=FS(10.5)), align=R)
     row += 1
 
     ws.print_area = f"A1:{LAST_P_LETTER}{row}"
