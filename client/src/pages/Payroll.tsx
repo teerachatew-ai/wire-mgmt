@@ -280,6 +280,7 @@ function MonthlyTab() {
   const [search, setSearch] = useState('');
   const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
   const [detailBusy, setDetailBusy] = useState('');
+  const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A4');
 
   const load = async () => {
     setFetching(true);
@@ -291,7 +292,7 @@ function MonthlyTab() {
     const tab = openDownloadTab();
     setDetailBusy(format);
     try {
-      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined);
+      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined, paperSize);
       downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`, tab);
     } catch { tab?.close(); alert('สร้างรายงานไม่สำเร็จ'); }
     finally { setDetailBusy(''); }
@@ -330,6 +331,15 @@ function MonthlyTab() {
             onClick={() => openPayrollSignSheet(data, monthLabel(data.month))}>
             <FileText size={14} /> พิมพ์ใบเซ็นรับเงิน (PDF)
           </button>
+        )}
+        {data?.members?.length > 0 && (
+          <div>
+            <label className="label">ขนาดกระดาษ</label>
+            <select className="input" value={paperSize} onChange={e => setPaperSize(e.target.value as 'A4' | 'A5')}>
+              <option value="A4">A4</option>
+              <option value="A5">A5 (แนวนอน)</option>
+            </select>
+          </div>
         )}
         {data?.members?.length > 0 && (
           <button className="btn-secondary flex items-center gap-2" disabled={!!detailBusy} onClick={() => downloadPayrollDetail('pdf')}>

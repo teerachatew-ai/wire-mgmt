@@ -892,6 +892,7 @@ function buildPayrollDetail(month: string) {
   const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
   const cutoff = computeCutoff(month, holidays, overrides, cutoffDay);
+  const cutoffStart = payCycleWindow(month, holidays, overrides, cutoffDay).start;
   const nextM = nextMonth(month);
 
   const rawMembers = prepare(`
@@ -945,7 +946,7 @@ function buildPayrollDetail(month: string) {
   });
 
   return {
-    month, cutoff, next_month: nextM,
+    month, cutoff, cutoff_start: cutoffStart, next_month: nextM,
     org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
     ng_penalty_rate: ngPenaltyRate,
     members,
@@ -1016,7 +1017,11 @@ router.post('/payroll-detail-export', (req, res) => {
   const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
   if (!month) return res.status(400).json({ error: 'month required' });
   const wantPdf = req.query.format === 'pdf';
-  const data = buildPayrollDetail(month);
+  const paperSize = req.body?.paper_size === 'A5' ? 'A5' : 'A4';
+  const data: any = buildPayrollDetail(month);
+  data.paper_size = paperSize;
+  // ต้นฉบับ/คู่ฉบับ เรียงหน้าต่อกัน เฉพาะตอนแปลงเป็น PDF เท่านั้น — ไฟล์ Excel ที่ดาวน์โหลดตรงยังคง 1 ชีต/คนเหมือนเดิม
+  data.duplicate_for_pdf = wantPdf;
   const root = process.cwd();
   const script = path.join(root, 'server', 'scripts', 'payroll_detail_export.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');

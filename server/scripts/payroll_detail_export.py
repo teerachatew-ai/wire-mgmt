@@ -11,6 +11,11 @@ from openpyxl.utils import get_column_letter
 dataf, out = sys.argv[1], sys.argv[2]
 d = json.load(open(dataf, encoding="utf-8-sig"))
 
+# ขนาดกระดาษเลือกได้ A4/A5 — A5 บังคับแนวนอน + เต็มหน้า + กึ่งกลาง (พิมพ์ใบเล็กแล้วยังอ่านง่าย)
+PAPER_SIZE_CODE = {"A4": "9", "A5": "11"}
+paper_size = d.get("paper_size") if d.get("paper_size") in PAPER_SIZE_CODE else "A4"
+duplicate_for_pdf = bool(d.get("duplicate_for_pdf"))
+
 TH = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
 
@@ -324,24 +329,33 @@ cell(ws0, f"{last_col_letter}{row}", wage_v, font=Font(name=FONT, size=FS(10), b
 ws0.row_dimensions[row].height = RH(20)
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
+ws0.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
 ws0.page_setup.orientation = "landscape"
 ws0.page_setup.fitToWidth = 1
 ws0.page_setup.fitToHeight = 0
 ws0.sheet_properties.pageSetUpPr.fitToPage = True
+ws0.print_options.horizontalCentered = True
 ws0.page_margins.left = ws0.page_margins.right = 0.35
 
 # ── ชีตรายบุคคล — พยายามอัดให้พอดี 1 หน้ากระดาษ/คน ──
-for m in d["members"]:
-    sheet_label = f'{m["member_code"]} {m["member_name"]}'
+CONFIRM_TEXT = "ข้าพเจ้าขอยืนยันว่ารายการและจำนวนเงินดังกล่าวข้างต้นมีความถูกต้องครบถ้วนทุกประการ และได้รับเงินเรียบร้อยแล้ว"
+
+def write_member_sheet(m, label=None):
+    sheet_label = f'{m["member_code"]} {m["member_name"]}' + (f' {label}' if label else '')
     ws = wb.create_sheet(safe_sheet_name(sheet_label, used_names))
     ws.sheet_view.showGridLines = False
 
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    cell(ws, "A2", f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
+    subtitle = f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}" + (f" ({label})" if label else "")
+    cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
+    ws.merge_cells(f"A3:{LAST_P_LETTER}3")
+    cell(ws, "A3", f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}",
+         font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
     ws.row_dimensions[1].height = RH(30)
     ws.row_dimensions[2].height = RH(26)
+    ws.row_dimensions[3].height = RH(18)
 
     ws.merge_cells(f"A4:{LAST_P_LETTER}4")
     cell(ws, "A4", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
@@ -384,6 +398,10 @@ for m in d["members"]:
 
     # ── ช่องเซ็นรับเงิน ──
     row += 2
+    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
+    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=LW)
+    ws.row_dimensions[row].height = RH(18)
+    row += 2
     cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
          font=Font(name=FONT, size=FS(10.5)), align=L)
     row += 2
@@ -392,12 +410,25 @@ for m in d["members"]:
     row += 1
 
     ws.print_area = f"A1:{LAST_P_LETTER}{row}"
-    ws.page_setup.orientation = "portrait" if n_prod <= 4 else "landscape"
+    ws.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
+    if paper_size == "A5":
+        ws.page_setup.orientation = "landscape"
+    else:
+        ws.page_setup.orientation = "portrait" if n_prod <= 4 else "landscape"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_options.horizontalCentered = True
+    ws.print_options.verticalCentered = True
     ws.page_margins.left = ws.page_margins.right = 0.5
     ws.page_margins.top = ws.page_margins.bottom = 0.4
+
+for m in d["members"]:
+    if duplicate_for_pdf:
+        write_member_sheet(m, label="ต้นฉบับ")
+        write_member_sheet(m, label="คู่ฉบับ")
+    else:
+        write_member_sheet(m)
 
 wb.save(out)
 print(out)
