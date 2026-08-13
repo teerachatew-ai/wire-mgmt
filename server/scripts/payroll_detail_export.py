@@ -175,13 +175,18 @@ def write_pivot_table(ws, row, rows_list):
     for col in hidden_cols.values():
         ws.column_dimensions[col].hidden = True
 
+    # อัตราค่าแรง/หน่วยของแต่ละชนิด (คงที่ต่อสินค้า) — ใช้ผูกเป็นสูตร qty*rate ในคอลัมน์ที่ซ่อนไว้
+    rates = {}
     date_agg = {}
     for r in rows_list:
         dt = r["issued_at"]
+        pname = r["product_name"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}})
-        e["qty"][r["product_name"]] = e["qty"].get(r["product_name"], 0) + r["good_qty"]
+        e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"]
         e["wage"] += r["wage"]
-        e["wage_by_prod"][r["product_name"]] = e["wage_by_prod"].get(r["product_name"], 0) + r["wage"]
+        e["wage_by_prod"][pname] = e["wage_by_prod"].get(pname, 0) + r["wage"]
+        if pname not in rates:
+            rates[pname] = r.get("wage_per_unit") or 0
 
     first_data_row = row
     for dt in sorted(date_agg.keys()):
@@ -194,8 +199,17 @@ def write_pivot_table(ws, row, rows_list):
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
             cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
-        for n in product_order:
-            cell(ws, f"{hidden_cols[n]}{row}", e["wage_by_prod"].get(n, 0), fmt=MONEY)
+        # สูตร = จำนวน(อ้างอิงช่องที่มองเห็น) x อัตราค่าแรง/หน่วย — แก้จำนวนในตารางแล้วค่าแรงเปลี่ยนตามจริง
+        # ส่วนต่างเล็กน้อยจากงานเสีย/หาย (ซึ่งไม่ได้แสดงแยกในตารางนี้) บวกเพิ่มเป็นค่าคงที่ต่อท้าย เพื่อให้ยอดรวมยังตรงเป๊ะ
+        for ci, n in enumerate(product_order, start=2):
+            qcol = get_column_letter(ci)
+            hcol = hidden_cols[n]
+            qty = e["qty"].get(n, 0)
+            wage = e["wage_by_prod"].get(n, 0)
+            rate = rates.get(n, 0)
+            adj = wage - qty * rate
+            formula = f"={qcol}{row}*{rate:g}" if abs(adj) < 0.005 else f"={qcol}{row}*{rate:g}+{adj:.2f}"
+            cell(ws, f"{hcol}{row}", formula, fmt=MONEY)
         ws.row_dimensions[row].height = RH(16)
         row += 1
     last_data_row = row - 1
