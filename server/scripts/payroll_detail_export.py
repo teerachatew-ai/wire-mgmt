@@ -359,9 +359,7 @@ def write_member_sheet(m, label=None):
          font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
     if label:
         ws.merge_cells(f"{LAST_P_LETTER}1:{LAST_P_LETTER}3")
-        badge_fill = AMBER if label == "คู่ฉบับ" else GREEN
-        cell(ws, f"{LAST_P_LETTER}1", label, font=Font(name=FONT, size=FS(13), bold=True, color="FFFFFF"),
-             fill=badge_fill, align=CW, border=box)
+        cell(ws, f"{LAST_P_LETTER}1", label, font=Font(name=FONT, size=FS(15), bold=True, color="000000"), align=CW)
     ws.row_dimensions[1].height = RH(30)
     ws.row_dimensions[2].height = RH(26)
     ws.row_dimensions[3].height = RH(18)
