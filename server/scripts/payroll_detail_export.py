@@ -169,11 +169,13 @@ def write_pivot_table(ws, row, rows_list):
     row += 1
 
     date_agg = {}
+    wage_by_prod = {n: 0.0 for n in product_order}
     for r in rows_list:
         dt = r["issued_at"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0})
         e["qty"][r["product_name"]] = e["qty"].get(r["product_name"], 0) + r["good_qty"]
         e["wage"] += r["wage"]
+        wage_by_prod[r["product_name"]] = wage_by_prod.get(r["product_name"], 0) + r["wage"]
 
     first_data_row = row
     for dt in sorted(date_agg.keys()):
@@ -208,6 +210,20 @@ def write_pivot_table(ws, row, rows_list):
     wage_total_ref = f"{LAST_P_LETTER}{row}"
     ws.row_dimensions[row].height = RH(18)
     row += 1
+
+    # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด — ใต้ยอด Subtotal จำนวนของแต่ละชนิดด้านบน ──
+    LIGHT_GREEN = "DCFCE7"
+    cell(ws, f"A{row}", "ค่าแรงตัด (บาท)", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box)
+    if last_data_row >= first_data_row:
+        for ci, n in enumerate(product_order, start=2):
+            col = get_column_letter(ci)
+            cell(ws, f"{col}{row}", wage_by_prod.get(n, 0), font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY_Z)
+        cell(ws, f"{LAST_P_LETTER}{row}", f"={wage_total_ref}", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+    else:
+        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+    ws.row_dimensions[row].height = RH(18)
+    row += 1
+
     return row, col_totals, wage_total, wage_total_ref
 
 LAST_P = n_prod + 2  # วันที่เบิก + สินค้าแต่ละชนิด + ค่าแรง
