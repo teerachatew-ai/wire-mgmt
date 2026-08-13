@@ -121,6 +121,13 @@ router.delete('/:id', (req, res) => {
       message: `ใบเบิก ${issue.code} มีรายการรับคืน ${ret.cnt} รายการ การลบจะลบรายการคืนทั้งหมดด้วย ยืนยันหรือไม่?`
     });
   }
+  // ใบเบิกอื่นที่เบิกพร้อมกัน (ชุดเดียวกัน) — คนเดียวกัน วันเดียวกัน จำนวนเดิมเท่ากัน — เผื่ออยากลบทั้งชุดด้วย
+  const siblings = prepare(`
+    SELECT i.id, i.code, i.quantity, i.issued_at, p.name as product_name, p.unit
+    FROM issues i JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND i.issued_at = ? AND i.quantity = ? AND i.id != ?
+  `).all(issue.member_id, issue.issued_at, issue.quantity, req.params.id);
+
   // ลบใบเบิกแล้วต้องลบให้ครบทุกฝั่ง — ทั้งรายการรับคืนที่ผูกอยู่ และคำขอจากพอร์ทัลสมาชิก
   // (ทั้งคำขอเบิกที่ยืนยันแล้วกลายเป็นใบเบิกนี้ และคำขอคืนที่อ้างอิงใบเบิก/รายการคืนนี้)
   // กันไม่ให้เหลือแถวค้างอ้างถึงรายการที่ถูกลบไปแล้ว
@@ -129,7 +136,7 @@ router.delete('/:id', (req, res) => {
   prepare(`DELETE FROM issue_requests WHERE confirmed_issue_id = ?`).run(req.params.id);
   prepare(`DELETE FROM returns WHERE issue_id = ?`).run(req.params.id);
   prepare(`DELETE FROM issues WHERE id = ?`).run(req.params.id);
-  res.json({ deleted: true, code: issue.code });
+  res.json({ deleted: true, code: issue.code, siblings });
 });
 
 export default router;

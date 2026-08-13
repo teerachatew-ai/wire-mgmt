@@ -117,12 +117,21 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const ret = prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) as any;
   if (!ret) return res.status(404).json({ error: 'ไม่พบรายการรับคืน' });
+
+  // รายการรับคืนอื่นที่คืนพร้อมกัน (ชุดเดียวกัน) — คนเดียวกัน วันเดียวกัน งานดีเท่ากัน — เผื่ออยากลบทั้งชุดด้วย
+  const issue = prepare(`SELECT member_id FROM issues WHERE id = ?`).get(ret.issue_id) as any;
+  const siblings = issue ? prepare(`
+    SELECT r.id, r.code, r.good_qty, r.returned_at, p.name as product_name, p.unit
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.returned_at = ? AND r.good_qty = ? AND r.id != ?
+  `).all(issue.member_id, ret.returned_at, ret.good_qty, req.params.id) : [];
+
   // ลบรายการรับคืนแล้วต้องลบคำขอคืนงานจากพอร์ทัลสมาชิกที่ยืนยันกลายเป็นรายการนี้ไปด้วย
   // กันไม่ให้เหลือคำขอค้างอ้างถึงรายการรับคืนที่ถูกลบไปแล้ว
   prepare(`DELETE FROM return_requests WHERE confirmed_return_id = ?`).run(req.params.id);
   prepare(`DELETE FROM returns WHERE id = ?`).run(req.params.id);
   updateIssueStatus(ret.issue_id);
-  res.json({ deleted: true, code: ret.code });
+  res.json({ deleted: true, code: ret.code, siblings });
 });
 
 export default router;

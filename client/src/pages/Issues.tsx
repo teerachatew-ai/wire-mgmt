@@ -346,6 +346,14 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
     setApplying(false);
     onSaved(); onClose();
   };
+  const deleteSiblings = async () => {
+    setApplying(true);
+    for (const s of siblings || []) {
+      try { await issueApi.delete(s.id, true); } catch { /* ข้ามใบที่ลบไม่ได้ ไม่บล็อกใบอื่น */ }
+    }
+    setApplying(false);
+    onSaved(); onClose();
+  };
 
   if (siblings) {
     return (
@@ -363,8 +371,11 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
               </div>
             ))}
           </div>
-          <div className="flex gap-2 justify-end pt-1">
+          <div className="flex flex-wrap gap-2 justify-end pt-1">
             <button type="button" className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง</button>
+            <button type="button" className="btn-secondary !text-red-600" disabled={applying} onClick={deleteSiblings}>
+              {applying ? 'กำลังลบ...' : 'ลบคู่ชุดนี้ทิ้ง'}
+            </button>
             <button type="button" className="btn-primary" disabled={applying} onClick={applySiblings}>
               {applying ? 'กำลังแก้ไข...' : 'ใช่ แก้ให้ตรงกัน'}
             </button>
@@ -432,21 +443,68 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
 
 /* ── Delete Issue Dialog ── */
 function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
-  const [step, setStep] = useState<'confirm' | 'loading' | 'error'>('confirm');
+  const [step, setStep] = useState<'confirm' | 'loading' | 'error' | 'siblings'>('confirm');
   const [msg, setMsg] = useState('');
   const [needForce, setNeedForce] = useState(false);
+  const [siblings, setSiblings] = useState<any[]>([]);
+  const [applying, setApplying] = useState(false);
 
   const doDelete = async (force = false) => {
     setStep('loading');
     try {
-      await issueApi.delete(issue.id, force);
-      onDeleted(); onClose();
+      const result = await issueApi.delete(issue.id, force);
+      if (result.siblings?.length > 0) { setSiblings(result.siblings); setStep('siblings'); }
+      else { onDeleted(); onClose(); }
     } catch (e: any) {
       const data = e.response?.data;
       if (data?.confirm_required) { setMsg(data.message); setNeedForce(true); setStep('confirm'); }
       else { setMsg(data?.error || 'เกิดข้อผิดพลาด'); setStep('error'); }
     }
   };
+
+  const skipSiblings = () => { onDeleted(); onClose(); };
+  const deleteSiblingsToo = async () => {
+    setApplying(true);
+    for (const s of siblings) {
+      try { await issueApi.delete(s.id, true); } catch { /* ข้ามใบที่ลบไม่ได้ ไม่บล็อกใบอื่น */ }
+    }
+    setApplying(false);
+    onDeleted(); onClose();
+  };
+
+  if (step === 'siblings') {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 rounded-lg shrink-0"><Trash2 size={20} className="text-red-600" /></div>
+            <div>
+              <h3 className="font-semibold text-gray-800">ลบทั้งชุดด้วยไหม?</h3>
+              <p className="text-sm text-gray-500 mt-0.5">ลบ {issue.code} แล้ว</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-700">
+            พบใบเบิกอื่นที่เบิกพร้อมกัน (คนเดียวกัน วันเดียวกัน จำนวนเดิมเท่ากัน) <strong>{siblings.length}</strong> ใบ
+            ต้องการลบใบเหล่านี้ด้วยหรือไม่?
+          </p>
+          <div className="border rounded-xl divide-y max-h-40 overflow-y-auto">
+            {siblings.map((s: any) => (
+              <div key={s.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                <span><span className="font-mono text-xs text-blue-600">{s.code}</span> {s.product_name}</span>
+                <span className="text-gray-400">{s.quantity} {s.unit}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง ลบแค่ใบนี้</button>
+            <button className="btn-danger" disabled={applying} onClick={deleteSiblingsToo}>
+              {applying ? 'กำลังลบ...' : 'ใช่ ลบทั้งชุด'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

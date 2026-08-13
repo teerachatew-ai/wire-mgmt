@@ -76,6 +76,14 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
     setApplying(false);
     onSaved(); onClose();
   };
+  const deleteSiblings = async () => {
+    setApplying(true);
+    for (const s of siblings || []) {
+      try { await returnApi.delete(s.id); } catch { /* ข้ามรายการที่ลบไม่ได้ ไม่บล็อกรายการอื่น */ }
+    }
+    setApplying(false);
+    onSaved(); onClose();
+  };
 
   if (siblings) {
     return (
@@ -93,8 +101,11 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
               </div>
             ))}
           </div>
-          <div className="flex gap-2 justify-end pt-1">
+          <div className="flex flex-wrap gap-2 justify-end pt-1">
             <button type="button" className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง</button>
+            <button type="button" className="btn-secondary !text-red-600" disabled={applying} onClick={deleteSiblings}>
+              {applying ? 'กำลังลบ...' : 'ลบคู่ชุดนี้ทิ้ง'}
+            </button>
             <button type="button" className="btn-primary" disabled={applying} onClick={applySiblings}>
               {applying ? 'กำลังแก้ไข...' : 'ใช่ แก้ให้ตรงกัน'}
             </button>
@@ -161,11 +172,62 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
 function DeleteReturnDialog({ ret, onClose, onDeleted }: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [siblings, setSiblings] = useState<any[] | null>(null);
+  const [applying, setApplying] = useState(false);
+
   const doDelete = async () => {
     setLoading(true); setError('');
-    try { await returnApi.delete(ret.id); onDeleted(); onClose(); }
-    catch (e: any) { setError(e.response?.data?.error || 'เกิดข้อผิดพลาด'); setLoading(false); }
+    try {
+      const result = await returnApi.delete(ret.id);
+      if (result.siblings?.length > 0) { setSiblings(result.siblings); }
+      else { onDeleted(); onClose(); }
+    } catch (e: any) { setError(e.response?.data?.error || 'เกิดข้อผิดพลาด'); setLoading(false); }
   };
+
+  const skipSiblings = () => { onDeleted(); onClose(); };
+  const deleteSiblingsToo = async () => {
+    setApplying(true);
+    for (const s of siblings || []) {
+      try { await returnApi.delete(s.id); } catch { /* ข้ามรายการที่ลบไม่ได้ ไม่บล็อกรายการอื่น */ }
+    }
+    setApplying(false);
+    onDeleted(); onClose();
+  };
+
+  if (siblings) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-red-100 rounded-lg shrink-0"><Trash2 size={20} className="text-red-600" /></div>
+            <div>
+              <h3 className="font-semibold text-gray-800">ลบทั้งชุดด้วยไหม?</h3>
+              <p className="text-sm text-gray-500 mt-0.5">ลบ {ret.code} แล้ว</p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-700">
+            พบรายการรับคืนอื่นที่คืนพร้อมกัน (คนเดียวกัน วันเดียวกัน งานดีเดิมเท่ากัน) <strong>{siblings.length}</strong> รายการ
+            ต้องการลบรายการเหล่านี้ด้วยหรือไม่?
+          </p>
+          <div className="border rounded-xl divide-y max-h-40 overflow-y-auto">
+            {siblings.map((s: any) => (
+              <div key={s.id} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                <span><span className="font-mono text-xs text-green-600">{s.code}</span> {s.product_name}</span>
+                <span className="text-gray-400">{s.good_qty} {s.unit}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button className="btn-secondary" disabled={applying} onClick={skipSiblings}>ไม่ต้อง ลบแค่รายการนี้</button>
+            <button className="btn-danger" disabled={applying} onClick={deleteSiblingsToo}>
+              {applying ? 'กำลังลบ...' : 'ใช่ ลบทั้งชุด'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-4">
