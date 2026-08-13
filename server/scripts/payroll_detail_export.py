@@ -168,14 +168,20 @@ def write_pivot_table(ws, row, rows_list):
     ws.row_dimensions[row].height = RH(22)
     row += 1
 
+    # คอลัมน์ซ่อนไว้ทางขวาของตาราง เก็บค่าแรงแยกตามชนิด x วันที่ — เป็นแหล่งอ้างอิงของสูตร SUM แนวตั้ง
+    # ของแถว "ค่าแรงตัด (บาท)" ด้านล่าง (ตัวเลขค่าแรงต่อวันในคอลัมน์ที่มองเห็นเป็นยอดรวมทุกชนิดของวันนั้น
+    # จึงต้องมีคอลัมน์แยกตามชนิดไว้ต่างหากเพื่อให้ SUM ตามชนิดได้ถูกต้อง)
+    hidden_cols = {n: get_column_letter(LAST_P + 1 + i) for i, n in enumerate(product_order)}
+    for col in hidden_cols.values():
+        ws.column_dimensions[col].hidden = True
+
     date_agg = {}
-    wage_by_prod = {n: 0.0 for n in product_order}
     for r in rows_list:
         dt = r["issued_at"]
-        e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0})
+        e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}})
         e["qty"][r["product_name"]] = e["qty"].get(r["product_name"], 0) + r["good_qty"]
         e["wage"] += r["wage"]
-        wage_by_prod[r["product_name"]] = wage_by_prod.get(r["product_name"], 0) + r["wage"]
+        e["wage_by_prod"][r["product_name"]] = e["wage_by_prod"].get(r["product_name"], 0) + r["wage"]
 
     first_data_row = row
     for dt in sorted(date_agg.keys()):
@@ -188,6 +194,8 @@ def write_pivot_table(ws, row, rows_list):
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
             cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
+        for n in product_order:
+            cell(ws, f"{hidden_cols[n]}{row}", e["wage_by_prod"].get(n, 0), fmt=MONEY)
         ws.row_dimensions[row].height = RH(16)
         row += 1
     last_data_row = row - 1
@@ -211,14 +219,19 @@ def write_pivot_table(ws, row, rows_list):
     ws.row_dimensions[row].height = RH(18)
     row += 1
 
-    # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด — ใต้ยอด Subtotal จำนวนของแต่ละชนิดด้านบน ──
+    # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด ──
+    # แนวตั้ง: แต่ละช่อง = SUM คอลัมน์ที่ซ่อนไว้ของชนิดนั้น (first_data_row:last_data_row)
+    # แนวนอน: ช่องรวมท้ายแถว = SUM ของทุกช่องชนิดในแถวนี้เอง (ไขว้ตรวจกับยอดในแถว "รวม" ด้านบนได้)
     LIGHT_GREEN = "DCFCE7"
     cell(ws, f"A{row}", "ค่าแรงตัด (บาท)", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box)
     if last_data_row >= first_data_row:
         for ci, n in enumerate(product_order, start=2):
             col = get_column_letter(ci)
-            cell(ws, f"{col}{row}", wage_by_prod.get(n, 0), font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY_Z)
-        cell(ws, f"{LAST_P_LETTER}{row}", f"={wage_total_ref}", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+            hcol = hidden_cols[n]
+            cell(ws, f"{col}{row}", f"=SUM({hcol}{first_data_row}:{hcol}{last_data_row})",
+                 font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY_Z)
+        cell(ws, f"{LAST_P_LETTER}{row}", f"=SUM(B{row}:{LABEL_END_LETTER}{row})",
+             font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
     else:
         cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
     ws.row_dimensions[row].height = RH(18)
