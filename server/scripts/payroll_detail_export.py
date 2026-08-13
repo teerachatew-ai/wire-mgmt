@@ -50,6 +50,11 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "Tahoma"
+FONT_SCALE = 1.15  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น 15%
+def FS(size):
+    return round(size * FONT_SCALE, 2)
+def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
+    return round(height * FONT_SCALE, 1)
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
 NUM_Z = '#,##0;-#,##0;"-"'
@@ -154,8 +159,8 @@ def write_pivot_table(ws, row, rows_list):
             fill, txt = hexc, contrast_text(hexc)
         else:
             fill, txt = NAVY, "FFFFFF"
-        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=9.5, bold=True, color=txt), fill=fill, align=C, border=box)
-    ws.row_dimensions[row].height = 22
+        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5), bold=True, color=txt), fill=fill, align=C, border=box)
+    ws.row_dimensions[row].height = RH(22)
     row += 1
 
     date_agg = {}
@@ -174,29 +179,29 @@ def write_pivot_table(ws, row, rows_list):
             is_prod_col = 2 <= ci <= 1 + n_prod
             is_wage_col = ci == 2 + n_prod
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
-            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
+            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
-        ws.row_dimensions[row].height = 16
+        ws.row_dimensions[row].height = RH(16)
         row += 1
     last_data_row = row - 1
 
     # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวข้อมูลด้านบน ──
     col_totals = {n: 0 for n in product_order}
     wage_total = 0.0
-    cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=9.5, bold=True), align=R, border=box)
+    cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box)
     if last_data_row >= first_data_row:
         for ci, n in enumerate(product_order, start=2):
             col = get_column_letter(ci)
             col_totals[n] = sum(date_agg[dt]["qty"].get(n, 0) for dt in date_agg)
             cell(ws, f"{col}{row}", f"=SUM({col}{first_data_row}:{col}{last_data_row})",
-                 font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=NUM_Z)
+                 font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=NUM_Z)
         wage_total = sum(e["wage"] for e in date_agg.values())
         cell(ws, f"{LAST_P_LETTER}{row}", f"=SUM({LAST_P_LETTER}{first_data_row}:{LAST_P_LETTER}{last_data_row})",
-             font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+             font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=MONEY)
     else:
-        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=9.5, bold=True), align=R, border=box, fmt=MONEY)
+        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=MONEY)
     wage_total_ref = f"{LAST_P_LETTER}{row}"
-    ws.row_dimensions[row].height = 18
+    ws.row_dimensions[row].height = RH(18)
     row += 1
     return row, col_totals, wage_total, wage_total_ref
 
@@ -212,14 +217,14 @@ FIXED_COLS0 = 3  # รหัส, ชื่อ-สกุล, ชื่อเล�
 last_col = FIXED_COLS0 + n_prod + 1  # + สินค้าแต่ละชนิด + ค่าแรงสุทธิ
 last_col_letter = get_column_letter(last_col)
 ws0.merge_cells(f"A1:{last_col_letter}1")
-cell(ws0, "A1", d.get("org_name", ""), font=Font(name=FONT, size=13, bold=True, color=NAVY), align=CW)
+cell(ws0, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
 ws0.merge_cells(f"A2:{last_col_letter}2")
-cell(ws0, "A2", f"สรุปรายงานเบิกงาน/ส่งงาน — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=11, color=GREY), align=CW)
+cell(ws0, "A2", f"สรุปรายงานเบิกงาน/ส่งงาน — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
 ws0.merge_cells(f"A3:{last_col_letter}3")
-cell(ws0, "A3", f"เส้นตัดยอด (cut-off): {date_th(d['cutoff'])}  ·  งานที่คืนหลังจากนี้ยกไปจ่ายรอบเดือน {month_th(d['next_month'])}", font=Font(name=FONT, size=9.5, italic=True, color=GREY), align=CW)
-ws0.row_dimensions[1].height = 30
-ws0.row_dimensions[2].height = 26
-ws0.row_dimensions[3].height = 24
+cell(ws0, "A3", f"เส้นตัดยอด (cut-off): {date_th(d['cutoff'])}  ·  งานที่คืนหลังจากนี้ยกไปจ่ายรอบเดือน {month_th(d['next_month'])}", font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
+ws0.row_dimensions[1].height = RH(30)
+ws0.row_dimensions[2].height = RH(26)
+ws0.row_dimensions[3].height = RH(24)
 
 hdr_row = 5
 headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
@@ -234,8 +239,8 @@ for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
         fill, txt = hexc, contrast_text(hexc)
     else:
         fill, txt = NAVY, "FFFFFF"
-    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=9, bold=True, color=txt), fill=fill, align=C, border=box)
-ws0.row_dimensions[hdr_row].height = 24
+    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=FS(9), bold=True, color=txt), fill=fill, align=C, border=box)
+ws0.row_dimensions[hdr_row].height = RH(24)
 
 row = hdr_row + 1
 first_member_row = row
@@ -250,25 +255,25 @@ for m in d["members"]:
         is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
         is_total_col = ci == last_col
         fmt = NUM_Z if is_prod_col else (MONEY_Z if is_total_col else None)
-        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=9.5, color="111827"),
+        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
              align=(R if (is_prod_col or is_total_col) else L), border=box, fmt=fmt)
     for n in product_order:
         grand_qty[n] += pw_map.get(n, {}).get("qty", 0)
-    ws0.row_dimensions[row].height = 17
+    ws0.row_dimensions[row].height = RH(17)
     row += 1
 last_member_row = row - 1
 
 # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวสมาชิกด้านบน ──
 ws0.merge_cells(f"A{row}:C{row}")
-cell(ws0, f"A{row}", "รวมทั้งหมด", font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+cell(ws0, f"A{row}", "รวมทั้งหมด", font=Font(name=FONT, size=FS(10), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
 has_members = last_member_row >= first_member_row
 for ci, n in enumerate(product_order, start=FIXED_COLS0 + 1):
     col = get_column_letter(ci)
     v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
-    cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
+    cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(10), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
 wage_v = f"=SUM({last_col_letter}{first_member_row}:{last_col_letter}{last_member_row})" if has_members else 0
-cell(ws0, f"{last_col_letter}{row}", wage_v, font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
-ws0.row_dimensions[row].height = 20
+cell(ws0, f"{last_col_letter}{row}", wage_v, font=Font(name=FONT, size=FS(10), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+ws0.row_dimensions[row].height = RH(20)
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
 ws0.page_setup.orientation = "landscape"
@@ -284,19 +289,19 @@ for m in d["members"]:
     ws.sheet_view.showGridLines = False
 
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
-    cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=13, bold=True, color=NAVY), align=CW)
+    cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    cell(ws, "A2", f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=11, color=GREY), align=CW)
-    ws.row_dimensions[1].height = 30
-    ws.row_dimensions[2].height = 26
+    cell(ws, "A2", f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
+    ws.row_dimensions[1].height = RH(30)
+    ws.row_dimensions[2].height = RH(26)
 
     ws.merge_cells(f"A4:{LAST_P_LETTER}4")
     cell(ws, "A4", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
-         font=Font(name=FONT, size=11, bold=True, color="111827"), align=LW)
-    ws.row_dimensions[4].height = 20
+         font=Font(name=FONT, size=FS(11), bold=True, color="111827"), align=LW)
+    ws.row_dimensions[4].height = RH(20)
     ws.merge_cells(f"A5:{LAST_P_LETTER}5")
     cell(ws, "A5", f'ธนาคาร: {m.get("bank_name") or "-"}   เลขบัญชี: {m.get("bank_account") or "-"}',
-         font=Font(name=FONT, size=9.5, color=GREY), align=L)
+         font=Font(name=FONT, size=FS(9.5), color=GREY), align=L)
 
     row = 7
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
@@ -305,37 +310,37 @@ for m in d["members"]:
     if m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
-             font=Font(name=FONT, size=10, color=RED), align=R, border=box)
+             font=Font(name=FONT, size=FS(10), color=RED), align=R, border=box)
         # แสดงเป็นสูตรคูณตรงๆ (จำนวนเกิน x อัตราค่าปรับ) ให้เห็นที่มาของตัวเลข ไม่ใช่แค่ผลลัพธ์สำเร็จรูป
         ng_ref = f"{LAST_P_LETTER}{row}"
         cell(ws, ng_ref, f'=-({m["ng_excess_qty"]:g}*{d.get("ng_penalty_rate", 20):g})',
-             font=Font(name=FONT, size=10, color=RED), align=R, fmt=MONEY, border=box)
+             font=Font(name=FONT, size=FS(10), color=RED), align=R, fmt=MONEY, border=box)
         net_formula_parts.append(ng_ref)
         row += 1
 
     ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-    cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+    cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=FS(11), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
     # ปัดขึ้นเต็มบาทเหมือนสูตรฝั่งระบบ (Math.ceil) — ใช้ ROUNDUP แทน (ค่าแรงเป็นบวกเสมอ ผลเหมือนกัน)
     net_formula = f"=ROUNDUP({'+'.join(net_formula_parts)},0)"
-    cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
-    ws.row_dimensions[row].height = 20
+    cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=FS(11), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+    ws.row_dimensions[row].height = RH(20)
     row += 2
 
     if m.get("carry_rows"):
         ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
         cell(ws, f"A{row}", f'งานที่คืนหลังเส้นตัดยอด ({date_th(d["cutoff"])}) — ยกยอดไปจ่ายรอบเดือน {month_th(d["next_month"])}',
-             font=Font(name=FONT, size=10, bold=True, color="FFFFFF"), fill=AMBER, align=LW)
-        ws.row_dimensions[row].height = 28
+             font=Font(name=FONT, size=FS(10), bold=True, color="FFFFFF"), fill=AMBER, align=LW)
+        ws.row_dimensions[row].height = RH(28)
         row += 1
         row, _carry_col_totals, _carry_wage_total, _carry_wage_ref = write_pivot_table(ws, row, m["carry_rows"])
 
     # ── ช่องเซ็นรับเงิน ──
     row += 2
     cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
-         font=Font(name=FONT, size=10.5), align=L)
+         font=Font(name=FONT, size=FS(10.5)), align=L)
     row += 2
     cell(ws, f"A{row}", "วันที่ ............ / ............ / ............",
-         font=Font(name=FONT, size=10.5), align=L)
+         font=Font(name=FONT, size=FS(10.5)), align=L)
     row += 1
 
     ws.print_area = f"A1:{LAST_P_LETTER}{row}"
