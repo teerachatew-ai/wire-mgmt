@@ -55,8 +55,11 @@ initDb().then(() => {
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {
-    // ไฟล์ asset (มี hash ในชื่อ) แคชยาวได้; ส่วน index.html ห้ามแคช เพื่อให้ทุกเครื่อง/มือถือได้เวอร์ชันล่าสุดเสมอ
+    // ไฟล์ asset (มี hash ในชื่อ) แคชยาวได้ (deploy ใหม่ = hash เปลี่ยน = ไฟล์คนละชื่อ ไม่ชนของเก่า)
+    // ส่วน index.html ห้ามแคช เพื่อให้ทุกเครื่อง/มือถือได้เวอร์ชันล่าสุดเสมอ (อ้างชื่อไฟล์ asset ล่าสุดถูกต้อง)
     app.use(express.static(clientDist, {
+      maxAge: '1y',
+      immutable: true,
       setHeaders: (res, filePath) => {
         if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       },
