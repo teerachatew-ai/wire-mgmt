@@ -124,8 +124,13 @@ def color_sort_key(name):
 
 product_order = sorted(distinct_products.keys(), key=color_sort_key)
 
+# ตัดคำว่า "ป้าย"/"เส้น" ออกจากหัวคอลัมน์ — คำเหล่านี้มีทุกชื่อสินค้าอยู่แล้วไม่ช่วยแยกแยะ
+# แต่ทำให้ข้อความยาวจนล้นช่องตาราง (ไม่ลดขนาดฟอนต์ ตัดคำแทน)
+def strip_noise_words(s):
+    return s.replace("ป้าย", "").replace("เส้น", "").strip()
+
 def base_label(name):
-    lbl = short_label(name)
+    lbl = strip_noise_words(short_label(name))
     code = code_num(name)
     return f"{lbl} {code}".strip() if code else lbl
 
@@ -137,7 +142,7 @@ product_label = {}
 for name in product_order:
     lbl = base_label(name)
     if label_freq[lbl] > 1:
-        prefix = name.split(" (")[0].strip()
+        prefix = strip_noise_words(name.split(" (")[0].strip())
         lbl = f"{lbl} ({prefix})"
     product_label[name] = lbl
 
