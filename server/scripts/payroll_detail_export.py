@@ -403,13 +403,17 @@ def write_member_sheet(m, label=None):
     cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=RW)
     ws.row_dimensions[row].height = RH(18)
     row += 2  # เว้นที่ว่างเพิ่มไว้เซ็นชื่อจริง
-    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-    cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
-         font=Font(name=FONT, size=FS(10.5)), align=R)
+    # เดิม "ลงชื่อ"/"วันที่" ชิดขวาแยกกัน (ตามความยาวข้อความ) ทำให้บรรทัดวันที่ดูเบ้ไปทางขวามากกว่า
+    # บรรทัดลงชื่อ — เปลี่ยนมา merge แค่ครึ่งขวาของแถว แล้วจัดกึ่งกลาง "ภายในครึ่งขวา" เดียวกันทั้งสองบรรทัด
+    # ผลคือยังอยู่ชิดฝั่งขวาของหน้าเหมือนเดิม แต่สองบรรทัดจะอยู่กึ่งกลางตรงกันพอดี ไม่เบ้
+    half_col = get_column_letter(max(2, LAST_P // 2))
+    ws.merge_cells(f"{half_col}{row}:{LAST_P_LETTER}{row}")
+    cell(ws, f"{half_col}{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
+         font=Font(name=FONT, size=FS(10.5)), align=C)
     row += 1
-    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-    cell(ws, f"A{row}", "วันที่ ............ / ............ / ............",
-         font=Font(name=FONT, size=FS(10.5)), align=R)
+    ws.merge_cells(f"{half_col}{row}:{LAST_P_LETTER}{row}")
+    cell(ws, f"{half_col}{row}", "วันที่ ............ / ............ / ............",
+         font=Font(name=FONT, size=FS(10.5)), align=C)
     row += 1
 
     ws.print_area = f"A1:{LAST_P_LETTER}{row}"
