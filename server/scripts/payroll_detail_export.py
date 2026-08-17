@@ -57,7 +57,7 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "Tahoma"
-FONT_SCALE = 1.15  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น 15%
+FONT_SCALE = 1.2  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าสูงสุดที่ทดสอบแล้วไม่ตกขอบ/ล้นหน้ากระดาษ
 def FS(size):
     return round(size * FONT_SCALE, 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
@@ -161,7 +161,7 @@ n_prod = len(product_order)
 # แล้วยอดรวม/ค่าแรงสุทธิท้ายชีตจะคำนวณตามให้อัตโนมัติ
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
-    widths = [13] + [11] * n_prod + [15]
+    widths = [17] + [11] * n_prod + [15]
     for ci, (h, w) in enumerate(zip(headers, widths), start=1):
         col = get_column_letter(ci)
         ws.column_dimensions[col].width = w
@@ -172,8 +172,9 @@ def write_pivot_table(ws, row, rows_list):
             fill, txt = hexc, contrast_text(hexc)
         else:
             fill, txt = NAVY, "FFFFFF"
-        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5), bold=True, color=txt), fill=fill, align=C, border=box)
-    ws.row_dimensions[row].height = RH(22)
+        # wrap_text กันหัวคอลัมน์ยาวล้นออกไปทับคอลัมน์ข้างๆ ตอนคอลัมน์แคบลง (ตัดขึ้นบรรทัดใหม่แทน)
+        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5), bold=True, color=txt), fill=fill, align=CW, border=box)
+    ws.row_dimensions[row].height = RH(26)
     row += 1
 
     # คอลัมน์ซ่อนไว้ทางขวาของตาราง เก็บค่าแรงแยกตามชนิด x วันที่ — เป็นแหล่งอ้างอิงของสูตร SUM แนวตั้ง
@@ -223,6 +224,7 @@ def write_pivot_table(ws, row, rows_list):
     last_data_row = row - 1
 
     # ── บรรทัดรวม (subtotal) ต่อคอลัมน์ — สูตร SUM อ้างอิงแถวข้อมูลด้านบน ──
+    # ช่องค่าแรงรวมท้ายแถวนี้ไม่ต้องใส่ตัวเลขซ้ำ (ปล่อยว่างไว้) เพราะแถว "ค่าแรงตัด" ถัดไปมีสรุปยอดเดียวกันอยู่แล้ว
     col_totals = {n: 0 for n in product_order}
     wage_total = 0.0
     cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box)
@@ -233,17 +235,13 @@ def write_pivot_table(ws, row, rows_list):
             cell(ws, f"{col}{row}", f"=SUM({col}{first_data_row}:{col}{last_data_row})",
                  font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=NUM_Z)
         wage_total = sum(e["wage"] for e in date_agg.values())
-        cell(ws, f"{LAST_P_LETTER}{row}", f"=SUM({LAST_P_LETTER}{first_data_row}:{LAST_P_LETTER}{last_data_row})",
-             font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=MONEY)
-    else:
-        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=MONEY)
-    wage_total_ref = f"{LAST_P_LETTER}{row}"
+    cell(ws, f"{LAST_P_LETTER}{row}", None, font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box)
     ws.row_dimensions[row].height = RH(18)
     row += 1
 
-    # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด ──
+    # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด — เป็นแหล่งอ้างอิงยอดค่าแรงรวมเพียงจุดเดียว (ไม่ซ้ำกับแถว "รวม" ด้านบน) ──
     # แนวตั้ง: แต่ละช่อง = SUM คอลัมน์ที่ซ่อนไว้ของชนิดนั้น (first_data_row:last_data_row)
-    # แนวนอน: ช่องรวมท้ายแถว = SUM ของทุกช่องชนิดในแถวนี้เอง (ไขว้ตรวจกับยอดในแถว "รวม" ด้านบนได้)
+    # แนวนอน: ช่องรวมท้ายแถว = SUM ของทุกช่องชนิดในแถวนี้เอง
     LIGHT_GREEN = "DCFCE7"
     cell(ws, f"A{row}", "ค่าแรงตัด (บาท)", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box)
     if last_data_row >= first_data_row:
@@ -256,6 +254,7 @@ def write_pivot_table(ws, row, rows_list):
              font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
     else:
         cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+    wage_total_ref = f"{LAST_P_LETTER}{row}"
     ws.row_dimensions[row].height = RH(18)
     row += 1
 
@@ -284,7 +283,7 @@ ws0.row_dimensions[3].height = RH(24)
 
 hdr_row = 5
 headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
-widths0 = [9, 26, 15] + [13] * n_prod + [18]
+widths0 = [9, 26, 15] + [13] * n_prod + [22]
 for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
     col = get_column_letter(ci)
     ws0.column_dimensions[col].width = w
@@ -295,8 +294,9 @@ for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
         fill, txt = hexc, contrast_text(hexc)
     else:
         fill, txt = NAVY, "FFFFFF"
-    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=FS(9), bold=True, color=txt), fill=fill, align=C, border=box)
-ws0.row_dimensions[hdr_row].height = RH(24)
+    # wrap_text กันหัวคอลัมน์ยาวล้นออกไปทับคอลัมน์ข้างๆ หรือหลุดขอบหน้ากระดาษ
+    cell(ws0, f"{col}{hdr_row}", h, font=Font(name=FONT, size=FS(9), bold=True, color=txt), fill=fill, align=CW, border=box)
+ws0.row_dimensions[hdr_row].height = RH(28)
 
 row = hdr_row + 1
 first_member_row = row
@@ -349,18 +349,14 @@ def write_member_sheet(m, label=None):
     ws.sheet_view.showGridLines = False
 
     # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
-    title_end = LABEL_END_LETTER if label else LAST_P_LETTER
-    ws.merge_cells(f"A1:{title_end}1")
+    ws.merge_cells(f"A1:{LAST_P_LETTER}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
-    ws.merge_cells(f"A2:{title_end}2")
+    ws.merge_cells(f"A2:{LAST_P_LETTER}2")
     subtitle = f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}"
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
-    ws.merge_cells(f"A3:{title_end}3")
+    ws.merge_cells(f"A3:{LAST_P_LETTER}3")
     cell(ws, "A3", f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}",
          font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
-    if label:
-        ws.merge_cells(f"{LAST_P_LETTER}1:{LAST_P_LETTER}3")
-        cell(ws, f"{LAST_P_LETTER}1", label, font=Font(name=FONT, size=FS(15), bold=True, color="000000"), align=CW)
     ws.row_dimensions[1].height = RH(30)
     ws.row_dimensions[2].height = RH(26)
     ws.row_dimensions[3].height = RH(18)
