@@ -56,8 +56,8 @@ def short_label(name):
     mm = re.search(r"\(([^)]+)\)", name or "")
     return mm.group(1) if mm else (name or "-")
 
-FONT = "Cordia New"
-FONT_SCALE = 1.56  # ขยายตัวหนังสือทุกจุดในรายงานขึ้นอีก 30% จาก Cordia New เดิม (1.2 -> 1.56)
+FONT = "TH SarabunPSK"
+FONT_SCALE = 1.2  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ทดสอบแล้วว่าใหญ่สุดเท่าที่ยังไม่ตกขอบ/ล้นหน้าแม้คนที่มีรายการเยอะ
 def FS(size):
     return round(size * FONT_SCALE, 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
@@ -390,7 +390,7 @@ def write_member_sheet(m, label=None):
     net_formula = f"=ROUNDUP({'+'.join(net_formula_parts)},0)"
     cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=FS(11), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
     ws.row_dimensions[row].height = RH(20)
-    row += 2
+    row += 1
 
     if m.get("carry_rows"):
         ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
@@ -400,16 +400,16 @@ def write_member_sheet(m, label=None):
         row += 1
         row, _carry_col_totals, _carry_wage_total, _carry_wage_ref = write_pivot_table(ws, row, m["carry_rows"])
 
-    # ── ช่องเซ็นรับเงิน ──
-    row += 2
+    # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
+    row += 1
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=RW)
     ws.row_dimensions[row].height = RH(18)
-    row += 2
+    row += 1
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
          font=Font(name=FONT, size=FS(10.5)), align=R)
-    row += 2
+    row += 1
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", "วันที่ ............ / ............ / ............",
          font=Font(name=FONT, size=FS(10.5)), align=R)
@@ -421,11 +421,13 @@ def write_member_sheet(m, label=None):
         ws.page_setup.orientation = "landscape"
     else:
         ws.page_setup.orientation = "portrait" if n_prod <= 4 else "landscape"
+    # fitToHeight=0 (ไม่จำกัดจำนวนหน้าตามความสูง) — บังคับให้ scale คำนวณจาก "ความกว้าง" เพียงอย่างเดียว
+    # เสมอ ไม่ว่าคนนั้นจะมีกี่แถว/กี่วัน กันปัญหาคนที่มีข้อมูลน้อย (แถวสั้น) โดน scale ขยายเกินจนล้นขอบขวา
+    # (คนที่มีข้อมูลเยอะจะขึ้นหน้าที่ 2 ต่อแทน ด้วยขนาดตัวหนังสือเท่ากันทุกคน ไม่บีบเล็กลงเป็นพิเศษ)
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 1
+    ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_options.horizontalCentered = True
-    ws.print_options.verticalCentered = True
     ws.page_margins.left = ws.page_margins.right = 0.5
     ws.page_margins.top = ws.page_margins.bottom = 0.4
 
