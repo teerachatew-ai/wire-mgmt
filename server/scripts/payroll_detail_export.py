@@ -57,7 +57,7 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "Cordia New"
-FONT_SCALE = 1.2  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าสูงสุดที่ทดสอบแล้วไม่ตกขอบ/ล้นหน้ากระดาษ
+FONT_SCALE = 1.56  # ขยายตัวหนังสือทุกจุดในรายงานขึ้นอีก 30% จาก Cordia New เดิม (1.2 -> 1.56)
 def FS(size):
     return round(size * FONT_SCALE, 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
@@ -206,7 +206,7 @@ def write_pivot_table(ws, row, rows_list):
             is_prod_col = 2 <= ci <= 1 + n_prod
             is_wage_col = ci == 2 + n_prod
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
-            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
+            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), bold=True, color="111827"),
                  align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
         # สูตร = จำนวน(อ้างอิงช่องที่มองเห็น) x อัตราค่าแรง/หน่วย — แก้จำนวนในตารางแล้วค่าแรงเปลี่ยนตามจริง
         # ส่วนต่างเล็กน้อยจากงานเสีย/หาย (ซึ่งไม่ได้แสดงแยกในตารางนี้) บวกเพิ่มเป็นค่าคงที่ต่อท้าย เพื่อให้ยอดรวมยังตรงเป๊ะ
@@ -311,7 +311,7 @@ for m in d["members"]:
         is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
         is_total_col = ci == last_col
         fmt = NUM_Z if is_prod_col else (MONEY_Z if is_total_col else None)
-        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), color="111827"),
+        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), bold=True, color="111827"),
              align=(R if (is_prod_col or is_total_col) else L), border=box, fmt=fmt)
     for n in product_order:
         grand_qty[n] += pw_map.get(n, {}).get("qty", 0)
