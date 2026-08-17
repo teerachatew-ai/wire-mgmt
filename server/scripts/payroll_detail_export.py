@@ -356,13 +356,14 @@ def write_member_sheet(m, label=None):
     subtitle = (f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
                 f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
-    ws.row_dimensions[1].height = RH(30)
-    ws.row_dimensions[2].height = RH(26)
+    # ลด line spacing ของหัวชีต (ชื่อกลุ่ม/เดือน/ชื่อสมาชิก) ลง เอาพื้นที่ไปเพิ่มช่องว่างเซ็นชื่อแทน
+    ws.row_dimensions[1].height = RH(20)
+    ws.row_dimensions[2].height = RH(18)
 
     ws.merge_cells(f"A3:{LAST_P_LETTER}3")
     cell(ws, "A3", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
          font=Font(name=FONT, size=FS(11), bold=True, color="111827"), align=LW)
-    ws.row_dimensions[3].height = RH(20)
+    ws.row_dimensions[3].height = RH(15)
 
     row = 5
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
@@ -396,11 +397,10 @@ def write_member_sheet(m, label=None):
         row, _carry_col_totals, _carry_wage_total, _carry_wage_ref = write_pivot_table(ws, row, m["carry_rows"])
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
-    row += 1
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=RW)
     ws.row_dimensions[row].height = RH(18)
-    row += 1
+    row += 2  # เว้นที่ว่างเพิ่มไว้เซ็นชื่อจริง
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"A{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
          font=Font(name=FONT, size=FS(10.5)), align=R)
