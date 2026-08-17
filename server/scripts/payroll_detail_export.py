@@ -57,11 +57,19 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "TH SarabunPSK"
-FONT_SCALE = 1.25  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ทดสอบแล้วว่าใหญ่สุดเท่าที่ยังไม่ตกขอบ/ล้นหน้าแม้คนที่มีรายการเยอะ
+BASE_FONT_SCALE = 1.25  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าปกติสำหรับคนที่มีรายการไม่เยอะ
+# คนที่มีรายการ (จำนวนวันที่เบิก) เยอะจนล้นไปอีกหน้า จะลด scale ลงเฉพาะชีตของคนนั้น (ดูใน write_member_sheet)
+# ไม่ลดทุกคนพร้อมกัน กันคนรายการน้อยเสียโอกาสได้ตัวหนังสือใหญ่ไปโดยไม่จำเป็น
+_scale_state = {"v": BASE_FONT_SCALE}
 def FS(size):
-    return round(size * FONT_SCALE, 2)
+    return round(size * _scale_state["v"], 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
-    return round(height * FONT_SCALE, 1)
+    return round(height * _scale_state["v"], 1)
+def scale_for_row_count(n_rows):
+    # ทดสอบแล้วว่า <=12 แถว พอดี 1 หน้าที่ BASE_FONT_SCALE — เกินกว่านั้นลดสัดส่วนลงตามจำนวนแถวที่เกิน
+    if n_rows <= 12:
+        return BASE_FONT_SCALE
+    return max(0.95, BASE_FONT_SCALE * (12 / n_rows))
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
 NUM_Z = '#,##0;-#,##0;"-"'
@@ -345,12 +353,16 @@ ws0.page_margins.left = ws0.page_margins.right = 0.35
 CONFIRM_TEXT = "ข้าพเจ้าขอยืนยันว่ารายการและจำนวนเงินดังกล่าวข้างต้นมีความถูกต้องครบถ้วนทุกประการ และได้รับเงินเรียบร้อยแล้ว"
 
 def write_member_sheet(m, label=None):
+    # จำนวนวันที่เบิกจริง (นับวันซ้ำครั้งเดียว) ของคนนี้ — ใช้ตัดสินว่าต้องลด scale ลงไหมเพื่อกันล้นไปอีกหน้า
+    n_rows = len({r["issued_at"] for r in m.get("rows", [])}) + len({r["issued_at"] for r in m.get("carry_rows", [])})
+    _scale_state["v"] = scale_for_row_count(n_rows)
+
     sheet_label = f'{m["member_code"]} {m["member_name"]}' + (f' {label}' if label else '')
     ws = wb.create_sheet(safe_sheet_name(sheet_label, used_names))
     ws.sheet_view.showGridLines = False
 
     # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
-    # รวม cut-off ไว้บรรทัดเดียวกับชื่อเดือน และตัดบรรทัดบัญชีธนาคารออก — ประหยัดพื้นที่แนวตั้งไว้ขยายฟอนต์แทน
+    # รวม cut-off ไว้บรรทัดเดียวกับชื่อเดือน
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
@@ -367,7 +379,12 @@ def write_member_sheet(m, label=None):
          font=Font(name=FONT, size=FS(11 * 1.15), bold=True, color="111827"), align=LW)
     ws.row_dimensions[3].height = RH(17)
 
-    row = 5
+    ws.merge_cells(f"A4:{LAST_P_LETTER}4")
+    cell(ws, "A4", f'ธนาคาร: {m.get("bank_name") or "-"}   เลขบัญชี: {m.get("bank_account") or "-"}',
+         font=Font(name=FONT, size=FS(9.5), color=GREY), align=L)
+    ws.row_dimensions[4].height = RH(15)
+
+    row = 6
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
