@@ -57,7 +57,7 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "TH SarabunPSK"
-FONT_SCALE = 1.2  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ทดสอบแล้วว่าใหญ่สุดเท่าที่ยังไม่ตกขอบ/ล้นหน้าแม้คนที่มีรายการเยอะ
+FONT_SCALE = 1.25  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ทดสอบแล้วว่าใหญ่สุดเท่าที่ยังไม่ตกขอบ/ล้นหน้าแม้คนที่มีรายการเยอะ
 def FS(size):
     return round(size * FONT_SCALE, 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
@@ -349,27 +349,22 @@ def write_member_sheet(m, label=None):
     ws.sheet_view.showGridLines = False
 
     # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
+    # รวม cut-off ไว้บรรทัดเดียวกับชื่อเดือน และตัดบรรทัดบัญชีธนาคารออก — ประหยัดพื้นที่แนวตั้งไว้ขยายฟอนต์แทน
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    subtitle = f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}"
+    subtitle = (f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
+                f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
-    ws.merge_cells(f"A3:{LAST_P_LETTER}3")
-    cell(ws, "A3", f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}",
-         font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
     ws.row_dimensions[1].height = RH(30)
     ws.row_dimensions[2].height = RH(26)
-    ws.row_dimensions[3].height = RH(18)
 
-    ws.merge_cells(f"A4:{LAST_P_LETTER}4")
-    cell(ws, "A4", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
+    ws.merge_cells(f"A3:{LAST_P_LETTER}3")
+    cell(ws, "A3", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
          font=Font(name=FONT, size=FS(11), bold=True, color="111827"), align=LW)
-    ws.row_dimensions[4].height = RH(20)
-    ws.merge_cells(f"A5:{LAST_P_LETTER}5")
-    cell(ws, "A5", f'ธนาคาร: {m.get("bank_name") or "-"}   เลขบัญชี: {m.get("bank_account") or "-"}',
-         font=Font(name=FONT, size=FS(9.5), color=GREY), align=L)
+    ws.row_dimensions[3].height = RH(20)
 
-    row = 7
+    row = 5
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
