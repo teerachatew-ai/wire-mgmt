@@ -358,13 +358,14 @@ def write_member_sheet(m, label=None):
                 f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
     # ลด line spacing ของหัวชีต (ชื่อกลุ่ม/เดือน/ชื่อสมาชิก) ลง เอาพื้นที่ไปเพิ่มช่องว่างเซ็นชื่อแทน
-    ws.row_dimensions[1].height = RH(20)
-    ws.row_dimensions[2].height = RH(18)
+    ws.row_dimensions[1].height = RH(18)
+    ws.row_dimensions[2].height = RH(16)
 
+    # รหัส+ชื่อสมาชิก ขยายเพิ่มอีก 15% เหมือนหัวตาราง
     ws.merge_cells(f"A3:{LAST_P_LETTER}3")
     cell(ws, "A3", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
-         font=Font(name=FONT, size=FS(11), bold=True, color="111827"), align=LW)
-    ws.row_dimensions[3].height = RH(15)
+         font=Font(name=FONT, size=FS(11 * 1.15), bold=True, color="111827"), align=LW)
+    ws.row_dimensions[3].height = RH(17)
 
     row = 5
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
