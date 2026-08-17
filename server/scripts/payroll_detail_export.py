@@ -173,8 +173,9 @@ def write_pivot_table(ws, row, rows_list):
         else:
             fill, txt = NAVY, "FFFFFF"
         # wrap_text กันหัวคอลัมน์ยาวล้นออกไปทับคอลัมน์ข้างๆ ตอนคอลัมน์แคบลง (ตัดขึ้นบรรทัดใหม่แทน)
-        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5), bold=True, color=txt), fill=fill, align=CW, border=box)
-    ws.row_dimensions[row].height = RH(26)
+        # หัวตารางขยายเพิ่มอีก 15% จากตัวหนังสือปกติของรายงาน ให้เด่นชัดกว่าตัวเนื้อหา
+        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5 * 1.15), bold=True, color=txt), fill=fill, align=CW, border=box)
+    ws.row_dimensions[row].height = RH(30)
     row += 1
 
     # คอลัมน์ซ่อนไว้ทางขวาของตาราง เก็บค่าแรงแยกตามชนิด x วันที่ — เป็นแหล่งอ้างอิงของสูตร SUM แนวตั้ง
