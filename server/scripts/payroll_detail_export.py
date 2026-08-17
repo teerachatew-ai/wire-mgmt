@@ -56,7 +56,7 @@ def short_label(name):
     mm = re.search(r"\(([^)]+)\)", name or "")
     return mm.group(1) if mm else (name or "-")
 
-FONT = "Tahoma"
+FONT = "Cordia New"
 FONT_SCALE = 1.2  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าสูงสุดที่ทดสอบแล้วไม่ตกขอบ/ล้นหน้ากระดาษ
 def FS(size):
     return round(size * FONT_SCALE, 2)
