@@ -207,7 +207,7 @@ def write_pivot_table(ws, row, rows_list):
             is_wage_col = ci == 2 + n_prod
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
             cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), bold=True, color="111827"),
-                 align=(R if (is_prod_col or is_wage_col) else L), border=box, fmt=fmt)
+                 align=(R if (is_prod_col or is_wage_col) else C), border=box, fmt=fmt)
         # สูตร = จำนวน(อ้างอิงช่องที่มองเห็น) x อัตราค่าแรง/หน่วย — แก้จำนวนในตารางแล้วค่าแรงเปลี่ยนตามจริง
         # ส่วนต่างเล็กน้อยจากงานเสีย/หาย (ซึ่งไม่ได้แสดงแยกในตารางนี้) บวกเพิ่มเป็นค่าคงที่ต่อท้าย เพื่อให้ยอดรวมยังตรงเป๊ะ
         for ci, n in enumerate(product_order, start=2):
