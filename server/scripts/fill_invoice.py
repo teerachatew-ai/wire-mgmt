@@ -27,9 +27,10 @@ if dt:
     if _dd is not None:
         ws["J41"] = _dd
 
-# ป้าย "วันครบกำหนด / Due Date" (I9,I10) ตั้ง wrap ไว้แล้วถูกตัด -> หดให้พอดีช่อง เห็นครบ
+# ป้าย "เลขที่/Invoice No.", "เงื่อนไขชำระ(วัน)", "วันครบกำหนด/Due Date" (I5,I7,I9,I10)
+# ยาวเกินความกว้างคอลัมน์ I เมื่อฟอนต์ถูกขยาย (โหมด PDF) -> หดให้พอดีช่อง เห็นครบ
 from openpyxl.styles import Alignment as _Al
-for _c in ("I9", "I10"):
+for _c in ("I5", "I7", "I9", "I10"):
     _a = ws[_c].alignment
     ws[_c].alignment = _Al(horizontal=_a.horizontal, vertical=_a.vertical, wrap_text=False, shrink_to_fit=True)
 
