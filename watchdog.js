@@ -41,7 +41,9 @@ function restartTunnel() {
   if (now - lastRestart < RESTART_COOLDOWN) return;
   lastRestart = now;
   console.log(`[${new Date().toISOString()}] ngrok หลุด — รีสตาร์ท`);
-  exec(`"${PM2}" restart wire-tunnel`, () => {});
+  exec(`"${PM2}" restart wire-tunnel`, { windowsHide: true }, (err) => {
+    if (err) console.log(`[${new Date().toISOString()}] restart ล้มเหลว: ${err.message}`);
+  });
   fails = 0;
 }
 

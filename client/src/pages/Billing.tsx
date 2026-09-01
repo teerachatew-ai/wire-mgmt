@@ -36,6 +36,7 @@ export default function Billing() {
   const [invXlsx, setInvXlsx] = useState(false);
   const [invPdf, setInvPdf] = useState(false);
   const [rcptPdf, setRcptPdf] = useState(false);
+  const [rcptXlsx, setRcptXlsx] = useState(false);
   const [rcptDate, setRcptDate] = useState('');   // วันที่รับเงินในใบเสร็จ (default = 20 เดือนถัดไป)
   const [showSupplier, setShowSupplier] = useState(false);
   const [dirty, setDirty] = useState(false);       // มีการแก้จำนวน/วันที่ที่ยังไม่บันทึกกลับ
@@ -177,16 +178,16 @@ export default function Billing() {
     } finally { if (format === 'pdf') setInvPdf(false); else setInvXlsx(false); }
   };
 
-  const exportReceipt = async () => {
+  const exportReceipt = async (format?: 'pdf') => {
     const tab = openDownloadTab();
-    setRcptPdf(true);
+    if (format === 'pdf') setRcptPdf(true); else setRcptXlsx(true);
     try {
-      const blob = await reportApi.receiptExport({ month, date: rcptDateVal, lines_override: exportLines() }, 'pdf');
-      download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.pdf`, tab);
+      const blob = await reportApi.receiptExport({ month, date: rcptDateVal, lines_override: exportLines() }, format);
+      download(blob, `ใบเสร็จรับเงิน-${monthLabel(month)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, tab);
     } catch (e) {
       tab?.close();
       alert('สร้างใบเสร็จรับเงินไม่สำเร็จ');
-    } finally { setRcptPdf(false); }
+    } finally { if (format === 'pdf') setRcptPdf(false); else setRcptXlsx(false); }
   };
 
 
@@ -256,7 +257,10 @@ export default function Billing() {
                   <label className="text-[11px] text-gray-500 block mb-0.5">วันที่รับเงิน</label>
                   <input type="date" className="input !min-h-[34px] !py-1 !px-2 text-xs w-36" value={rcptDateVal} onChange={e => setRcptDate(e.target.value)} />
                 </div>
-                <button className="btn-primary btn-sm flex items-center gap-2" onClick={exportReceipt} disabled={rcptPdf}>
+                <button className="btn-secondary btn-sm flex items-center gap-2" onClick={() => exportReceipt()} disabled={rcptXlsx}>
+                  {rcptXlsx ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Excel
+                </button>
+                <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => exportReceipt('pdf')} disabled={rcptPdf}>
                   {rcptPdf ? <Loader2 size={14} className="animate-spin" /> : <BadgeCheck size={14} />} PDF
                 </button>
               </div>
