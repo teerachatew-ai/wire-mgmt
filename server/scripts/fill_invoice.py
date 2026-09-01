@@ -97,12 +97,12 @@ if mode == "pdf":
 
     # ใบเสร็จรับเงิน: ทำ 2 หน้า — ต้นฉบับ (Original) + คู่ฉบับ (Copy)
     if doctype == "receipt":
-        ws["J3"] = "ใบเสร็จรับเงิน (ต้นฉบับ)"
-        ws["J4"] = "RECEIPT (Original)"
+        ws["A1"] = "ใบเสร็จรับเงิน (ต้นฉบับ)"
+        ws["A2"] = "RECEIPT (Original)"
         ws2 = wb.copy_worksheet(ws)
         ws2.title = "copy"
-        ws2["J3"] = "ใบเสร็จรับเงิน (คู่ฉบับ)"
-        ws2["J4"] = "RECEIPT (Copy)"
+        ws2["A1"] = "ใบเสร็จรับเงิน (คู่ฉบับ)"
+        ws2["A2"] = "RECEIPT (Copy)"
         pageFit(ws2)
         closeBox(ws2)
 
