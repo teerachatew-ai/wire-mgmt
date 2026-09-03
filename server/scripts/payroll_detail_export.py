@@ -366,9 +366,12 @@ def write_member_sheet(m, label=None):
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
     cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    subtitle = (f"รายงานเบิกงาน/ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
+    subtitle = (f"ใบเสร็จรับเงิน / รายงานเบิกงาน-ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
                 f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
-    cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
+    # ข้อความยาว (เพิ่ม "ใบเสร็จรับเงิน" เข้ามา) -> shrink_to_fit แทน wrap_text กันตกบรรทัด/ถูกตัดท้าย
+    # (wrap_text + auto-height ไม่เสถียรกับชีตที่สร้างจาก openpyxl ล้วนตอนแปลง PDF ผ่าน Excel COM)
+    cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY),
+         align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
     # ลด line spacing ของหัวชีต (ชื่อกลุ่ม/เดือน/ชื่อสมาชิก) ลง เอาพื้นที่ไปเพิ่มช่องว่างเซ็นชื่อแทน
     ws.row_dimensions[1].height = RH(18)
     ws.row_dimensions[2].height = RH(16)
