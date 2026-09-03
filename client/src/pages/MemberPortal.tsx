@@ -6,6 +6,7 @@ import autoTable from 'jspdf-autotable';
 import { SARABUN_REGULAR_BASE64, SARABUN_BOLD_BASE64 } from '../assets/fonts/sarabun-base64';
 import { portalApi } from '../api';
 import { downloadBlob } from '../utils/downloadBlob';
+import { projectLabel, parseProductLabel } from '../projectLabel';
 import { CheckCircle2, Clock, XCircle, PackageOpen, ArrowLeft, Send, Loader2, PackagePlus, ChevronRight, ChevronDown, RotateCcw, ClipboardList, Calendar, Download } from 'lucide-react';
 
 const fmtQty = (n: number) => Number(n || 0).toLocaleString('th-TH');
@@ -51,20 +52,7 @@ const statusInfo: Record<string, { label: string; cls: string; icon: any }> = {
   rejected: { label: 'ไม่ผ่าน', cls: 'bg-rose-100 text-rose-700', icon: XCircle },
 };
 
-// ชื่อกลุ่มงานที่สมาชิกคุ้นเคย (ชื่อรหัสโครงการจริง COT0xx ใช้เฉพาะฝั่งเจ้าหน้าที่)
-const PROJECT_LABEL: Record<string, string> = {
-  COT091: 'งานป้ายขาว',
-  COT092: 'งานป้ายชมพู',
-  COT102: 'งาน 3 สาย',
-};
-const projectLabel = (key: string) => PROJECT_LABEL[key] || key;
-
-// แยกชื่อสินค้า "MA020-633_A (ป้ายขาวสั้น)" -> เลขรุ่น "633" (บรรทัดบน) + ชื่อเรียก "ป้ายขาวสั้น" (บรรทัดล่าง)
-function parseProductLabel(name: string) {
-  const num = name.match(/-(\d+)/)?.[1] || '';
-  const label = name.match(/\(([^)]+)\)/)?.[1] || name;
-  return { num, label };
-}
+// ชื่อกลุ่มงาน / การแยกชื่อรุ่นสินค้า ใช้ร่วมกับหน้าเบิกงานฝั่งเจ้าหน้าที่ (../projectLabel)
 
 /* ── เบิกงานใหม่ — เลือกได้หลายชนิด กรอกจำนวนแต่ละชนิดไว้ก่อน แล้วค่อยกด "ส่ง" ครั้งเดียวรวมกันท้ายสุด ── */
 function IssueRequestScreen({ token, products, onDone, onCancel }: { token: string; products: any[]; onDone: () => void; onCancel: () => void }) {

@@ -24,13 +24,23 @@ interface Props {
   onChange: (id: number | '') => void;
   placeholder?: string;
   activeOnly?: boolean;
+  /** เปลี่ยนค่านี้เมื่อไหร่ = เปิดช่องค้นหาให้อัตโนมัติ (ใช้ตอนเบิกต่อเนื่องหลายคน ไม่ต้องกดเปิดเองทุกรอบ) */
+  autoOpenKey?: number;
 }
 
 /* Searchable member picker — filter by name / nickname / code */
-export default function MemberSelect({ members, value, onChange, placeholder = 'ค้นหาชื่อ-สกุล หรือชื่อเล่น...', activeOnly = false }: Props) {
+export default function MemberSelect({ members, value, onChange, placeholder = 'ค้นหาชื่อ-สกุล หรือชื่อเล่น...', activeOnly = false, autoOpenKey }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+
+  // เปิด dropdown เองเมื่อ autoOpenKey เปลี่ยน (ข้ามรอบแรกตอน mount)
+  const firstOpenKey = useRef(autoOpenKey);
+  useEffect(() => {
+    if (autoOpenKey === undefined || autoOpenKey === firstOpenKey.current) return;
+    setOpen(true);
+    setQuery('');
+  }, [autoOpenKey]);
 
   const pool = useMemo(
     () => activeOnly ? members.filter(m => m.status === 'active') : members,

@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
+import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import DaySummary from '../components/DaySummary';
 import ExportExcelButton from '../components/ExportExcelButton';
@@ -43,10 +44,10 @@ function ledgerExplain(r: any): { text: string; tone: 'partial' | 'bad' } | null
 const statusLabel: Record<string, string> = { pending: 'ค้างส่ง', partial: 'คืนบางส่วน', closed: 'ปิดแล้ว' };
 const statusClass: Record<string, string> = { pending: 'badge-pending', partial: 'badge-partial', closed: 'badge-closed' };
 
-function Modal({ title, onClose, children }: any) {
+function Modal({ title, onClose, children, wide }: any) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-2xl">
           <h3 className="font-semibold text-gray-800 text-base">{title}</h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={20} className="text-gray-400" /></button>
@@ -113,185 +114,221 @@ function DetailModal({ issue, onClose }: any) {
   );
 }
 
-/* ── Create Issue Modal (เบิกเป็นชุด / แยกชิ้น) ── */
-const COLOR_NAME: Record<string, string> = {
-  '#ffffff': 'ขาว', '#ec4899': 'ชมพู', '#22c55e': 'เขียว', '#3b82f6': 'ฟ้า',
-  '#ef4444': 'แดง', '#eab308': 'เหลือง', '#f97316': 'ส้ม', '#a855f7': 'ม่วง', '#9ca3af': 'เทา',
-};
+/* ── Create Issue Modal — สถานีแจกงาน: ตั้งวันที่ครั้งเดียว แล้วเบิกทีละคนต่อเนื่องได้เลย ──
+   ออกแบบให้กรอกน้อยที่สุด เพราะหน้านี้ต้องกรอกบ่อยและเยอะ:
+   • วันที่/กำหนดคืน ตั้งครั้งเดียวค้างไว้ตลอด ไม่ต้องกรอกซ้ำทุกคน
+   • งานทุกชนิดโชว์เป็นรายการพร้อมช่องตัวเลขเลย ไม่ต้องเลือกจาก dropdown ก่อน
+   • ช่อง "ทั้งชุด" ของแต่ละกลุ่ม = พิมพ์ครั้งเดียวเติมให้ทุกรุ่นในกลุ่มนั้น (เคสเบิกเป็นชุดตามปกติ)
+   • บันทึกแล้วเคลียร์เฉพาะคน+จำนวน คงวันที่ไว้ พร้อมรับคนถัดไปทันที (Enter = บันทึก & คนต่อไป)
+   • ปุ่ม "จำนวนเดิม" ดึงจำนวนของคนก่อนหน้ามาใช้ซ้ำ (เคสแจกเท่ากันหลายคน) */
 function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated }: any) {
-  const { register, handleSubmit, watch, setValue } = useForm<any>({
-    defaultValues: { issued_at: new Date().toISOString().split('T')[0], member_id: '' }
-  });
-  register('member_id', { required: true });
-  const memberId = watch('member_id');
-
-  const [mode, setMode] = useState<'set' | 'single'>('set');
-  const [setQty, setSetQty] = useState<Record<string, string>>({}); // key = project
-  const [lines, setLines] = useState([{ product_id: '', quantity: '' }]);
+  const [issuedAt, setIssuedAt] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState('');
+  const [memberId, setMemberId] = useState<any>('');
+  const [qty, setQty] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const addLine = () => setLines(l => [...l, { product_id: '', quantity: '' }]);
-  const removeLine = (i: number) => setLines(l => l.filter((_, idx) => idx !== i));
-  const updateLine = (i: number, field: string, val: string) =>
-    setLines(l => l.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
+  const [done, setDone] = useState<any[]>([]);        // คนที่เบิกไปแล้วในรอบนี้ (ยังไม่ปิดหน้าต่าง)
+  const [lastQty, setLastQty] = useState<Record<string, string> | null>(null);
+  const [memberOpenKey, setMemberOpenKey] = useState(0);
 
   const activeProducts = (products as any[]).filter((p: any) => p.active);
   const stockOf = (id: any) => Math.max(0, Math.round(stockMap[id] ?? 0));
 
-  // จัดกลุ่มเป็น "ชุด" ตามโครงการ/สี
-  const sets = Object.values(
+  // จัดกลุ่มตามโครงการ (ชื่อกลุ่มที่คนใช้งานคุ้นเคย เช่น "งานป้ายขาว")
+  const groups = Object.values(
     activeProducts.reduce((acc: any, p: any) => {
       const key = p.project || 'อื่นๆ';
-      (acc[key] ??= { key, color: p.color, project: p.project, products: [] }).products.push(p);
+      (acc[key] ??= { key, products: [] }).products.push(p);
       return acc;
     }, {})
   ) as any[];
-  const setLabel = (s: any) => `ชุด${COLOR_NAME[s.color] || s.project || ''}`;
-  const setMaxStock = (s: any) => Math.min(...s.products.map((p: any) => stockOf(p.id)));
 
-  const onSubmit = async (formData: any) => {
-    // รวมรายการที่จะเบิกจากทั้ง 2 โหมด — สลับแท็บดูได้ แต่ข้อมูลที่กรอกไว้ทั้งคู่จะถูกบันทึกพร้อมกันเสมอ
-    const toCreate: { product_id: any; quantity: any }[] = [];
-    for (const s of sets) {
-      const q = parseFloat(setQty[s.key]);
-      if (q > 0) for (const p of s.products) toCreate.push({ product_id: p.id, quantity: q });
-    }
-    for (const l of lines.filter(l => l.product_id && l.quantity)) {
-      toCreate.push({ product_id: l.product_id, quantity: l.quantity });
-    }
-    if (toCreate.length === 0) { setError('กรุณากรอกจำนวนอย่างน้อย 1 รายการ (เบิกเป็นชุด หรือ เบิกแยกชิ้น)'); return; }
-    setLoading(true); setError('');
-    try {
-      for (const it of toCreate) await issueApi.create({ ...formData, product_id: it.product_id, quantity: it.quantity });
-      onCreated(); onClose();
-    } catch (e: any) {
-      setError(e.response?.data?.error || 'เกิดข้อผิดพลาด');
-    } finally { setLoading(false); }
+  const setQtyFor = (pid: any, v: string) => setQty(q => ({ ...q, [pid]: v }));
+  const fillGroup = (g: any, v: string) => setQty(q => {
+    const next = { ...q };
+    for (const p of g.products) { if (v) next[p.id] = v; else delete next[p.id]; }
+    return next;
+  });
+  // ช่อง "ทั้งชุด" จะโชว์ตัวเลขก็ต่อเมื่อทุกรุ่นในกลุ่มมีจำนวนเท่ากัน (ถ้ากรอกแยกไม่เท่ากันให้ว่างไว้)
+  const groupValue = (g: any) => {
+    const vals = g.products.map((p: any) => qty[p.id] || '');
+    return vals.every((v: string) => v === vals[0]) ? vals[0] : '';
   };
 
-  // นับรายการที่จะสร้าง (สำหรับปุ่ม)
-  const setCount = sets.reduce((n, s) => n + (parseFloat(setQty[s.key]) > 0 ? s.products.length : 0), 0);
-  const singleCount = lines.filter(l => l.product_id && l.quantity).length;
+  const lines = activeProducts
+    .map((p: any) => ({ p, q: parseFloat(qty[p.id]) }))
+    .filter((x: any) => x.q > 0);
+  const totalQty = lines.reduce((s: number, x: any) => s + x.q, 0);
+  const member = (members as any[]).find((m: any) => String(m.id) === String(memberId));
+
+  const save = async (closeAfter: boolean) => {
+    if (!issuedAt) { setError('กรุณาเลือกวันที่เบิก'); return; }
+    if (!memberId) { setError('กรุณาเลือกสมาชิก'); return; }
+    if (lines.length === 0) { setError('กรุณากรอกจำนวนอย่างน้อย 1 รายการ'); return; }
+    setSaving(true); setError('');
+
+    // สร้างทีละรายการ — ถ้ารุ่นไหนไม่ผ่าน (เช่นเกินเพดานคงค้าง) เก็บไว้ให้แก้ต่อ ไม่ทิ้งรุ่นที่สำเร็จไปแล้ว
+    const failedIds = new Set<string>();
+    const failMsg: string[] = [];
+    let ok = 0, okQty = 0;
+    for (const { p, q } of lines) {
+      try {
+        await issueApi.create({
+          issued_at: issuedAt, due_date: dueDate || undefined, member_id: memberId,
+          product_id: p.id, quantity: q, notes: notes || undefined,
+        });
+        ok++; okQty += q;
+      } catch (e: any) {
+        failedIds.add(String(p.id));
+        failMsg.push(`${p.name}: ${e.response?.data?.error || 'ผิดพลาด'}`);
+      }
+    }
+    setSaving(false);
+    onCreated();
+
+    if (ok > 0) {
+      setDone(d => [...d, { key: `${memberId}-${Date.now()}`, name: member?.name, nickname: member?.nickname, code: member?.code, lines: ok, qty: okQty }]);
+      setLastQty(qty);
+    }
+    if (failedIds.size > 0) {
+      // เหลือไว้เฉพาะรุ่นที่ยังไม่สำเร็จ (คนเดิม) — กดบันทึกซ้ำได้เลยโดยไม่ซ้ำซ้อนกับที่บันทึกไปแล้ว
+      setQty(q => Object.fromEntries(Object.entries(q).filter(([k]) => failedIds.has(k))));
+      setError(`บันทึกสำเร็จ ${ok} รายการ · ไม่สำเร็จ ${failedIds.size} รายการ (ยังค้างอยู่ในช่องให้แก้)\n${failMsg.join('\n')}`);
+      return;
+    }
+    if (closeAfter) { onClose(); return; }
+    setMemberId(''); setQty({}); setNotes('');
+    setMemberOpenKey(k => k + 1);   // เปิดช่องค้นหาสมาชิกให้เลย พร้อมรับคนต่อไป
+  };
 
   return (
-    <Modal title="สร้างใบเบิกงาน" onClose={onClose}>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">วันที่เบิก *</label><input type="date" className="input" {...register('issued_at', { required: true })} /></div>
-          <div><label className="label">กำหนดคืน</label><input type="date" className="input" {...register('due_date')} /></div>
+    <Modal title="แจกงานให้สมาชิก" onClose={onClose} wide>
+      <form onSubmit={e => { e.preventDefault(); save(false); }} className="space-y-4">
+        {/* ① วันที่ — ตั้งครั้งเดียว ใช้กับทุกคนที่เบิกในรอบนี้ */}
+        <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-3 flex items-end gap-3 flex-wrap">
+          <div>
+            <label className="block text-[11px] font-semibold text-blue-800 mb-0.5">วันที่เบิก (ใช้กับทุกคน)</label>
+            <input type="date" className="input !min-h-[38px] !py-1.5 w-40 font-semibold" value={issuedAt} onChange={e => setIssuedAt(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-blue-700 mb-0.5">กำหนดคืน (ไม่บังคับ)</label>
+            <input type="date" className="input !min-h-[38px] !py-1.5 w-40" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+          </div>
+          {done.length > 0 && (
+            <span className="ml-auto text-sm font-bold text-blue-800 bg-white border border-blue-200 rounded-xl px-3 py-1.5">
+              เบิกไปแล้ว {done.length} คน
+            </span>
+          )}
         </div>
 
+        {/* ② สมาชิก */}
         <div>
           <label className="label">สมาชิก *</label>
-          <MemberSelect members={members} value={memberId} onChange={(id) => setValue('member_id', id, { shouldValidate: true })} activeOnly />
+          <MemberSelect members={members} value={memberId} onChange={setMemberId} activeOnly autoOpenKey={memberOpenKey} />
         </div>
 
-        {/* เลือกรูปแบบการเบิก — สลับดูได้ทั้งสองแบบ กรอกไว้ทั้งคู่ก็บันทึกพร้อมกันตอนกดสร้างใบเบิก */}
-        <div>
-          <label className="label">รูปแบบการเบิก <span className="font-normal text-gray-400">(สลับแท็บได้ กรอกทั้งสองแบบพร้อมกันได้)</span></label>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setMode('set')}
-              className={`rounded-xl border-2 p-3 text-left transition ${mode === 'set' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'}`}>
-              <div className="font-semibold text-sm text-gray-800">📦 เบิกเป็นชุด</div>
-              <div className="text-xs text-gray-500 mt-0.5">ยาว+สั้น ในสีเดียวกันพร้อมกัน (ปกติ)</div>
-            </button>
-            <button type="button" onClick={() => setMode('single')}
-              className={`rounded-xl border-2 p-3 text-left transition ${mode === 'single' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white'}`}>
-              <div className="font-semibold text-sm text-gray-800">✂️ เบิกแยกชิ้น</div>
-              <div className="text-xs text-gray-500 mt-0.5">เลือกเฉพาะยาว หรือ สั้น (บางกรณี)</div>
-            </button>
+        {/* ③ จำนวน — ทุกชนิดโชว์พร้อมช่องกรอกเลย ไม่ต้องเลือกจาก dropdown */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <label className="label mb-0">กรอกจำนวนที่เบิก <span className="font-normal text-gray-400">— กรอกเฉพาะรุ่นที่เบิก</span></label>
+            <div className="flex items-center gap-1.5">
+              {lastQty && Object.keys(lastQty).length > 0 && (
+                <button type="button" onClick={() => setQty(lastQty)}
+                  className="text-xs font-medium text-blue-600 px-2 py-1 rounded-lg hover:bg-blue-50">↺ จำนวนเดิม</button>
+              )}
+              {lines.length > 0 && (
+                <button type="button" onClick={() => setQty({})}
+                  className="text-xs font-medium text-gray-500 px-2 py-1 rounded-lg hover:bg-gray-100">ล้าง</button>
+              )}
+            </div>
           </div>
+
+          {groups.map((g: any) => (
+            <div key={g.key}>
+              <div className="flex items-center justify-between gap-2 mb-1.5 px-1">
+                <p className="text-sm font-semibold text-gray-500">{projectLabel(g.key)}</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-gray-400">ทั้งชุด</span>
+                  {/* onWheel blur — กันเลื่อนเมาส์ผ่านช่องตัวเลขแล้วค่าเปลี่ยนเองโดยไม่รู้ตัว (หน้านี้ต้องเลื่อนบ่อย) */}
+                  <input type="number" min="0" step="0.01" inputMode="numeric" placeholder="—"
+                    className="input !min-h-[34px] !py-1 !px-2 w-24 text-right text-sm font-semibold"
+                    onWheel={e => e.currentTarget.blur()}
+                    value={groupValue(g)} onChange={e => fillGroup(g, e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {g.products.map((p: any) => {
+                  const st = stockOf(p.id);
+                  const v = parseFloat(qty[p.id]);
+                  const over = v > st;
+                  return (
+                    <div key={p.id} className={`flex items-center gap-3 bg-white border rounded-2xl px-3 py-2 transition ${v > 0 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200'}`}>
+                      {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-gray-800 text-sm truncate">{p.name}</div>
+                        <div className="text-[11px] text-gray-400">คงคลัง {st.toLocaleString()} {p.unit}</div>
+                      </div>
+                      <input type="number" min="0" step="0.01" inputMode="numeric" placeholder="0"
+                        className={`input !min-h-[38px] !py-1 !px-2 w-24 shrink-0 text-right ${v > 0 ? 'font-bold' : ''} ${over ? '!border-rose-400 !bg-rose-50 !text-rose-700' : ''}`}
+                        onWheel={e => e.currentTarget.blur()}
+                        value={qty[p.id] ?? ''} onChange={e => setQtyFor(p.id, e.target.value)} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
 
-        {mode === 'set' ? (
-          <div className="space-y-2">
-            <label className="label mb-0">เลือกชุดที่จะเบิก แล้วกรอกจำนวน (เบิกเท่ากันทั้งชุด)</label>
-            {sets.map((s) => {
-              const max = setMaxStock(s);
-              return (
-                <div key={s.key} className="border rounded-xl p-3 bg-gray-50">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <span className="font-semibold text-gray-800">{colorDot(s.color)} {setLabel(s)}</span>
-                      <span className="text-xs text-gray-400 ml-1">({s.products.length} รุ่น)</span>
-                      <div className="text-xs text-gray-500 truncate">{s.products.map((p: any) => p.name).join(' + ')}</div>
-                    </div>
-                    <input type="number" step="0.01" min="0" placeholder="จำนวน/รุ่น"
-                      className="input !w-28 shrink-0 text-right" value={setQty[s.key] || ''}
-                      onChange={e => setSetQty(q => ({ ...q, [s.key]: e.target.value }))} />
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">เบิกได้สูงสุด <strong className="text-blue-600">{max.toLocaleString()}</strong> ต่อรุ่น (คงคลังน้อยสุดในชุด)</p>
-                </div>
-              );
-            })}
+        {/* หมายเหตุ — ซ่อนไว้ก่อน กดเปิดเมื่อต้องใช้จริง (ปกติไม่ต้องกรอก) */}
+        {showNotes ? (
+          <div>
+            <label className="label">หมายเหตุ</label>
+            <input className="input" value={notes} onChange={e => setNotes(e.target.value)} placeholder="(ไม่บังคับ)" />
           </div>
         ) : (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">เลือกสินค้าทีละชิ้น</label>
-              <button type="button" onClick={addLine} className="flex items-center gap-1 text-sm text-blue-600 font-medium px-2 py-1 rounded-lg hover:bg-blue-50"><Plus size={16} /> เพิ่ม</button>
+          <button type="button" onClick={() => setShowNotes(true)} className="text-xs text-gray-400 hover:text-gray-600">+ เพิ่มหมายเหตุ</button>
+        )}
+
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+
+        {/* แถบสรุป+ปุ่ม ติดขอบล่างไว้ตลอด — ไม่ต้องเลื่อนลงมาหาปุ่มบันทึกทุกคน */}
+        <div className="sticky bottom-0 -mx-4 px-4 pt-2 pb-1 bg-white/95 backdrop-blur border-t space-y-2">
+          {lines.length > 0 && (
+            <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-900">
+              <p className="font-semibold mb-1">
+                {member ? `${member.code} ${member.name}` : 'ยังไม่ได้เลือกสมาชิก'} — {lines.length} รายการ รวม {totalQty.toLocaleString()} เส้น
+              </p>
+              <p className="text-xs">{lines.map((x: any) => `${x.p.name} ${x.q.toLocaleString()}`).join(' · ')}</p>
             </div>
-            <div className="space-y-2">
-              {lines.map((line, i) => (
-                <div key={i} className="flex gap-2 items-center p-3 bg-gray-50 rounded-xl">
-                  <div className="flex-1 min-w-0">
-                    <select className="input mb-2" value={line.product_id} onChange={e => updateLine(i, 'product_id', e.target.value)}>
-                      <option value="">-- เลือกสินค้า --</option>
-                      {activeProducts.map((p: any) => (
-                        <option key={p.id} value={p.id}>{colorDot(p.color)}{p.project ? `${p.project} · ` : ''}{p.name} · คงคลัง {stockOf(p.id).toLocaleString()}</option>
-                      ))}
-                    </select>
-                    <input type="number" step="0.01" min="0.01" className="input" placeholder="จำนวน" value={line.quantity} onChange={e => updateLine(i, 'quantity', e.target.value)} />
-                    {line.product_id && (
-                      <p className="text-xs text-gray-500 mt-1">เบิกได้สูงสุด <strong className="text-blue-600">{stockOf(line.product_id).toLocaleString()}</strong> {activeProducts.find((p: any) => String(p.id) === String(line.product_id))?.unit || 'หน่วย'}</p>
-                    )}
-                  </div>
-                  {lines.length > 1 && (
-                    <button type="button" onClick={() => removeLine(i)} className="shrink-0 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>
-                  )}
-                </div>
+          )}
+          <div className="flex gap-2 justify-end items-center flex-wrap">
+            <button type="button" className="btn-secondary" onClick={onClose}>{done.length > 0 ? 'ปิด' : 'ยกเลิก'}</button>
+            <button type="button" className="btn-secondary" disabled={saving} onClick={() => save(true)}>บันทึก & ปิด</button>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? 'กำลังบันทึก...' : `บันทึก & คนต่อไป${lines.length ? ` (${lines.length})` : ''}`}
+            </button>
+          </div>
+        </div>
+
+        {/* รายชื่อที่เบิกไปแล้วในรอบนี้ — เห็นความคืบหน้าโดยไม่ต้องปิดหน้าต่างไปดูตาราง */}
+        {done.length > 0 && (
+          <div className="border-t pt-3">
+            <p className="text-xs font-semibold text-gray-500 mb-1.5">เบิกไปแล้วในรอบนี้ ({done.length} คน)</p>
+            <div className="flex flex-wrap gap-1.5">
+              {done.map((d: any) => (
+                <span key={d.key} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1 text-xs">
+                  <Check size={12} className="text-emerald-600 shrink-0" />
+                  <span className="text-gray-700">{d.nickname || d.name}</span>
+                  <b className="text-emerald-700">{d.qty.toLocaleString()}</b>
+                </span>
               ))}
             </div>
           </div>
         )}
-
-        <div>
-          <label className="label">หมายเหตุ</label>
-          <input className="input" {...register('notes')} placeholder="(ไม่บังคับ)" />
-        </div>
-
-        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
-
-        {/* สรุป — แสดงรวมทั้ง 2 โหมด (ไม่ว่ากำลังเปิดแท็บไหนอยู่ ข้อมูลที่กรอกไว้จะถูกบันทึกทั้งหมด) */}
-        {(setCount > 0 || singleCount > 0) && (
-          <div className="space-y-2">
-            {setCount > 0 && (
-              <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-800">
-                <p className="font-semibold mb-1">📦 เบิกเป็นชุด:</p>
-                {sets.filter(s => parseFloat(setQty[s.key]) > 0).map(s => (
-                  <p key={s.key}>• {setLabel(s)}: {s.products.map((p: any) => `${p.name} ${Number(setQty[s.key]).toLocaleString()}`).join(', ')}</p>
-                ))}
-              </div>
-            )}
-            {singleCount > 0 && (
-              <div className="bg-emerald-50 rounded-xl p-3 text-sm text-emerald-800">
-                <p className="font-semibold mb-1">✂️ เบิกแยกชิ้น:</p>
-                {lines.filter(l => l.product_id && l.quantity).map((l, idx) => {
-                  const p = activeProducts.find((x: any) => String(x.id) === String(l.product_id));
-                  return <p key={idx}>• {p ? `${colorDot(p.color)}${p.name}` : l.product_id}: {Number(l.quantity).toLocaleString()}</p>;
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex gap-2 justify-end pt-1">
-          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'กำลังสร้าง...' : `สร้างใบเบิก (${setCount + singleCount} รายการ)`}
-          </button>
-        </div>
       </form>
     </Modal>
   );
