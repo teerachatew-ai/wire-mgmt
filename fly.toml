@@ -19,7 +19,7 @@ primary_region = "sin"          # สิงคโปร์ — ใกล้ไ�
   #                      ระหว่างที่ Render ล่มอยู่ (ถ้าดับเองแล้วจะไม่ตื่นกลับ เพราะ auto_start=false)
   # เปิดใช้ตอน Render ล่มเท่านั้น:  fly machine start   (ขั้นตอนใน DEPLOY-FLY.md)
   auto_start_machines = false
-  auto_stop_machines = false
+  auto_stop_machines = "off"
   min_machines_running = 0
 
 [[vm]]
