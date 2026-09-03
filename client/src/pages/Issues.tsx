@@ -6,7 +6,7 @@ import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
-import DaySummary from '../components/DaySummary';
+import InOutCompare from '../components/InOutCompare';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -864,8 +864,8 @@ export default function Issues() {
         </div>
       )}
 
-      <DaySummary groups={summary} note={dateFilterLabel(dateFilter)} unitLabel="เบิก" memberCount={memberCount} />
-      <DaySummary groups={receiveSummaryOfPeriod} note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" title="📦 งานที่มาส่งจากโรงงาน" />
+      {/* เทียบรับเข้า vs เบิกออก ในตารางเดียว — อ่านทีละแถวได้เลย ไม่ต้องกวาดสายตาขึ้นลงระหว่าง 2 การ์ด */}
+      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
 
       <div className="card overflow-x-auto">
         <button type="button" className="w-full flex items-center justify-between flex-wrap gap-2 mb-0 text-left" onClick={() => setLedgerOpen(o => !o)}>
