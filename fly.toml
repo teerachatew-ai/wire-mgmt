@@ -1,0 +1,36 @@
+app = "wire-mgmt"
+primary_region = "sin"          # สิงคโปร์ — ใกล้ไทยที่สุด (เท่ากับ region ที่ใช้บน Render)
+
+[build]
+  dockerfile = "Dockerfile"     # ใช้ Dockerfile ตัวเดิม (มี python3 + openpyxl + libreoffice + ฟอนต์ไทยครบแล้ว)
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3001"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+
+  # ── โหมด standby: เปิด/ปิดด้วยมือเท่านั้น ────────────────────────────────
+  # auto_start = false : ห้ามตื่นเอง เพราะฐานข้อมูลเป็น blob ก้อนเดียว ถ้าตื่นมาพร้อม Render
+  #                      (DATABASE_URL เดียวกัน) จะกลายเป็น 2 ตัวเขียนพร้อมกัน
+  # auto_stop  = false : เปิดใช้ตอนไหนต้องอยู่ยาวจนกว่าจะสั่งปิดเอง — ห้ามดับเองกลางคัน
+  #                      ระหว่างที่ Render ล่มอยู่ (ถ้าดับเองแล้วจะไม่ตื่นกลับ เพราะ auto_start=false)
+  # เปิดใช้ตอน Render ล่มเท่านั้น:  fly machine start   (ขั้นตอนใน DEPLOY-FLY.md)
+  auto_start_machines = false
+  auto_stop_machines = false
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                # LibreOffice ตอนแปลง PDF กินแรม ถ้า 512mb เสี่ยง OOM
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 3001
+    path = "/api/products"      # endpoint เดียวกับ healthCheckPath ของ Render
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "60s"

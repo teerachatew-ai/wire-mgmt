@@ -31,28 +31,56 @@ let flushTimer: NodeJS.Timeout | null = null;
 let flushing = false;
 let dirty = false;
 
+// ฐานข้อมูลถูกเก็บเป็น blob ก้อนเดียว (เขียนทับทั้งก้อนทุกครั้ง) — ถ้ามี 2 instance รันพร้อมกัน
+// ด้วย DATABASE_URL เดียวกัน ต่างคนต่างถือสำเนาในหน่วยความจำของตัวเอง แล้วเขียนทับกัน = ข้อมูลหายทั้งฐาน
+// กันด้วยเลข generation: จะเขียนได้ก็ต่อเมื่อ gen ในฐานยังตรงกับที่ instance นี้เขียน/โหลดไว้ล่าสุด
+// ถ้าไม่ตรง (มีอีก instance เขียนแทรก) จะ "หยุดเขียน" แล้วแจ้ง error แทนการทับข้อมูลของอีกฝั่งทิ้ง
+let myGen = 0;
+let genConflict = false;
+
 async function pgInit() {
   const { Pool } = require('pg');
   pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await pgPool.query(`CREATE TABLE IF NOT EXISTS app_db (id INT PRIMARY KEY, data BYTEA NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`);
+  await pgPool.query(`ALTER TABLE app_db ADD COLUMN IF NOT EXISTS gen BIGINT NOT NULL DEFAULT 0`);
 }
 async function pgLoad(): Promise<Buffer | null> {
-  const r = await pgPool.query('SELECT data FROM app_db WHERE id = 1');
+  const r = await pgPool.query('SELECT data, gen FROM app_db WHERE id = 1');
+  myGen = Number(r.rows[0]?.gen ?? 0);
   return r.rows[0]?.data ?? null;
 }
 async function pgFlush() {
-  if (!pgPool || flushing || !dirty) return;
+  if (!pgPool || flushing || !dirty || genConflict) return;
   flushing = true; dirty = false;
   try {
     const data = Buffer.from(db.export());
-    await pgPool.query(
-      `INSERT INTO app_db (id, data, updated_at) VALUES (1, $1, now())
-       ON CONFLICT (id) DO UPDATE SET data = $1, updated_at = now()`, [data]);
+    const upd = await pgPool.query(
+      `UPDATE app_db SET data = $1, gen = gen + 1, updated_at = now() WHERE id = 1 AND gen = $2`,
+      [data, myGen]);
+    if (upd.rowCount === 1) {
+      myGen++;
+    } else {
+      // ไม่มีแถว = ฐานใหม่ (ยังไม่เคยเขียน) -> สร้างแถวแรก; ถ้าแทรกไม่ได้แปลว่ามีแถวอยู่แต่ gen ไม่ตรง = ชนกัน
+      const ins = await pgPool.query(
+        `INSERT INTO app_db (id, data, gen, updated_at) VALUES (1, $1, 1, now()) ON CONFLICT (id) DO NOTHING`,
+        [data]);
+      if (ins.rowCount === 1) {
+        myGen = 1;
+      } else {
+        genConflict = true;
+        console.error(
+          '🛑 หยุดบันทึกลงฐานข้อมูลกลาง: ตรวจพบว่ามีระบบอีกชุดเขียนข้อมูลชุดเดียวกันอยู่ ' +
+          '(ห้ามรัน 2 โฮสต์พร้อมกันด้วย DATABASE_URL เดียวกัน) — ' +
+          'ข้อมูลของอีกฝั่งถูกรักษาไว้ ส่วนที่กรอกในเครื่องนี้ยังอยู่ในหน่วยความจำแต่ยังไม่ถูกบันทึก');
+      }
+    }
   } catch (e) {
     dirty = true; // ลองใหม่รอบถัดไป
     console.error('pgFlush error:', (e as any)?.message);
   } finally { flushing = false; }
 }
+// ให้ส่วนอื่นเช็คได้ว่าตอนนี้ยังบันทึกลงฐานกลางได้อยู่ไหม
+export function dbWriteBlocked() { return genConflict; }
 function scheduleFlush() {
   dirty = true;
   if (flushTimer) return;
