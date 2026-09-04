@@ -7,6 +7,7 @@ import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
+import IssueMatrix from '../components/IssueMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -702,6 +703,8 @@ export default function Issues() {
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
   const [dailyBusy, setDailyBusy] = useState<'' | 'xlsx' | 'pdf'>('');
+  // มุมมองตาราง: matrix (สรุปทั้งวัน อ่านง่าย) หรือ list (รายใบ มีปุ่มแก้ไข/พิมพ์/ลบ)
+  const [view, setView] = useState<'matrix' | 'list'>('matrix');
 
   const { data: issues = [], isLoading } = useQuery({
     queryKey: ['issues', statusFilter, dateFilter],
@@ -951,6 +954,29 @@ export default function Issues() {
         )}
       </div>
 
+      {/* สลับมุมมอง: ตารางสรุปรายวัน (matrix) หรือ รายการใบเบิกทีละใบ */}
+      <div className="flex items-center gap-1.5 bg-gray-100 rounded-xl p-1 w-fit">
+        <button type="button" onClick={() => setView('matrix')}
+          className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${view === 'matrix' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          📊 ตารางสรุปรายวัน
+        </button>
+        <button type="button" onClick={() => setView('list')}
+          className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${view === 'list' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          📄 รายการทีละใบ
+        </button>
+      </div>
+
+      {view === 'matrix' && (
+        <>
+          {isLoading && <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>}
+          {!isLoading && visibleIssues.length === 0 && (
+            <div className="card text-center text-gray-400 py-8">{q ? 'ไม่พบที่ค้นหา' : 'ยังไม่มีรายการ'}</div>
+          )}
+          <IssueMatrix issues={visibleIssues} onOpen={(id) => setDetailId(id)} />
+        </>
+      )}
+
+      {view === 'list' && <>
       {/* Mobile card view */}
       <div className="md:hidden space-y-3">
         {isLoading && <div className="text-center text-gray-400 py-8">กำลังโหลด...</div>}
@@ -1055,6 +1081,7 @@ export default function Issues() {
           </tbody>
         </table>
       </div>
+      </>}
 
       {showModal && (
         <CreateIssueModal
