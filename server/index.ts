@@ -4,7 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { initDb, flushNow } from './db';
+import { initDb, flushNow, dbWriteBlocked } from './db';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -17,6 +17,16 @@ process.on('SIGINT', shutdown);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ── endpoint สำหรับ "ปลุกเครื่องไม่ให้หลับ" ────────────────────────────────
+// Render แพลนฟรีจะหลับเมื่อไม่มีคนเข้า 15 นาที แล้วครั้งถัดไปที่เปิดเว็บต้องรอตื่น 30-50 วินาที
+// ให้ตัวตั้งเวลาภายนอก (เช่น cron-job.org) ยิงมาที่ /api/ping ทุก ~10 นาทีเฉพาะช่วงเวลาทำงาน
+// เครื่องจะตื่นอยู่ตลอดช่วงนั้น เปิดเว็บแล้วเข้าได้ทันที
+// จงใจให้เบาที่สุด: ไม่แตะฐานข้อมูล ไม่ต้องรอ initDb เสร็จ ตอบสั้น
+// write_blocked = true แปลว่ามีระบบ 2 ชุดเขียนฐานเดียวกันอยู่ (ดู DEPLOY-FLY.md)
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true, write_blocked: dbWriteBlocked(), at: new Date().toISOString() });
+});
 
 // DB must init before routes (sql.js is async)
 initDb().then(() => {
