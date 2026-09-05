@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { productApi, reportApi } from '../api';
 import { Boxes, Truck, RotateCcw, AlertTriangle, CheckCircle2, Settings2 } from 'lucide-react';
 import { sortByColorGroup, colorPriority } from '../productOrder';
-import { parseProductLabel } from '../projectLabel';
+import { parseProductLabel, projectLabel } from '../projectLabel';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
 
@@ -47,6 +47,18 @@ export default function PackingPlan() {
     setQty(initial);
   };
   const clearAll = () => setQty({});
+
+  // กรอกทั้งชุด (ทั้งป้ายสี) ทีเดียว — เติมจำนวนเดียวกันให้ทุกรุ่นย่อยในกลุ่มนั้น (เช่น "ขาว 1000 Set"
+  // = ป้ายขาวสั้นกับป้ายขาวยาวได้ 1000 เท่ากันทั้งคู่) ยังกรอกแยกทีละรุ่นย่อยทับได้ตามปกติหลังจากนั้น
+  const fillGroup = (products: any[], v: string) => setQty(q => {
+    const next = { ...q };
+    for (const p of products) { if (v) next[p.id] = v; else delete next[p.id]; }
+    return next;
+  });
+  const groupSetValue = (products: any[]) => {
+    const vals = products.map(p => qty[p.id] || '');
+    return vals.every(v => v === vals[0]) ? vals[0] : '';
+  };
 
   const activeProducts = (products as any[]).filter(p => p.active);
 
@@ -116,18 +128,18 @@ export default function PackingPlan() {
       <div className={`sticky top-2 z-10 rounded-2xl border-2 p-4 flex items-center gap-3 flex-wrap ${meta.cls}`}>
         {meta.icon}
         <div className="flex-1 min-w-[200px]">
-          <p className="font-bold text-lg tabular-nums">{fmt(totalBoxes)} ลัง</p>
-          <p className="text-sm">{meta.text}</p>
+          <p className="font-bold text-3xl tabular-nums">{fmt(totalBoxes)} ลัง</p>
+          <p className="text-base font-medium">{meta.text}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <Settings2 size={13} className="text-gray-400" />
-          <label className="flex items-center gap-1">อย่างน้อย
+        <div className="flex items-center gap-2 text-sm">
+          <Settings2 size={15} className="text-gray-400" />
+          <label className="flex items-center gap-1.5">อย่างน้อย
             <input type="number" min="1" value={minBoxes} onChange={e => setMinBoxes(parseInt(e.target.value) || 0)}
-              className="w-14 rounded-lg border border-gray-300 px-1.5 py-1 text-center bg-white" />
+              className="w-16 rounded-lg border border-gray-300 px-1.5 py-1.5 text-center bg-white text-base font-semibold" />
           </label>
-          <label className="flex items-center gap-1">มากสุด
+          <label className="flex items-center gap-1.5">มากสุด
             <input type="number" min="1" value={maxBoxes} onChange={e => setMaxBoxes(parseInt(e.target.value) || 0)}
-              className="w-14 rounded-lg border border-gray-300 px-1.5 py-1 text-center bg-white" />
+              className="w-16 rounded-lg border border-gray-300 px-1.5 py-1.5 text-center bg-white text-base font-semibold" />
           </label>
           <span className="text-gray-400">ลัง/เที่ยว</span>
         </div>
@@ -151,9 +163,22 @@ export default function PackingPlan() {
             const groupBoxes = g.products.reduce((s, p) => s + (boxesOf(p) || 0), 0);
             return (
               <div key={g.key} className="card p-0 overflow-hidden">
-                <div className="px-4 py-2.5 border-b bg-gray-50 flex items-center justify-between">
-                  <span className="font-semibold text-gray-700 text-sm">{g.key}</span>
-                  <span className="text-xs text-gray-500">รวม <b className="text-gray-800">{fmt(groupBoxes)}</b> ลัง</span>
+                <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+                  <span className="font-bold text-gray-800 text-lg">{projectLabel(g.key)}</span>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 text-sm text-gray-600 font-medium">
+                      ทั้งชุด
+                      <input
+                        type="number" min="0" step="1" inputMode="numeric" placeholder="—"
+                        className="input !min-h-[36px] !py-1 !px-2 w-24 text-right text-base font-semibold"
+                        onWheel={e => e.currentTarget.blur()}
+                        value={groupSetValue(g.products)}
+                        onChange={e => fillGroup(g.products, e.target.value)}
+                        title="กรอกจำนวนเดียว เติมให้ทุกรุ่นย่อยในป้ายนี้เท่ากันหมด"
+                      />
+                    </label>
+                    <span className="text-sm text-gray-600">รวม <b className="text-gray-900 text-lg">{fmt(groupBoxes)}</b> ลัง</span>
+                  </div>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {g.products.map(p => {
@@ -161,30 +186,30 @@ export default function PackingPlan() {
                     const boxes = boxesOf(p);
                     const stockRef = stockReadyOf[p.id] || 0;
                     return (
-                      <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50/70">
-                        {p.color && <span className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                      <div key={p.id} className="flex items-center gap-4 px-4 py-3.5 hover:bg-gray-50/70">
+                        {p.color && <span className="w-4 h-4 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium text-gray-800 text-sm truncate">{label}<span className="text-gray-400 font-mono text-xs ml-1.5">{num}</span></div>
-                          <div className="text-[11px] text-gray-400">
+                          <div className="font-semibold text-gray-800 text-base truncate">{label}<span className="text-gray-400 font-mono text-sm ml-2">{num}</span></div>
+                          <div className="text-xs text-gray-400 mt-0.5">
                             สต๊อกพร้อมส่ง {fmt(stockRef)} {p.unit}
                             {' · '}
-                            {p.units_per_box ? `${fmt(p.units_per_box)}/ลัง` : <span className="text-amber-500">ยังไม่ตั้งมาตรฐาน</span>}
+                            {p.units_per_box ? `${fmt(p.units_per_box)}/ลัง` : <span className="text-amber-500 font-medium">ยังไม่ตั้งมาตรฐาน</span>}
                           </div>
                         </div>
                         <input
                           type="number" min="0" step="1" inputMode="numeric" placeholder="0"
-                          className="input !min-h-[36px] !py-1 !px-2 w-24 shrink-0 text-right"
+                          className="input !min-h-[44px] !py-1.5 !px-3 w-28 shrink-0 text-right text-lg font-semibold"
                           onWheel={e => e.currentTarget.blur()}
                           value={qty[p.id] ?? ''}
                           onChange={e => setQty(q => ({ ...q, [p.id]: e.target.value }))}
                         />
-                        <div className="w-20 shrink-0 text-right">
+                        <div className="w-24 shrink-0 text-right">
                           {boxes === null ? (
-                            <span className="text-gray-300 text-sm">—</span>
+                            <span className="text-gray-300 text-xl">—</span>
                           ) : boxes > 0 ? (
-                            <span className="font-bold text-blue-700 tabular-nums">{fmt(boxes)} ลัง</span>
+                            <span className="font-bold text-blue-700 text-xl tabular-nums">{fmt(boxes)} ลัง</span>
                           ) : (
-                            <span className="text-gray-200 text-sm">-</span>
+                            <span className="text-gray-200 text-xl">-</span>
                           )}
                         </div>
                       </div>
