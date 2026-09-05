@@ -8,22 +8,22 @@ router.get('/', (_req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, project, unit, wage_per_unit, factory_price, defect_tolerance, color, description } = req.body;
+  const { name, project, unit, wage_per_unit, factory_price, defect_tolerance, color, description, units_per_box } = req.body;
   if (!name || !unit) return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
   const code = nextCode('P', 'products');
-  const result = prepare(`INSERT INTO products (code, name, project, unit, wage_per_unit, factory_price, defect_tolerance, color, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, name, project || null, unit, wage_per_unit || 0, factory_price || 0, defect_tolerance ?? 5.0, color || null, description || null);
+  const result = prepare(`INSERT INTO products (code, name, project, unit, wage_per_unit, factory_price, defect_tolerance, color, description, units_per_box) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, name, project || null, unit, wage_per_unit || 0, factory_price || 0, defect_tolerance ?? 5.0, color || null, description || null, units_per_box || null);
   res.json(prepare(`SELECT * FROM products WHERE id = ?`).get(result.lastInsertRowid));
 });
 
 router.put('/:id', (req, res) => {
-  const { name, project, unit, wage_per_unit, factory_price, defect_tolerance, active, code, color, description } = req.body;
+  const { name, project, unit, wage_per_unit, factory_price, defect_tolerance, active, code, color, description, units_per_box } = req.body;
   if (code) {
-    prepare(`UPDATE products SET code=?, name=?, project=?, unit=?, wage_per_unit=?, factory_price=?, defect_tolerance=?, active=?, color=?, description=? WHERE id=?`)
-      .run(code, name, project || null, unit, wage_per_unit, factory_price || 0, defect_tolerance, active ?? 1, color || null, description || null, req.params.id);
+    prepare(`UPDATE products SET code=?, name=?, project=?, unit=?, wage_per_unit=?, factory_price=?, defect_tolerance=?, active=?, color=?, description=?, units_per_box=? WHERE id=?`)
+      .run(code, name, project || null, unit, wage_per_unit, factory_price || 0, defect_tolerance, active ?? 1, color || null, description || null, units_per_box || null, req.params.id);
   } else {
-    prepare(`UPDATE products SET name=?, project=?, unit=?, wage_per_unit=?, factory_price=?, defect_tolerance=?, active=?, color=?, description=? WHERE id=?`)
-      .run(name, project || null, unit, wage_per_unit, factory_price || 0, defect_tolerance, active ?? 1, color || null, description || null, req.params.id);
+    prepare(`UPDATE products SET name=?, project=?, unit=?, wage_per_unit=?, factory_price=?, defect_tolerance=?, active=?, color=?, description=?, units_per_box=? WHERE id=?`)
+      .run(name, project || null, unit, wage_per_unit, factory_price || 0, defect_tolerance, active ?? 1, color || null, description || null, units_per_box || null, req.params.id);
   }
   res.json(prepare(`SELECT * FROM products WHERE id = ?`).get(req.params.id));
 });

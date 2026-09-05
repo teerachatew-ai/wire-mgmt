@@ -13,6 +13,7 @@ import SettingsPage from './pages/SettingsPage';
 import StockFlow from './pages/StockFlow';
 import Shipments from './pages/Shipments';
 import ShipmentPlan from './pages/ShipmentPlan';
+import PackingPlan from './pages/PackingPlan';
 import FormPrint from './pages/FormPrint';
 import PdpaConsent from './pages/PdpaConsent';
 import MemberPortal from './pages/MemberPortal';
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="/returns" element={<Guard path="/returns"><Returns /></Guard>} />
         <Route path="/stock" element={<Guard path="/stock"><StockFlow /></Guard>} />
         <Route path="/shipments" element={<Guard path="/shipments"><Shipments /></Guard>} />
+        <Route path="/packing-plan" element={<Guard path="/packing-plan"><PackingPlan /></Guard>} />
         <Route path="/shipment-plan" element={<Guard path="/shipment-plan"><ShipmentPlan /></Guard>} />
         <Route path="/payroll" element={<Guard path="/payroll"><Payroll /></Guard>} />
         <Route path="/financial-statements" element={<Guard path="/financial-statements"><FinancialStatements /></Guard>} />

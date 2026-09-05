@@ -295,6 +295,10 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!productCols.includes('description')) {
     db.exec(`ALTER TABLE products ADD COLUMN description TEXT`);
   }
+  if (!productCols.includes('units_per_box')) {
+    // มาตรฐานบรรจุ (จำนวน/ลัง) ต่อรุ่นสินค้า — ใช้คำนวณจำนวนลังตอนวางแผนจัดลังส่งงาน
+    db.exec(`ALTER TABLE products ADD COLUMN units_per_box REAL`);
+  }
   const shipItemCols = db.exec(`PRAGMA table_info(shipment_items)`)[0]?.values.map(r => r[1]) ?? [];
   if (!shipItemCols.includes('received_qty')) {
     // ยอดที่โรงงานรับจริง (NULL = ยังไม่ยืนยัน) — ใช้คิดเงินแทน good_qty เมื่อกรอกแล้ว

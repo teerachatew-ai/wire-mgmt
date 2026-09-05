@@ -93,6 +93,11 @@ function ProductForm({ defaultValues, onSubmit, loading }: any) {
         <label className="label">% ของเสียที่ยอมรับ</label>
         <input type="number" step="0.1" min="0" max="100" className="input" {...register('defect_tolerance')} defaultValue={5} />
       </div>
+      <div>
+        <label className="label">มาตรฐานบรรจุ (จำนวน/ลัง)</label>
+        <input type="number" step="1" min="0" className="input" {...register('units_per_box')} placeholder="เช่น 1000" />
+        <p className="text-xs text-gray-400 mt-1">ใช้คำนวณจำนวนลังในหน้า "จัดลังส่งงาน" — เว้นว่างได้ถ้ายังไม่ทราบ</p>
+      </div>
       {defaultValues?.id && (
         <div>
           <label className="label">สถานะ</label>
@@ -176,7 +181,7 @@ export default function Products() {
           <ExportExcelButton filename="ประเภทสินค้า" rows={(data as any[]).map(p => ({
             'รหัส': p.code, 'โครงการ': p.project || '', 'ชื่อสินค้า': p.name, 'รายละเอียด': p.description || '',
             'หน่วย': p.unit, 'ราคาโรงงาน/หน่วย': p.factory_price, 'ค่าแรง/หน่วย': p.wage_per_unit,
-            '%ยอมรับงานเสีย': p.defect_tolerance, 'สถานะ': p.active ? 'ใช้งาน' : 'ปิดใช้งาน',
+            '%ยอมรับงานเสีย': p.defect_tolerance, 'จำนวน/ลัง': p.units_per_box || '', 'สถานะ': p.active ? 'ใช้งาน' : 'ปิดใช้งาน',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setEditing(null); setModal('add'); }}>
             <Plus size={16} /> เพิ่มรุ่นสายไฟ
@@ -187,7 +192,7 @@ export default function Products() {
       <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
 
       <div className="card p-0 overflow-x-auto">
-        <table className="w-full text-sm min-w-[920px]">
+        <table className="w-full text-sm min-w-[1020px]">
           <thead className="bg-gray-50 border-b">
             <tr className="text-left text-xs text-gray-500">
               <th className="px-4 py-3 w-8">
@@ -202,12 +207,13 @@ export default function Products() {
               <th className="px-4 py-3 font-medium text-right">ค่าจ้าง/หน่วย</th>
               <th className="px-4 py-3 font-medium text-right">กำไรกลุ่ม/หน่วย</th>
               <th className="px-4 py-3 font-medium text-right">เกณฑ์เสีย (%)</th>
+              <th className="px-4 py-3 font-medium text-right">จำนวน/ลัง</th>
               <th className="px-4 py-3 font-medium">สถานะ</th>
               <th className="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={11} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={12} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {groupKeys.map((proj) => {
               const items = groups[proj];
               const sumProfit = items.reduce((s: number, p: any) => s + ((p.factory_price ?? 0) - p.wage_per_unit), 0);
@@ -230,6 +236,9 @@ export default function Products() {
                       <td className="px-4 py-3 text-right font-medium text-amber-700">{price(p.wage_per_unit)} บาท</td>
                       <td className="px-4 py-3 text-right text-gray-300">—</td>
                       <td className="px-4 py-3 text-right text-gray-500">{p.defect_tolerance}%</td>
+                      <td className="px-4 py-3 text-right">
+                        {p.units_per_box ? <span className="text-gray-700">{Number(p.units_per_box).toLocaleString()}</span> : <span className="text-amber-500 text-xs">ยังไม่ตั้งค่า</span>}
+                      </td>
                       <td className="px-4 py-3">
                         <span className={p.active ? 'badge-active' : 'badge-inactive'}>
                           {p.active ? 'ใช้งาน' : 'ปิด'}
@@ -253,12 +262,12 @@ export default function Products() {
                       รวมกำไรต่อหน่วย — โครงการ {proj} <span className="font-normal text-green-600">({items.length} รุ่น)</span>
                     </td>
                     <td className="px-4 py-2.5 text-right text-green-800">{price(sumProfit)} บาท</td>
-                    <td colSpan={3}></td>
+                    <td colSpan={4}></td>
                   </tr>
                 </Fragment>
               );
             })}
-            {!isLoading && data.length === 0 && <tr><td colSpan={11} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>}
+            {!isLoading && data.length === 0 && <tr><td colSpan={12} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>}
           </tbody>
         </table>
       </div>
