@@ -69,7 +69,7 @@ def RH(height):  # ขยายความสูงแถวตามสัด�
 #   bottom ≈ (H0 + HROW × จำนวนแถวข้อมูล) × scale
 # คาลิเบรตจากการวัด 2 จุดที่ scale 1.25: 9 แถว = 479pt, 12 แถว = 543pt
 # MAXY = ขอบล่างสุดที่ยังอยู่ในหน้าเดียว (วัดได้ว่า 543 ยังพอดี / 556 ล้นไปหน้าใหม่)
-_H0, _HROW, _MAXY = 229.6, 17.07, 545.0
+_H0, _HROW, _MAXY = 236.6, 17.07, 535.0
 def scale_for_row_count(n_rows):
     # หาสเกลใหญ่สุดที่เนื้อหายังจบใน 1 หน้า แทนการเดาจำนวนแถวแบบตายตัว
     # (สูตรเดิม BASE*12/n ลดเกินจำเป็นสำหรับคนที่มีหลายแถว เช่น 17 แถวเคยได้ 0.88 ตอนนี้ได้ ~1.05)
@@ -370,17 +370,19 @@ def write_member_sheet(m, label=None):
 
     # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
     # รวม cut-off ไว้บรรทัดเดียวกับชื่อเดือน
+    # บรรทัดบนสุด = ชื่อเอกสาร "ใบเสร็จรับเงิน" ตัวใหญ่เด่นชัด (เดิมเป็นชื่อกลุ่มวิสาหกิจ)
     ws.merge_cells(f"A1:{LAST_P_LETTER}1")
-    cell(ws, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
+    cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
+    # ชื่อกลุ่มวิสาหกิจย้ายลงมาบรรทัดที่ 2 ต่อกับรอบจ่าย/เส้นตัดยอด — ยังต้องมีอยู่ในเอกสาร
+    # เพราะเป็นชื่อผู้ออกใบเสร็จ (ถ้าตัดทิ้งใบเสร็จจะใช้อ้างอิงไม่ได้)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    subtitle = (f"ใบเสร็จรับเงิน / รายงานเบิกงาน-ส่งงานรายบุคคล — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
+    subtitle = (f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
                 f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
-    # ข้อความยาว (เพิ่ม "ใบเสร็จรับเงิน" เข้ามา) -> shrink_to_fit แทน wrap_text กันตกบรรทัด/ถูกตัดท้าย
+    # ข้อความยาว -> shrink_to_fit แทน wrap_text กันตกบรรทัด/ถูกตัดท้าย
     # (wrap_text + auto-height ไม่เสถียรกับชีตที่สร้างจาก openpyxl ล้วนตอนแปลง PDF ผ่าน Excel COM)
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY),
          align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
-    # ลด line spacing ของหัวชีต (ชื่อกลุ่ม/เดือน/ชื่อสมาชิก) ลง เอาพื้นที่ไปเพิ่มช่องว่างเซ็นชื่อแทน
-    ws.row_dimensions[1].height = RH(18)
+    ws.row_dimensions[1].height = RH(25)
     ws.row_dimensions[2].height = RH(16)
 
     # รหัส+ชื่อสมาชิก ขยายเพิ่มอีก 15% เหมือนหัวตาราง
