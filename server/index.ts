@@ -22,10 +22,20 @@ app.use(express.urlencoded({ extended: true }));
 // Render แพลนฟรีจะหลับเมื่อไม่มีคนเข้า 15 นาที แล้วครั้งถัดไปที่เปิดเว็บต้องรอตื่น 30-50 วินาที
 // ให้ตัวตั้งเวลาภายนอก (เช่น cron-job.org) ยิงมาที่ /api/ping ทุก ~10 นาทีเฉพาะช่วงเวลาทำงาน
 // เครื่องจะตื่นอยู่ตลอดช่วงนั้น เปิดเว็บแล้วเข้าได้ทันที
-// จงใจให้เบาที่สุด: ไม่แตะฐานข้อมูล ไม่ต้องรอ initDb เสร็จ ตอบสั้น
+// จงใจให้เบาที่สุด: ไม่แตะฐานข้อมูล ตอบสั้น
 // write_blocked = true แปลว่ามีระบบ 2 ชุดเขียนฐานเดียวกันอยู่ (ดู DEPLOY-FLY.md)
 app.get('/api/ping', (_req, res) => {
   res.json({ ok: true, write_blocked: dbWriteBlocked(), at: new Date().toISOString() });
+});
+
+// เปิดรับ connection ทันที ไม่รอ initDb — ตอน cold start (โดยเฉพาะ Render free tier ที่
+// spin ใหม่ทุกครั้งที่หลับ) initDb ต้องโหลดฐานข้อมูลทั้งก้อนจาก Postgres เข้าหน่วยความจำก่อน
+// ยิ่งข้อมูลสะสมเยอะยิ่งใช้เวลานาน ถ้าผูก listen() ไว้หลัง initDb() เสร็จ (แบบเดิม) ตัว /api/ping
+// เองก็ต้องรอไปด้วย ทั้งที่ตั้งใจให้มันตอบได้ก่อนใครเพื่อปลุกเครื่องเร็วที่สุด
+// ส่วน route อื่นๆ ที่ต้องใช้ฐานข้อมูล ค่อย mount เข้า app ทีหลังเมื่อ initDb() เสร็จ (ปลอดภัย
+// เพราะ Express จับคู่ route ตอนมี request เข้ามาจริงๆ ไม่ใช่ตอน app.use() ถูกเรียก)
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening: http://localhost:${PORT} (กำลังโหลดฐานข้อมูล...)`);
 });
 
 // DB must init before routes (sql.js is async)
@@ -80,9 +90,7 @@ initDb().then(() => {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`🚀 Server: http://localhost:${PORT}`);
-  });
+  console.log(`✅ ฐานข้อมูลพร้อมใช้งาน — เปิด route ครบแล้ว`);
 }).catch(err => {
   console.error('DB init failed:', err);
   process.exit(1);

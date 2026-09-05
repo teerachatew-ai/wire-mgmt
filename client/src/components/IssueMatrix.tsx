@@ -1,5 +1,6 @@
 import { Eye } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
+import { sortByColorGroup } from '../productOrder';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -31,10 +32,11 @@ export default function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?
       {dates.map(date => {
         const rows = byDate[date];
 
-        // ประเภทงานที่มีการเบิกในวันนั้น (เรียงชื่อ คงที่ทุกวัน อ่านเทียบข้ามวันได้)
+        // ประเภทงานที่มีการเบิกในวันนั้น — จัดกลุ่มให้สีเดียวกันอยู่ติดกัน (ขาว -> ชมพู/แดง -> เขียว)
+        // ใช้กติกาเดียวกับรายงานค่าแรงที่พิมพ์ออกมา ลำดับคอลัมน์บนจอกับในเอกสารจะได้ตรงกัน
         const prodMap: Record<string, { name: string; color?: string; unit?: string }> = {};
         for (const i of rows) prodMap[i.product_name] ??= { name: i.product_name, color: i.color, unit: i.unit };
-        const products = Object.values(prodMap).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+        const products = sortByColorGroup(Object.values(prodMap), p => p.name, p => p.color);
 
         // รวมยอดต่อสมาชิก x ประเภทงาน
         const memMap: Record<string, any> = {};

@@ -1,4 +1,5 @@
 import type { SumGroup } from './DaySummary';
+import { sortByColorGroup } from '../productOrder';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -17,7 +18,8 @@ export default function InOutCompare({
     row.outQty += g.qty || 0;
     row.unit ??= g.unit; row.color ??= g.color;
   }
-  const rows = Object.values(byName).sort((a, b) => a.name.localeCompare(b.name, 'th'));
+  // จัดกลุ่มให้สีเดียวกันอยู่ติดกัน (กติกาเดียวกับตาราง matrix และรายงานค่าแรง)
+  const rows = sortByColorGroup(Object.values(byName), r => r.name, r => r.color);
   if (rows.length === 0) return null;
 
   const totalIn = rows.reduce((s, r) => s + r.inQty, 0);
