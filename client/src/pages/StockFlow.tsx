@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
+import DateProductMatrix from '../components/DateProductMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -634,6 +635,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
   const readyProducts = products.filter(p => (p.available ?? 0) > 0);
 
   const [shipSearch, setShipSearch] = useState('');
+  const [shipView, setShipView] = useState<'matrix' | 'list'>('matrix');
   const { data: shipmentsRaw = [], isLoading } = useQuery({
     queryKey: ['shipments', dateFilter],
     queryFn: () => shipmentApi.list(dateFilter),
@@ -644,6 +646,16 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
     || String(sh.code || '').toLowerCase().includes(sq)
     || String(sh.notes || '').toLowerCase().includes(sq)
     || (sh.items || []).some((it: any) => String(it.product_name || '').toLowerCase().includes(sq)));
+
+  // ข้อมูลสำหรับตารางสรุปรายวัน — นับจำนวนแบบเดียวกับแถบสรุปด้านบน (good + defect)
+  const shipMatrixEntries = (shipments as any[]).flatMap((sh: any) =>
+    (sh.items || [])
+      .filter((it: any) => it.product_name)
+      .map((it: any) => ({
+        date: String(sh.shipped_at || '').slice(0, 10),
+        product_name: it.product_name, color: it.color, unit: it.unit,
+        qty: (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0),
+      })));
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => shipmentApi.delete(id),
@@ -742,6 +754,27 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             return a;
           }, {})) as any[]}
           note={dateFilterLabel(dateFilter)} unitLabel="ส่งออก" />
+
+        {/* สลับมุมมอง: ตารางสรุปรายวัน (แถว=วันที่ คอลัมน์=ประเภทงาน) หรือ รายการทีละใบ */}
+        <div className="flex items-center gap-1.5 bg-gray-100 rounded-xl p-1 w-fit">
+          <button type="button" onClick={() => setShipView('matrix')}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${shipView === 'matrix' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+            📊 ตารางสรุปรายวัน
+          </button>
+          <button type="button" onClick={() => setShipView('list')}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${shipView === 'list' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+            📄 รายการทีละใบ
+          </button>
+        </div>
+
+        {shipView === 'matrix' && (
+          isLoading
+            ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
+            : <DateProductMatrix entries={shipMatrixEntries} accent="emerald"
+                emptyText={sq ? 'ไม่พบที่ค้นหา' : `ไม่มีการส่งออกใน${dateFilterLabel(dateFilter)}`} />
+        )}
+
+        {shipView === 'list' && <>
         <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
         {isLoading && <div className="py-8 text-center text-gray-400"><Loader2 size={20} className="animate-spin mx-auto" /></div>}
         {!isLoading && (shipments as any[]).length === 0 && (
@@ -820,6 +853,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             </table>
           </div>
         )}
+        </>}
       </div>
 
       {showModal && <ShipmentModal products={readyProducts.length > 0 ? readyProducts : products} onClose={() => setShowModal(false)} />}

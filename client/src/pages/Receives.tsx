@@ -5,6 +5,7 @@ import { receiveApi, productApi, ocrApi } from '../api';
 import { colorDot } from '../colorDot';
 import { matchProduct } from '../matchProduct';
 import DaySummary from '../components/DaySummary';
+import DateProductMatrix from '../components/DateProductMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -238,6 +239,13 @@ export default function Receives() {
 
   const [editing, setEditing] = useState<any>(null);
   const activeProducts = (products as any[]).filter((p: any) => p.active);
+  // มุมมอง: ตารางสรุปรายวัน (matrix แถว=วันที่ คอลัมน์=ประเภทงาน) หรือ รายการทีละใบ (มีปุ่มแก้ไข/ลบ)
+  const [view, setView] = useState<'matrix' | 'list'>('matrix');
+  const matrixEntries = (receives as any[]).map((r: any) => ({
+    date: String(r.received_at || '').slice(0, 10),
+    product_name: r.product_name, color: r.color, unit: r.unit,
+    qty: Number(r.quantity) || 0,
+  }));
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => receiveApi.delete(id),
@@ -284,6 +292,26 @@ export default function Receives() {
         }, {})) as any[]}
         note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" />
 
+      {/* สลับมุมมอง: ตารางสรุปรายวัน หรือ รายการทีละใบ */}
+      <div className="flex items-center gap-1.5 bg-gray-100 rounded-xl p-1 w-fit">
+        <button type="button" onClick={() => setView('matrix')}
+          className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${view === 'matrix' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          📊 ตารางสรุปรายวัน
+        </button>
+        <button type="button" onClick={() => setView('list')}
+          className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition ${view === 'list' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          📄 รายการทีละใบ
+        </button>
+      </div>
+
+      {view === 'matrix' && (
+        isLoading
+          ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
+          : <DateProductMatrix entries={matrixEntries} accent="blue"
+              emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`} />
+      )}
+
+      {view === 'list' && <>
       <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
 
       <div className="card p-0 overflow-hidden">
@@ -336,6 +364,7 @@ export default function Receives() {
           </tbody>
         </table>
       </div>
+      </>}
 
       {showModal && (
         <ReceiveModal products={activeProducts} onClose={() => setShowModal(false)} />
