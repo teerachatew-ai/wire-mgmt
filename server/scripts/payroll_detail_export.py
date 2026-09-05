@@ -57,7 +57,7 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "TH SarabunPSK"
-BASE_FONT_SCALE = 1.25  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าปกติสำหรับคนที่มีรายการไม่เยอะ
+BASE_FONT_SCALE = 1.40  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าปกติสำหรับคนที่มีรายการไม่เยอะ
 # คนที่มีรายการ (จำนวนวันที่เบิก) เยอะจนล้นไปอีกหน้า จะลด scale ลงเฉพาะชีตของคนนั้น (ดูใน write_member_sheet)
 # ไม่ลดทุกคนพร้อมกัน กันคนรายการน้อยเสียโอกาสได้ตัวหนังสือใหญ่ไปโดยไม่จำเป็น
 _scale_state = {"v": BASE_FONT_SCALE}
@@ -65,11 +65,16 @@ def FS(size):
     return round(size * _scale_state["v"], 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
     return round(height * _scale_state["v"], 1)
+# โมเดลความสูงเนื้อหา วัดจาก PDF จริง (A4 แนวนอน): ตำแหน่งขอบล่างของเนื้อหา (จุด)
+#   bottom ≈ (H0 + HROW × จำนวนแถวข้อมูล) × scale
+# คาลิเบรตจากการวัด 2 จุดที่ scale 1.25: 9 แถว = 479pt, 12 แถว = 543pt
+# MAXY = ขอบล่างสุดที่ยังอยู่ในหน้าเดียว (วัดได้ว่า 543 ยังพอดี / 556 ล้นไปหน้าใหม่)
+_H0, _HROW, _MAXY = 229.6, 17.07, 545.0
 def scale_for_row_count(n_rows):
-    # ทดสอบแล้วว่า <=12 แถว พอดี 1 หน้าที่ BASE_FONT_SCALE — เกินกว่านั้นลดสัดส่วนลงตามจำนวนแถวที่เกิน
-    if n_rows <= 12:
-        return BASE_FONT_SCALE
-    return max(0.95, BASE_FONT_SCALE * (12 / n_rows))
+    # หาสเกลใหญ่สุดที่เนื้อหายังจบใน 1 หน้า แทนการเดาจำนวนแถวแบบตายตัว
+    # (สูตรเดิม BASE*12/n ลดเกินจำเป็นสำหรับคนที่มีหลายแถว เช่น 17 แถวเคยได้ 0.88 ตอนนี้ได้ ~1.05)
+    fit = _MAXY / (_H0 + _HROW * max(0, n_rows))
+    return max(0.90, min(BASE_FONT_SCALE, fit))
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
 NUM_Z = '#,##0;-#,##0;"-"'
@@ -169,7 +174,9 @@ n_prod = len(product_order)
 # แล้วยอดรวม/ค่าแรงสุทธิท้ายชีตจะคำนวณตามให้อัตโนมัติ
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
-    widths = [17] + [11] * n_prod + [15]
+    # วันที่เบิก/ค่าแรง เดิมกว้างเกินความจำเป็นมาก (17 และ 15 หน่วย สำหรับข้อความ 10 และ 8 ตัวอักษร)
+    # หดลงแล้วยกพื้นที่ที่ได้ไปให้คอลัมน์สินค้า + ขยายฟอนต์ทั้งใบ (ดู BASE_FONT_SCALE)
+    widths = [13] + [12] * n_prod + [12]
     for ci, (h, w) in enumerate(zip(headers, widths), start=1):
         col = get_column_letter(ci)
         ws.column_dimensions[col].width = w
@@ -449,7 +456,7 @@ def write_member_sheet(m, label=None):
     ws.page_setup.fitToHeight = 0
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_options.horizontalCentered = True
-    ws.page_margins.left = ws.page_margins.right = 0.5
+    ws.page_margins.left = ws.page_margins.right = 0.25
     ws.page_margins.top = ws.page_margins.bottom = 0.4
 
 for m in d["members"]:
