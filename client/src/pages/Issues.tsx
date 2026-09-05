@@ -172,21 +172,29 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
     if (lines.length === 0) { setError('กรุณากรอกจำนวนอย่างน้อย 1 รายการ'); return; }
     setSaving(true); setError('');
 
-    // สร้างทีละรายการ — ถ้ารุ่นไหนไม่ผ่าน (เช่นเกินเพดานคงค้าง) เก็บไว้ให้แก้ต่อ ไม่ทิ้งรุ่นที่สำเร็จไปแล้ว
+    // ส่งทุกรุ่นไปในรอบเดียว — เดิมยิงทีละรุ่นเรียงกัน เบิกทั้งชุด 4 รุ่นต้องรอ 4 รอบ (เกือบ 1 วินาที)
+    // ถ้ารุ่นไหนไม่ผ่าน เก็บไว้ในช่องให้แก้ต่อ ไม่ทิ้งรุ่นที่สำเร็จไปแล้ว
     const failedIds = new Set<string>();
     const failMsg: string[] = [];
     let ok = 0, okQty = 0;
-    for (const { p, q } of lines) {
-      try {
-        await issueApi.create({
-          issued_at: issuedAt, due_date: dueDate || undefined, member_id: memberId,
-          product_id: p.id, quantity: q, notes: notes || undefined,
-        });
-        ok++; okQty += q;
-      } catch (e: any) {
-        failedIds.add(String(p.id));
-        failMsg.push(`${p.name}: ${e.response?.data?.error || 'ผิดพลาด'}`);
+    try {
+      const r = await issueApi.createBatch({
+        issued_at: issuedAt, due_date: dueDate || undefined, member_id: memberId,
+        notes: notes || undefined,
+        lines: lines.map(({ p, q }: any) => ({ product_id: p.id, quantity: q })),
+      });
+      ok = (r.created || []).length;
+      okQty = (r.created || []).reduce((s: number, c: any) => s + (Number(c.quantity) || 0), 0);
+      for (const f of (r.failed || [])) {
+        failedIds.add(String(f.product_id));
+        const p = lines.find((x: any) => String(x.p.id) === String(f.product_id))?.p;
+        failMsg.push(`${p?.name || f.product_id}: ${f.error}`);
       }
+    } catch (e: any) {
+      // ทั้งชุดไม่ผ่าน (เช่น เกินเพดานคงค้าง/สมาชิกมีงานเกินกำหนด) — คงจำนวนที่กรอกไว้ให้แก้
+      setSaving(false);
+      setError(e.response?.data?.error || 'บันทึกไม่สำเร็จ');
+      return;
     }
     setSaving(false);
     onCreated();

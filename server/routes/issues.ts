@@ -73,6 +73,49 @@ router.post('/', (req, res) => {
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(result.lastInsertRowid));
 });
 
+// สร้างใบเบิกหลายรุ่นให้สมาชิกคนเดียวใน request เดียว — ฝั่งหน้าเว็บเคยยิงทีละรุ่นเรียงกัน
+// (เบิกทั้งชุด 4 รุ่น = 4 รอบ รอบละ ~250ms บนเซิร์ฟเวอร์ฟรี = รอเกือบ 1 วินาทีทุกครั้งที่เซฟ)
+// รวมเป็นรอบเดียว + ตรวจเพดานคงค้างจากยอดรวมทั้งชุดทีเดียว (ยิงแยกขนานกันจะตรวจเพดานพลาด
+// เพราะแต่ละ request เห็นยอดคงค้างก่อนหน้าเหมือนกันหมด รวมกันแล้วอาจทะลุเพดานได้)
+router.post('/batch', (req, res) => {
+  const { issued_at, member_id, due_date, notes, lines } = req.body || {};
+  if (!issued_at || !member_id || !Array.isArray(lines) || lines.length === 0) {
+    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
+  }
+  const valid = lines.filter((l: any) => l && l.product_id && parseFloat(l.quantity) > 0);
+  if (valid.length === 0) return res.status(400).json({ error: 'ไม่มีรายการที่มีจำนวนมากกว่า 0' });
+
+  const settings = getSettings();
+  const member = prepare(`SELECT * FROM members WHERE id = ?`).get(member_id) as any;
+  if (!member) return res.status(400).json({ error: 'ไม่พบสมาชิก' });
+  if (member.status !== 'active') return res.status(400).json({ error: 'สมาชิกถูกพักสถานะ' });
+
+  const overdue = prepare(`SELECT COUNT(*) as cnt FROM issues WHERE member_id = ? AND status != 'closed' AND due_date < date('now')`).get(member_id) as any;
+  if (overdue.cnt > 0) return res.status(400).json({ error: `สมาชิกมีงานค้างเกินกำหนด ${overdue.cnt} ใบ` });
+
+  const pending = prepare(`SELECT COALESCE(SUM(quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0)),0) as total FROM issues i WHERE member_id = ? AND status != 'closed'`).get(member_id) as any;
+  const maxUnits = parseFloat(settings.max_pending_units || '500');
+  const askTotal = valid.reduce((s: number, l: any) => s + parseFloat(l.quantity), 0);
+  if ((pending.total || 0) + askTotal > maxUnits) {
+    return res.status(400).json({ error: `เบิกเกินเพดาน (คงค้าง ${pending.total} + ขอเบิกรวม ${askTotal} > ${maxUnits} หน่วย)` });
+  }
+
+  const by = userOf(req);
+  const created: any[] = [];
+  const failed: any[] = [];
+  for (const l of valid) {
+    try {
+      const code = nextDateCode('IS', 'issues', issued_at);
+      const r = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(code, issued_at, member_id, l.product_id, l.quantity, due_date || null, notes || null, by);
+      created.push(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(r.lastInsertRowid));
+    } catch (e: any) {
+      failed.push({ product_id: l.product_id, error: e?.message || 'บันทึกไม่สำเร็จ' });
+    }
+  }
+  res.json({ created, failed });
+});
+
 router.put('/:id', (req, res) => {
   const { issued_at, member_id, product_id, quantity, due_date, notes } = req.body;
   const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(req.params.id) as any;

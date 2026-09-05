@@ -74,6 +74,58 @@ router.post('/', (req, res) => {
   });
 });
 
+// รับคืนหลายใบเบิกพร้อมกันใน request เดียว — เดิมหน้าเว็บยิงทีละใบเรียงกัน
+// (คืนทั้งชุด 4 รุ่น = 4 รอบ รอบละ ~250ms บนเซิร์ฟเวอร์ฟรี = รอเกือบ 1 วินาทีทุกครั้งที่เซฟ)
+// ตรรกะต่อรายการเหมือน POST / ทุกอย่าง แต่ตรวจ+บันทึกให้ครบในรอบเดียว
+// รายการไหนไม่ผ่าน (เช่นคืนเกินจำนวน) จะข้ามเฉพาะรายการนั้น รายการที่เหลือยังบันทึกได้ตามปกติ
+router.post('/batch', (req, res) => {
+  const { returned_at, inspector, notes, lines } = req.body || {};
+  if (!returned_at || !Array.isArray(lines) || lines.length === 0) {
+    return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
+  }
+  const by = userOf(req);
+  const payCycle = payCycleFor(returned_at);
+  const created: any[] = [];
+  const failed: any[] = [];
+  const warnings: any[] = [];
+
+  for (const l of lines) {
+    const issue_id = l?.issue_id;
+    const issue = prepare(`SELECT i.*, p.name as product_name, p.unit, p.defect_tolerance FROM issues i JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(issue_id) as any;
+    if (!issue) { failed.push({ issue_id, error: 'ไม่พบใบเบิก' }); continue; }
+    if (issue.status === 'closed') { failed.push({ issue_id, code: issue.code, error: 'ใบเบิกนี้ปิดแล้ว' }); continue; }
+
+    const gQty = parseFloat(l.good_qty) || 0;
+    const ngCut = parseFloat(l.ng_cut) || 0;
+    const ngFac = parseFloat(l.ng_factory) || 0;
+    const dQty = (ngCut + ngFac) > 0 ? (ngCut + ngFac) : (parseFloat(l.defect_qty) || 0);
+    const finalNgCut = (ngCut + ngFac) > 0 ? ngCut : dQty;
+    const wQty = parseFloat(l.waste_qty) || 0;
+    const lQty = parseFloat(l.lost_qty) || 0;
+
+    const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(issue_id) as any;
+    const remaining = issue.quantity - (prev.total || 0);
+    if (gQty + dQty + wQty + lQty > remaining + 0.001) {
+      failed.push({ issue_id, code: issue.code, error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
+      continue;
+    }
+
+    const code = nextDateCode('RT', 'returns', returned_at);
+    const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, wQty, lQty, inspector || null, notes || null, payCycle, by);
+    updateIssueStatus(parseInt(issue_id));
+
+    const allRets = prepare(`SELECT COALESCE(SUM(good_qty),0) as g, COALESCE(SUM(defect_qty),0) as d FROM returns WHERE issue_id = ?`).get(issue_id) as any;
+    const defectPct = allRets.g + allRets.d > 0 ? (allRets.d / (allRets.g + allRets.d)) * 100 : 0;
+    if (defectPct > issue.defect_tolerance) {
+      warnings.push({ code: issue.code, warning: `⚠️ ของเสีย ${defectPct.toFixed(1)}% เกินเกณฑ์ ${issue.defect_tolerance}%` });
+    }
+    created.push(prepare(`SELECT * FROM returns WHERE id = ?`).get(result.lastInsertRowid));
+  }
+
+  res.json({ created, failed, warnings });
+});
+
 router.put('/:id', (req, res) => {
   const { returned_at, good_qty, ng_cut, ng_factory, defect_qty, waste_qty, lost_qty, inspector, notes } = req.body;
   const ret = prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) as any;

@@ -493,14 +493,17 @@ export default function Returns() {
     setSaving(true); setError('');
     const warnings: string[] = [];
     try {
-      for (const l of lines) {
-        const res = await returnApi.create({
-          issue_id: l.issue.id, returned_at: shared.returned_at,
-          good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0,
-          inspector: shared.inspector, notes: shared.notes,
-        });
-        if (res.defect_warning) warnings.push(`${l.issue.code}: ${res.defect_warning}`);
-      }
+      // ส่งทุกใบไปในรอบเดียว — เดิมยิงทีละใบเรียงกัน คืนทั้งชุด 4 รุ่นต้องรอ 4 รอบ (เกือบ 1 วินาที)
+      const res = await returnApi.createBatch({
+        returned_at: shared.returned_at, inspector: shared.inspector, notes: shared.notes,
+        lines: lines.map(l => ({
+          issue_id: l.issue.id,
+          good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0,
+          waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0,
+        })),
+      });
+      for (const w of (res.warnings || [])) warnings.push(`${w.code}: ${w.warning}`);
+      for (const f of (res.failed || [])) warnings.push(`${f.code || f.issue_id}: ${f.error}`);
       refetchAll();
       if (warnings.length) { setWarning(warnings.join('\n')); setLines([]); }
       else { closeModal(); }

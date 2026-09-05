@@ -37,6 +37,8 @@ export const issueApi = {
   list: (params?: any) => api.get('/issues', { params }).then(r => r.data),
   get: (id: number) => api.get(`/issues/${id}`).then(r => r.data),
   create: (data: any) => api.post('/issues', data).then(r => r.data),
+  // สร้างหลายรุ่นให้คนเดียวในรอบเดียว — เร็วกว่ายิงทีละรุ่นมาก (ดู server/routes/issues.ts /batch)
+  createBatch: (data: any) => api.post('/issues/batch', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/issues/${id}`, data).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/issues/${id}${force ? '?force=1' : ''}`).then(r => r.data),
 };
@@ -44,6 +46,8 @@ export const issueApi = {
 export const returnApi = {
   list: (params?: any) => api.get('/returns', { params }).then(r => r.data),
   create: (data: any) => api.post('/returns', data).then(r => r.data),
+  // รับคืนหลายใบในรอบเดียว — เร็วกว่ายิงทีละใบมาก (ดู server/routes/returns.ts /batch)
+  createBatch: (data: any) => api.post('/returns/batch', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/returns/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/returns/${id}`).then(r => r.data),
 };
