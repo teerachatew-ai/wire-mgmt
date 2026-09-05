@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { returnApi, issueApi, returnRequestApi } from '../api';
@@ -254,6 +254,7 @@ import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
+import { useDebounced } from '../utils/useDebounced';
 
 /* ── แถวคำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์ (รอเจ้าหน้าที่ตรวจนับของจริงแล้วยืนยัน) ── */
 function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => void; onChange: (id: number, data: any) => void }) {
@@ -420,17 +421,22 @@ export default function Returns() {
     alert(bulkDeleteSummary(result));
   };
 
-  const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
+  // ตั้งต้นที่เดือนปัจจุบัน ไม่ใช่ทั้งหมด — ดึงทั้งประวัติ (2,000+ รายการ) ทำให้หน้าหน่วงมากบนเครื่องช้า
+  // เลือก "ทุกวันที่" เองได้ถ้าต้องการดูย้อนหลัง
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(
+    () => ({ date: new Date().toISOString().slice(0, 7) })
+  );
   const [search, setSearch] = useState('');
+  const searchDebounced = useDebounced(search, 250);
   const { data: returnsRaw = [], isLoading } = useQuery({ queryKey: ['returns', dateFilter], queryFn: () => returnApi.list(dateFilter) });
   // ค้นหา: เลขที่คืน / เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
-  const rq = search.trim().toLowerCase();
-  const returns_ = (returnsRaw as any[]).filter((r: any) => !rq
+  const rq = searchDebounced.trim().toLowerCase();
+  const returns_ = useMemo(() => (returnsRaw as any[]).filter((r: any) => !rq
     || String(r.code || '').toLowerCase().includes(rq)
     || String(r.issue_code || '').toLowerCase().includes(rq)
     || String(r.member_name || '').toLowerCase().includes(rq)
     || String(r.member_nickname || '').toLowerCase().includes(rq)
-    || String(r.product_name || '').toLowerCase().includes(rq));
+    || String(r.product_name || '').toLowerCase().includes(rq)), [returnsRaw, rq]);
   const { data: openIssues = [] } = useQuery({
     queryKey: ['issues-open'],
     queryFn: () => issueApi.list({ status: 'pending' })

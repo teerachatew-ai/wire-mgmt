@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
@@ -12,6 +12,7 @@ import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
+import { useDebounced } from '../utils/useDebounced';
 import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 
 function openPrint(url: string) {
@@ -700,8 +701,14 @@ export default function Issues() {
   const { selected, toggle, toggleAll, clear } = useBulkSelect();
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
+  // ตั้งต้นที่ "เดือนปัจจุบัน" ไม่ใช่ทั้งหมด — ถ้าดึงทุกใบตั้งแต่เปิดระบบ (ตอนนี้ 2,600+ ใบ และเพิ่มขึ้นเรื่อยๆ)
+  // หน้าเว็บจะต้องเรนเดอร์เป็นหมื่น DOM node ทำให้พิมพ์/คลิกหน่วงเป็นวินาที โดยเฉพาะบนเครื่องที่ CPU ช้ากว่า
+  // ผู้ใช้เลือก "ทุกวันที่" เองได้ตลอดถ้าต้องการดูย้อนหลัง
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(
+    () => ({ date: new Date().toISOString().slice(0, 7) })
+  );
   const [search, setSearch] = useState('');
+  const searchDebounced = useDebounced(search, 250);   // พิมพ์เร็วๆ ไม่ต้องกรองใหม่ทุกตัวอักษร
   const [dailyBusy, setDailyBusy] = useState<'' | 'xlsx' | 'pdf'>('');
   // มุมมองตาราง: matrix (สรุปทั้งวัน อ่านง่าย) หรือ list (รายใบ มีปุ่มแก้ไข/พิมพ์/ลบ)
   const [view, setView] = useState<'matrix' | 'list'>('matrix');
@@ -726,9 +733,9 @@ export default function Issues() {
     queryKey: ['receives', 'day', todayStr],
     queryFn: () => receiveApi.list({ date: todayStr }),
   });
-  const receiveGroups = Object.values((receivesOfDay as any[]).reduce((a: any, r: any) => {
+  const receiveGroups = useMemo(() => Object.values((receivesOfDay as any[]).reduce((a: any, r: any) => {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
-  }, {})) as any[];
+  }, {})) as any[], [receivesOfDay]);
 
   // ของที่รับเข้าจากโรงงานในช่วงที่กำลังกรองดูอยู่ (ใช้ตัวกรองเดียวกับตารางใบเบิก) — แยกจากแบนเนอร์ "วันนี้" ด้านบน
   // ซึ่งมีไว้เตือนแบบเรียลไทม์ตอนกำลังจะเบิกให้สมาชิกโดยเฉพาะ อันนี้ไว้ดูภาพรวมย้อนหลังตามช่วงที่กำลังดูอยู่
@@ -736,9 +743,9 @@ export default function Issues() {
     queryKey: ['receives', 'issues-page', dateFilter],
     queryFn: () => receiveApi.list(dateFilter),
   });
-  const receiveSummaryOfPeriod = Object.values((receivesOfPeriod as any[]).reduce((a: any, r: any) => {
+  const receiveSummaryOfPeriod = useMemo(() => Object.values((receivesOfPeriod as any[]).reduce((a: any, r: any) => {
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
-  }, {})) as any[];
+  }, {})) as any[], [receivesOfPeriod]);
 
   // บัตรคุมสต็อก (stock ledger) — cross check รับเข้า vs เบิก รายวันทีละสินค้า พร้อมยอดคงเหลือสะสม
   // แสดงประวัติทั้งหมดของสินค้าที่เลือกเสมอ ไม่ผูกกับตัวกรองวันที่ของตารางใบเบิกด้านบน (คนละวัตถุประสงค์กัน —
@@ -759,6 +766,10 @@ export default function Issues() {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
+
+  // useCallback — ถ้าส่ง arrow function ใหม่ทุกรอบ memo() ของ IssueMatrix จะไร้ผล
+  // (มองว่า prop เปลี่ยนตลอด เลยสร้างตารางใหม่ทั้งหมดทุกครั้งที่พิมพ์)
+  const openDetail = useCallback((id: number) => setDetailId(id), []);
 
   // ลบหลายใบพร้อมกัน — ใช้ force=1 ตรงๆ ทุกใบ (ข้ามขั้นยืนยันซ้อนแบบทีละใบ) เพราะเตือนเรื่องการลบรายการรับคืนที่ผูกอยู่ไว้ใน confirm() ครั้งเดียวตั้งแต่ต้นแล้ว
   const handleBulkDelete = async () => {
@@ -791,18 +802,22 @@ export default function Issues() {
   };
 
   // ค้นหา: เลขใบเบิก / ชื่อ-สกุล / ชื่อเล่น / สินค้า
-  const q = search.trim().toLowerCase();
-  const visibleIssues = (issues as any[]).filter((i: any) => !q
+  // useMemo ทั้งชุด — ไม่งั้นทุกครั้งที่ state ใดๆ เปลี่ยน (พิมพ์ค้นหา/กดปุ่ม/เปิด-ปิดกล่อง)
+  // จะไล่กรองและรวมยอดใหม่ทั้งหมดแล้วเรนเดอร์ตารางใหม่ทั้งหน้า
+  const q = searchDebounced.trim().toLowerCase();
+  const visibleIssues = useMemo(() => (issues as any[]).filter((i: any) => !q
     || String(i.code || '').toLowerCase().includes(q)
     || String(i.member_name || '').toLowerCase().includes(q)
     || String(i.member_nickname || '').toLowerCase().includes(q)
-    || String(i.product_name || '').toLowerCase().includes(q));
+    || String(i.product_name || '').toLowerCase().includes(q)), [issues, q]);
 
-  const summary = Object.values(visibleIssues.reduce((a: any, i: any) => {
+  const summary = useMemo(() => Object.values(visibleIssues.reduce((a: any, i: any) => {
     const k = i.product_name; (a[k] ??= { name: k, unit: i.unit, color: i.color, qty: 0 }).qty += Number(i.quantity) || 0; return a;
-  }, {})) as any[];
+  }, {})) as any[], [visibleIssues]);
   // จำนวนสมาชิกที่มาเบิก (คนเดียวเบิกหลายชนิด/หลายใบ นับ 1)
-  const memberCount = new Set(visibleIssues.map((i: any) => i.member_id ?? i.member_code ?? i.member_name)).size;
+  const memberCount = useMemo(
+    () => new Set(visibleIssues.map((i: any) => i.member_id ?? i.member_code ?? i.member_name)).size,
+    [visibleIssues]);
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -970,9 +985,15 @@ export default function Issues() {
         <>
           {isLoading && <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>}
           {!isLoading && visibleIssues.length === 0 && (
-            <div className="card text-center text-gray-400 py-8">{q ? 'ไม่พบที่ค้นหา' : 'ยังไม่มีรายการ'}</div>
+            <div className="card text-center py-8 space-y-2">
+              <p className="text-gray-400">{q ? 'ไม่พบที่ค้นหา' : `ยังไม่มีใบเบิกใน${dateFilterLabel(dateFilter)}`}</p>
+              {!q && (
+                <button type="button" onClick={() => setDateFilter({})}
+                  className="text-sm text-blue-600 hover:underline">ดูทั้งหมดย้อนหลัง</button>
+              )}
+            </div>
           )}
-          <IssueMatrix issues={visibleIssues} onOpen={(id) => setDetailId(id)} />
+          <IssueMatrix issues={visibleIssues} onOpen={openDetail} />
         </>
       )}
 

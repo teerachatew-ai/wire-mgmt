@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Eye } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
@@ -11,7 +12,7 @@ const nickOf = (name: string, nickname?: string) =>
 /* ตารางสรุปใบเบิกแบบ matrix — แถว = สมาชิก, คอลัมน์ = ประเภทงาน, แยกเป็นวันๆ
    อ่านทีเดียวเห็นทั้งวันว่าใครเบิกอะไรไปเท่าไหร่ ไม่ต้องไล่อ่านทีละใบ
    คอลัมน์ชื่อสมาชิกกับหัวตารางตรึงไว้ (sticky) เลื่อนดูงานหลายชนิดแล้วยังรู้ว่าแถวไหนของใคร */
-export default function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) => void }) {
+function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) => void }) {
   if (issues.length === 0) return null;
 
   // ── จัดกลุ่ม: วันที่ -> สมาชิก -> ประเภทงาน ──
@@ -173,3 +174,7 @@ export default function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?
     </div>
   );
 }
+
+// memo — ตารางนี้หนักที่สุดในหน้า (หลายสิบตาราง หลายพันช่อง)
+// ไม่ต้องสร้างใหม่ถ้า issues ชุดเดิม (เช่นตอนกดปุ่มอื่น/เปิดกล่องในหน้าเดียวกัน)
+export default memo(IssueMatrix);
