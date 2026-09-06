@@ -26,7 +26,16 @@ router.get('/', (req, res) => {
     JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE 1=1`;
   const params: any[] = [];
   if (issue_id) { sql += ` AND r.issue_id = ?`; params.push(issue_id); }
-  if (date) { sql += ` AND r.returned_at LIKE ?`; params.push(`${date}%`); }
+  if (date) {
+    const d = String(date);
+    if (/^\d{4}-\d{2}$/.test(d)) {
+      // โหมด "รายเดือน" — กรองด้วย pay_cycle ที่บันทึกไว้ตอนรับคืนแต่ละรายการ (คำนวณตามรอบ Cut-off
+      // ที่ตั้งไว้อยู่แล้ว ตรงกับรอบคิดค่าแรงเป๊ะ) แทนปฏิทิน 1-สิ้นเดือนของ returned_at ตรงๆ
+      sql += ` AND r.pay_cycle = ?`; params.push(d);
+    } else {
+      sql += ` AND r.returned_at LIKE ?`; params.push(`${d}%`);
+    }
+  }
   if (from) { sql += ` AND r.returned_at >= ?`; params.push(from); }
   if (to) { sql += ` AND r.returned_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.returned_at DESC, r.id DESC`;

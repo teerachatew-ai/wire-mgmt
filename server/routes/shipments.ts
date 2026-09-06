@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
+import { monthCutoffRange } from '../payCycle';
 
 const router = Router();
 
@@ -11,7 +12,17 @@ router.get('/', (req, res) => {
     COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si WHERE si.shipment_id = s.id),0) as total_qty
     FROM shipments s WHERE 1=1`;
   const params: any[] = [];
-  if (date) { sql += ` AND s.shipped_at LIKE ?`; params.push(`${date}%`); }
+  if (date) {
+    const d = String(date);
+    if (/^\d{4}-\d{2}$/.test(d)) {
+      // โหมด "รายเดือน" — ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน (สอดคล้องกับหน้ารับ/เบิก)
+      const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+      const { start, end } = monthCutoffRange(d, settings);
+      sql += ` AND s.shipped_at >= ? AND s.shipped_at <= ?`; params.push(start, end);
+    } else {
+      sql += ` AND s.shipped_at LIKE ?`; params.push(`${d}%`);
+    }
+  }
   if (from) { sql += ` AND s.shipped_at >= ?`; params.push(from); }
   if (to)   { sql += ` AND s.shipped_at <= ?`; params.push(to); }
   sql += ` ORDER BY s.shipped_at DESC, s.id DESC`;

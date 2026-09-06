@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
+import { monthCutoffRange } from '../payCycle';
 
 const router = Router();
 
@@ -33,7 +34,18 @@ router.get('/', (req, res) => {
   const params: any[] = [];
   if (status) { sql += ` AND i.status = ?`; params.push(status); }
   if (member_id) { sql += ` AND i.member_id = ?`; params.push(member_id); }
-  if (date) { sql += ` AND i.issued_at LIKE ?`; params.push(`${date}%`); }
+  if (date) {
+    const d = String(date);
+    if (/^\d{4}-\d{2}$/.test(d)) {
+      // โหมด "รายเดือน" — ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน
+      // ให้ยอดเบิกตรงกับรอบคิดค่าแรงจริง ดูเทียบกับยอดรับเข้าแล้วไม่งง
+      const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+      const { start, end } = monthCutoffRange(d, settings);
+      sql += ` AND i.issued_at >= ? AND i.issued_at <= ?`; params.push(start, end);
+    } else {
+      sql += ` AND i.issued_at LIKE ?`; params.push(`${d}%`);
+    }
+  }
   if (from) { sql += ` AND i.issued_at >= ?`; params.push(from); }
   if (to) { sql += ` AND i.issued_at <= ?`; params.push(to); }
   sql += ` ORDER BY i.issued_at DESC, i.id DESC`;

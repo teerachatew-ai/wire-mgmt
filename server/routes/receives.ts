@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
+import { monthCutoffRange } from '../payCycle';
 
 const router = Router();
 
@@ -9,7 +10,18 @@ router.get('/', (req, res) => {
   let sql = `SELECT r.*, p.name as product_name, p.unit, p.color, p.project FROM receives r JOIN products p ON r.product_id = p.id WHERE 1=1`;
   const params: any[] = [];
   if (product_id) { sql += ` AND r.product_id = ?`; params.push(product_id); }
-  if (date) { sql += ` AND r.received_at LIKE ?`; params.push(`${date}%`); }
+  if (date) {
+    const d = String(date);
+    if (/^\d{4}-\d{2}$/.test(d)) {
+      // โหมด "รายเดือน" — ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน
+      // ให้ยอดรับเข้าตรงกับรอบเดียวกับยอดเบิกออก เทียบกันแล้วไม่งง
+      const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
+      const { start, end } = monthCutoffRange(d, settings);
+      sql += ` AND r.received_at >= ? AND r.received_at <= ?`; params.push(start, end);
+    } else {
+      sql += ` AND r.received_at LIKE ?`; params.push(`${d}%`);
+    }
+  }
   if (from) { sql += ` AND r.received_at >= ?`; params.push(from); }
   if (to) { sql += ` AND r.received_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.received_at DESC, r.id DESC`;

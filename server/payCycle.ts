@@ -68,6 +68,14 @@ export function computePayCycle(returnedAt: string, holidays: Set<string>, overr
   return returnedAt.slice(0, 10) <= cutoff ? ym : nextMonth(ym);
 }
 
+// แปลงเดือน "YYYY-MM" เป็นช่วงวันจริงตามรอบ Cut-off ที่ตั้งไว้ (ไม่ใช่ 1-สิ้นเดือนตามปฏิทิน)
+// ใช้แทนการกรองแบบ LIKE 'YYYY-MM%' ตรงๆ ในหน้ารับเข้า/เบิกออก/ส่งงาน เพื่อให้ "รายเดือน"
+// ตรงกับรอบที่ใช้คิดค่าแรงจริง (เดือนแต่ละเดือนยาวไม่เท่ากันได้ถ้ากำหนดเอง)
+export function monthCutoffRange(ym: string, settingsRows: { key: string; value: string }[]): { start: string; end: string } {
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settingsRows);
+  return payCycleWindow(ym, holidays, overrides, cutoffDay);
+}
+
 // อ่านวันหยุด + วันเส้นตายที่ override จากตาราง settings
 //  - holidays      = "2026-04-13,2026-04-14,..."  (comma)
 //  - cutoff_YYYY-MM = "YYYY-MM-DD"                 (กำหนดเส้นตายเองรายเดือน)

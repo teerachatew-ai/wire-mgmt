@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai } from '../payCycle';
+import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -693,11 +693,15 @@ router.post('/invoice-export', (req, res) => {
 });
 
 function computeStockFlow(m: string) {
-  const fRecv = m ? ` AND received_at LIKE '${m}%'` : '';
-  const fIss  = m ? ` AND issued_at LIKE '${m}%'` : '';
-  const fRet  = m ? ` AND r.returned_at LIKE '${m}%'` : '';
-  const fShip = m ? ` AND s.shipped_at LIKE '${m}%'` : '';
-  const monthStart = m ? `${m}-01` : '';
+  // "โหมดเดือน" ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน ไม่งั้นยอด "ยกมา/ยกไป"
+  // จะคาบเกี่ยวหรือขาดช่วงวันระหว่างวันสิ้นสุด Cut-off กับวันสิ้นเดือนปฏิทิน ทำให้ยอดคงเหลือดูงง
+  const mSettings = m ? prepare(`SELECT key, value FROM settings`).all() as any[] : [];
+  const mRange = m ? monthCutoffRange(m, mSettings) : { start: '', end: '' };
+  const fRecv = m ? ` AND received_at >= '${mRange.start}' AND received_at <= '${mRange.end}'` : '';
+  const fIss  = m ? ` AND issued_at >= '${mRange.start}' AND issued_at <= '${mRange.end}'` : '';
+  const fRet  = m ? ` AND r.returned_at >= '${mRange.start}' AND r.returned_at <= '${mRange.end}'` : '';
+  const fShip = m ? ` AND s.shipped_at >= '${mRange.start}' AND s.shipped_at <= '${mRange.end}'` : '';
+  const monthStart = m ? mRange.start : '';
   // ยอดงานคงค้างในระบบ ก่อนเริ่มเดือน (ยกมา) = รับเข้าสะสม − ส่งออกสะสม − สูญเสียสะสม
   // "ส่งออก" ใช้ยอดที่โรงงานรับจริง (received_qty) ถ้ายืนยันแล้ว มิฉะนั้นใช้ยอดที่บันทึกส่ง (good_qty) + defect_qty
   const carrySel = m ? `,
@@ -748,7 +752,7 @@ function computeStockFlow(m: string) {
     SELECT rv.received_at, rv.code, rv.factory_ref, rv.quantity,
       p.name as product_name, p.unit, p.code as product_code
     FROM receives rv JOIN products p ON rv.product_id = p.id
-    ${m ? `WHERE rv.received_at LIKE '${m}%'` : ''}
+    ${m ? `WHERE rv.received_at >= '${mRange.start}' AND rv.received_at <= '${mRange.end}'` : ''}
     ORDER BY rv.received_at DESC, rv.id DESC LIMIT 200
   `).all();
 
