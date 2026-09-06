@@ -40,7 +40,39 @@ let genConflict = false;
 
 async function pgInit() {
   const { Pool } = require('pg');
-  pgPool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  // ปิด pool เก่าก่อนถ้ามี (กรณี retry) — ไม่งั้น connection เก่าค้างสะสมทุกรอบที่ลองใหม่
+  if (pgPool) { try { await pgPool.end(); } catch {} pgPool = null; }
+  pgPool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    // Neon แพลนฟรีจะพัก compute เมื่อไม่มีใครใช้ ~5 นาที การเชื่อมต่อครั้งแรกหลังพัก
+    // ต้องรอปลุกก่อน (ปกติไม่กี่วินาที แต่ข้ามทวีปมาจาก us-east-1 อาจนานกว่านั้น)
+    // ตั้ง timeout ให้ยาวพอรอตื่น แทนที่จะค้างไม่มีกำหนด (ค่า default = รอตลอดกาล)
+    connectionTimeoutMillis: 20000,
+    idleTimeoutMillis: 30000,
+    max: 3,
+  });
+  // สำคัญ: ถ้าไม่ดัก error ของ pool เมื่อ connection ที่ว่างอยู่ถูกตัด (Neon พักตัวเองระหว่างที่
+  // ไม่มีใครใช้ = เกิดขึ้นทุกคืน) node-postgres จะโยน error ที่ไม่มีใครรับ ทำให้ทั้งโปรเซสดับ
+  // ดักไว้แล้วปล่อยให้ pool สร้าง connection ใหม่เองรอบหน้า ระบบไม่ล่ม
+  pgPool.on('error', (e: any) => {
+    console.error('pg pool error (ไม่ทำให้ระบบดับ):', e?.message);
+  });
+  // ปลุก Neon ให้ตื่นก่อน แล้วค่อยสร้าง/แก้ตาราง — ลองซ้ำได้ เพราะช่วง Neon กำลังตื่น
+  // มักคืน error ชั่วคราว (connection terminated / timeout) ซึ่งหายเองเมื่อลองใหม่
+  let lastErr: any = null;
+  for (let i = 1; i <= 5; i++) {
+    try {
+      await pgPool.query('SELECT 1');
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
+      console.error(`ปลุกฐานข้อมูลไม่สำเร็จ (ครั้งที่ ${i}): ${(e as any)?.message}`);
+      await new Promise(r => setTimeout(r, 2000 * i));
+    }
+  }
+  if (lastErr) throw lastErr;
   await pgPool.query(`CREATE TABLE IF NOT EXISTS app_db (id INT PRIMARY KEY, data BYTEA NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`);
   await pgPool.query(`ALTER TABLE app_db ADD COLUMN IF NOT EXISTS gen BIGINT NOT NULL DEFAULT 0`);
 }

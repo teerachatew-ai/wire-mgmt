@@ -38,8 +38,23 @@ app.listen(PORT, () => {
   console.log(`🚀 Server listening: http://localhost:${PORT} (กำลังโหลดฐานข้อมูล...)`);
 });
 
+// ระหว่างที่ยังโหลดฐานข้อมูลไม่เสร็จ ให้ /api/* ตอบ 503 "กำลังเตรียมระบบ" แทนที่จะ 404
+// (ของเดิม route ยังไม่ถูก mount เลย request จะตกไป 404 ซึ่งอ่านไม่ออกว่าเกิดอะไรขึ้น)
+// วางไว้หลัง /api/ping เพื่อให้ ping ตอบได้ตลอดแม้ฐานข้อมูลยังไม่พร้อม
+let dbReady = false;
+app.use('/api', (_req, res, next) => {
+  if (dbReady) return next();
+  res.setHeader('Retry-After', '15');
+  res.status(503).json({ error: 'ระบบกำลังเตรียมฐานข้อมูล กรุณารอสักครู่แล้วลองใหม่', warming_up: true });
+});
+
 // DB must init before routes (sql.js is async)
-initDb().then(() => {
+// ลองใหม่เรื่อยๆ ถ้าโหลดไม่สำเร็จ — ห้าม process.exit เด็ดขาด
+// เหตุผล: ฐานข้อมูล Neon (แพลนฟรี) จะพักตัวเองเมื่อไม่มีใครใช้ ~5 นาที พอ Render ตื่นมาเชื่อมต่อ
+// ครั้งแรกอาจเจอ error ระหว่าง Neon กำลังปลุก compute ถ้าเจอแล้วดับโปรเซสทิ้ง Render จะรีสตาร์ท
+// วนไปเรื่อยๆ แบบถ่างเวลาขึ้นทุกครั้ง (เคยทำให้ล่มยาว 3 ชั่วโมงครึ่ง) — retry เองนิ่งกว่ามาก
+function bootDb(attempt = 1): void {
+  initDb().then(() => {
   // Import routes after db is ready
   const membersRouter = require('./routes/members').default;
   const productsRouter = require('./routes/products').default;
@@ -90,8 +105,13 @@ initDb().then(() => {
     });
   }
 
-  console.log(`✅ ฐานข้อมูลพร้อมใช้งาน — เปิด route ครบแล้ว`);
-}).catch(err => {
-  console.error('DB init failed:', err);
-  process.exit(1);
-});
+    dbReady = true;
+    console.log(`✅ ฐานข้อมูลพร้อมใช้งาน — เปิด route ครบแล้ว`);
+  }).catch(err => {
+    // ถ่างเวลาขึ้นทีละรอบ แต่ไม่เกิน 30 วิ (Neon ปกติตื่นภายในไม่กี่วินาที)
+    const waitMs = Math.min(30000, 2000 * attempt);
+    console.error(`DB init failed (ครั้งที่ ${attempt}): ${err?.message || err} — ลองใหม่ใน ${waitMs / 1000} วิ`);
+    setTimeout(() => bootDb(attempt + 1), waitMs);
+  });
+}
+bootDb();

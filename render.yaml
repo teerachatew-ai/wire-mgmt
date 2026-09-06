@@ -5,7 +5,9 @@ services:
     plan: free
     region: singapore
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /api/products
+    # ต้องเป็น endpoint ที่ตอบได้ "ก่อน" โหลดฐานข้อมูลเสร็จ — /api/products ถูก mount หลัง initDb()
+    # ระหว่าง cold start จึงยัง 404 อยู่ ทำให้ Render มองว่าเครื่องไม่พร้อมแล้วสั่งรีสตาร์ทวนไป
+    healthCheckPath: /api/ping
     envVars:
       - key: DATABASE_URL
         sync: false
