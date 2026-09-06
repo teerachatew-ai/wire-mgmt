@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { returnApi, issueApi, returnRequestApi } from '../api';
@@ -423,6 +423,7 @@ export default function Returns() {
 
   // ตั้งต้นที่เดือนปัจจุบัน ไม่ใช่ทั้งหมด — ดึงทั้งประวัติ (2,000+ รายการ) ทำให้หน้าหน่วงมากบนเครื่องช้า
   // เลือก "ทุกวันที่" เองได้ถ้าต้องการดูย้อนหลัง
+  // (ดู ReturnRow ด้านล่างไฟล์ — แยกเป็น memo component เพื่อไม่ให้ 800+ แถวถูกเรนเดอร์ใหม่ทุกครั้งที่พิมพ์)
   const [dateFilter, setDateFilter] = useState<DateFilterValue>(
     () => ({ date: new Date().toISOString().slice(0, 7) })
   );
@@ -446,10 +447,16 @@ export default function Returns() {
     queryFn: () => issueApi.list({ status: 'partial' })
   });
 
-  const allOpenIssues = [...(openIssues as any[]), ...(partialIssues as any[])];
-  const filtered = (searchIssue
+  // useMemo ทั้งหมด — ของเดิมคำนวณใหม่ทุกครั้งที่ state ใดๆ ขยับ (พิมพ์ค้นหา/ติ๊ก checkbox/เปิดกล่อง)
+  // ทั้งที่ใบเบิกค้างมี 175 ใบ และตารางรับคืนมี 800+ แถว
+  const allOpenIssues = useMemo(
+    () => [...(openIssues as any[]), ...(partialIssues as any[])],
+    [openIssues, partialIssues]);
+
+  const searchIssueDebounced = useDebounced(searchIssue, 200);   // พิมพ์ค้นใบเบิกไม่ต้องกรองใหม่ทุกตัวอักษร
+  const filtered = useMemo(() => (searchIssueDebounced
     ? allOpenIssues.filter((i: any) => {
-        const q = searchIssue.toLowerCase();
+        const q = searchIssueDebounced.toLowerCase();
         return i.code.toLowerCase().includes(q)
           || i.member_name.toLowerCase().includes(q)
           || i.member_code.toLowerCase().includes(q)
@@ -459,14 +466,23 @@ export default function Returns() {
   )
     .filter((i: any) => !issueDayFilter || String(i.issued_at || '').slice(0, 10) === issueDayFilter)  // filter วันที่เบิก
     .filter((i: any) => !lines.some(l => l.issue.id === i.id))  // ซ่อนใบที่เลือกแล้ว
-    .sort((a: any, b: any) => String(b.issued_at || '').localeCompare(String(a.issued_at || '')));     // ใบเบิกล่าสุดขึ้นก่อน
+    .sort((a: any, b: any) => String(b.issued_at || '').localeCompare(String(a.issued_at || ''))),     // ใบเบิกล่าสุดขึ้นก่อน
+    [allOpenIssues, searchIssueDebounced, issueDayFilter, lines]);
+
+  // สรุปยอดหัวหน้า — เดิมคำนวณคาไว้ใน JSX เลยวิ่งใหม่ทุกครั้งที่เรนเดอร์ (ไล่ 800+ แถวทุกรอบ)
+  const returnSummary = useMemo(() => ({
+    groups: Object.values((returns_ as any[]).reduce((a: any, r: any) => {
+      const k = r.product_name; (a[k] ??= { name: k, qty: 0 }).qty += Number(r.good_qty) || 0; return a;
+    }, {})) as any[],
+    memberCount: new Set((returns_ as any[]).map((r: any) => r.member_name)).size,
+  }), [returns_]);
 
   // วันที่เบิกที่มีใบค้างอยู่ (ให้เลือกใน dropdown พร้อมจำนวนใบ)
-  const issueDays = Object.entries(allOpenIssues.reduce((a: any, i: any) => {
+  const issueDays = useMemo(() => Object.entries(allOpenIssues.reduce((a: any, i: any) => {
     const d = String(i.issued_at || '').slice(0, 10);
     if (d) a[d] = (a[d] || 0) + 1;
     return a;
-  }, {})).sort((x, y) => y[0].localeCompare(x[0])) as [string, number][];
+  }, {})).sort((x, y) => y[0].localeCompare(x[0])) as [string, number][], [allOpenIssues]);
 
   const { register, handleSubmit, reset } = useForm<any>({
     defaultValues: { returned_at: new Date().toISOString().split('T')[0] }
@@ -537,11 +553,9 @@ export default function Returns() {
       <PendingRequestsPanel />
 
       <DaySummary
-        groups={Object.values((returns_ as any[]).reduce((a: any, r: any) => {
-          const k = r.product_name; (a[k] ??= { name: k, qty: 0 }).qty += Number(r.good_qty) || 0; return a;
-        }, {})) as any[]}
+        groups={returnSummary.groups}
         note={dateFilterLabel(dateFilter)} unitLabel="งานดีคืน"
-        memberCount={new Set((returns_ as any[]).map((r: any) => r.member_name)).size} />
+        memberCount={returnSummary.memberCount} />
 
       <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />
 
@@ -571,27 +585,8 @@ export default function Returns() {
           <tbody>
             {isLoading && <tr><td colSpan={14} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {(returns_ as any[]).map((r: any) => (
-              <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(r.id) ? 'bg-blue-50/50' : ''}`}>
-                <td className="px-4 py-3"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
-                <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
-                <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
-                <td className="px-4 py-3 text-gray-500 text-xs">{r.issued_at ? fmtDate(r.issued_at) : '-'}</td>
-                <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
-                <td className="px-4 py-3 text-gray-800">{r.member_name}{r.member_nickname && <span className="text-xs text-gray-400"> ({r.member_nickname})</span>}</td>
-                <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
-                <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
-                <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
-                <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
-                <td className="px-4 py-3 text-right text-gray-500">{r.waste_qty}</td>
-                <td className="px-4 py-3 text-right text-violet-600">{r.lost_qty > 0 ? r.lost_qty : '-'}</td>
-                <td className="px-4 py-3 text-gray-500 text-xs">{r.inspector || '-'}</td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button className="text-gray-400 hover:text-amber-600" onClick={() => setEditingReturn(r)}><Edit2 size={15} /></button>
-                    <button className="text-gray-400 hover:text-red-600" onClick={() => setDeletingReturn(r)}><Trash2 size={15} /></button>
-                  </div>
-                </td>
-              </tr>
+              <ReturnRow key={r.id} r={r} checked={selected.has(r.id)}
+                onToggle={toggle} onEdit={setEditingReturn} onDelete={setDeletingReturn} />
             ))}
             {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={14} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
@@ -769,3 +764,36 @@ export default function Returns() {
     </div>
   );
 }
+
+/* แถวในตารางรับคืน — แยกออกมาแล้วครอบ memo()
+   ตารางนี้มี 800+ แถว (1 เดือน) ถ้าเขียน JSX ไว้ในหน้าแม่ตรงๆ ทุกครั้งที่ state ใดๆ ขยับ
+   (พิมพ์ค้นหา/เปิดกล่อง/ติ๊ก checkbox) React ต้องไล่เทียบใหม่ทั้ง 800 แถว = หน่วงเป็นร้อย ms
+   แยกเป็น component + memo แล้ว แถวที่ข้อมูลไม่เปลี่ยนจะถูกข้ามไปเลย */
+const ReturnRow = memo(function ReturnRow({ r, checked, onToggle, onEdit, onDelete }: {
+  r: any; checked: boolean;
+  onToggle: (id: number) => void; onEdit: (r: any) => void; onDelete: (r: any) => void;
+}) {
+  return (
+    <tr className={`border-b border-gray-50 hover:bg-gray-50 ${checked ? 'bg-blue-50/50' : ''}`}>
+      <td className="px-4 py-3"><input type="checkbox" checked={checked} onChange={() => onToggle(r.id)} /></td>
+      <td className="px-4 py-3 font-mono text-xs text-green-600 font-semibold">{r.code}</td>
+      <td className="px-4 py-3 font-mono text-xs text-blue-600">{r.issue_code}</td>
+      <td className="px-4 py-3 text-gray-500 text-xs">{r.issued_at ? fmtDate(r.issued_at) : '-'}</td>
+      <td className="px-4 py-3 text-gray-600">{r.returned_at}{r.created_by && <div className="text-xs text-gray-400">โดย {r.created_by}</div>}</td>
+      <td className="px-4 py-3 text-gray-800">{r.member_name}{r.member_nickname && <span className="text-xs text-gray-400"> ({r.member_nickname})</span>}</td>
+      <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
+      <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
+      <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
+      <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
+      <td className="px-4 py-3 text-right text-gray-500">{r.waste_qty}</td>
+      <td className="px-4 py-3 text-right text-violet-600">{r.lost_qty > 0 ? r.lost_qty : '-'}</td>
+      <td className="px-4 py-3 text-gray-500 text-xs">{r.inspector || '-'}</td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <button className="text-gray-400 hover:text-amber-600" onClick={() => onEdit(r)}><Edit2 size={15} /></button>
+          <button className="text-gray-400 hover:text-red-600" onClick={() => onDelete(r)}><Trash2 size={15} /></button>
+        </div>
+      </td>
+    </tr>
+  );
+});

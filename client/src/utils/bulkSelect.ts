@@ -1,18 +1,23 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 // เลือกได้หลายรายการด้วย checkbox ใช้ร่วมกันได้ทุกหน้าตาราง — เก็บแค่ id ที่ติ๊กไว้ ไม่ผูกกับข้อมูลชุดใดชุดหนึ่ง
+//
+// useCallback สำคัญมาก: ฟังก์ชันพวกนี้ถูกส่งเป็น prop ให้แถวในตาราง (หลายร้อยแถว)
+// ถ้าสร้างใหม่ทุกครั้งที่เรนเดอร์ memo() ของแถวจะไร้ผลทันที (มองว่า prop เปลี่ยนตลอด)
+// แล้วทุกการพิมพ์/ติ๊ก จะไล่เรนเดอร์ใหม่ทั้งตาราง — วัดได้ว่าหน่วง ~150ms ต่อการกดปุ่ม 1 ครั้ง
+// setSelected ของ React นิ่งอยู่แล้ว จึงใช้ dependency ว่างได้ปลอดภัย
 export function useBulkSelect() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const toggle = (id: number) => setSelected(s => {
+  const toggle = useCallback((id: number) => setSelected(s => {
     const n = new Set(s);
     n.has(id) ? n.delete(id) : n.add(id);
     return n;
-  });
-  const toggleAll = (ids: number[]) => setSelected(s => {
+  }), []);
+  const toggleAll = useCallback((ids: number[]) => setSelected(s => {
     const allSelected = ids.length > 0 && ids.every(id => s.has(id));
     return allSelected ? new Set() : new Set(ids);
-  });
-  const clear = () => setSelected(new Set());
+  }), []);
+  const clear = useCallback(() => setSelected(new Set()), []);
   return { selected, toggle, toggleAll, clear };
 }
 

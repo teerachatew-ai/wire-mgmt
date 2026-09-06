@@ -122,8 +122,14 @@ function scheduleFlush() {
 // flush เฉพาะเมื่อมีการแก้ข้อมูลจริง (dirty) — กันไม่ให้เขียนทับฐานข้อมูลด้วยข้อมูลเปล่าตอน restart
 export async function flushNow() { if (USE_PG) await pgFlush(); }
 
+// เลขเวอร์ชันข้อมูล — ขยับทุกครั้งที่มีการเขียน ใช้เป็นกุญแจให้ cache ของ API (ดู server/apiCache.ts)
+// พอมีคนแก้ข้อมูล cache ทั้งหมดจะถือว่าหมดอายุทันทีโดยอัตโนมัติ ไม่ต้องไล่ล้างทีละ endpoint
+let _dataVersion = 1;
+export function dataVersion() { return _dataVersion; }
+
 // Save DB after writes
 function save() {
+  _dataVersion++;
   if (USE_PG) { scheduleFlush(); return; }
   const data = db.export();
   fs.writeFileSync(DB_PATH, Buffer.from(data));

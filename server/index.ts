@@ -5,6 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { initDb, flushNow, dbWriteBlocked } from './db';
+import { apiCache } from './apiCache';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -47,6 +48,10 @@ app.use('/api', (_req, res, next) => {
   res.setHeader('Retry-After', '15');
   res.status(503).json({ error: 'ระบบกำลังเตรียมฐานข้อมูล กรุณารอสักครู่แล้วลองใหม่', warming_up: true });
 });
+
+// cache คำตอบ GET /api/* ไว้ใช้ซ้ำระหว่างผู้ใช้หลายคน (ล้างเองทุกครั้งที่มีการเขียนข้อมูล)
+// ต้องวางก่อน mount router เพื่อให้ดักได้ทุกเส้น
+app.use('/api', apiCache);
 
 // DB must init before routes (sql.js is async)
 // ลองใหม่เรื่อยๆ ถ้าโหลดไม่สำเร็จ — ห้าม process.exit เด็ดขาด
