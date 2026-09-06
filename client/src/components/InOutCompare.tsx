@@ -5,7 +5,7 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFract
 
 /* ตารางเทียบ "รับเข้าจากโรงงาน vs เบิกออกให้สมาชิก" ในตารางเดียว แถวละชนิดงาน
    — เดิมแยกเป็น 2 การ์ดคนละที่ ต้องกวาดสายตาขึ้นลงเทียบเอง อ่านยาก
-   ส่วนต่าง = รับเข้า − เบิกออก (ติดลบ = เบิกออกมากกว่าที่รับเข้าในช่วงนี้) */
+   คงเหลือรอเบิก = รับเข้า − เบิกออก (ติดลบ = เบิกออกมากกว่าที่รับเข้าในช่วงนี้) */
 export default function InOutCompare({
   received, issued, note, memberCount,
 }: { received: SumGroup[]; issued: SumGroup[]; note?: string; memberCount?: number }) {
@@ -47,7 +47,7 @@ export default function InOutCompare({
             <th className="px-2 py-2 font-medium text-left">ชนิดงาน</th>
             <th className="px-2 py-2 font-medium text-right">📦 รับเข้า</th>
             <th className="px-2 py-2 font-medium text-right">↑ เบิกออก</th>
-            <th className="px-2 py-2 font-medium text-right">ส่วนต่าง</th>
+            <th className="px-2 py-2 font-medium text-right">คงเหลือรอเบิก</th>
           </tr>
         </thead>
         <tbody>
@@ -81,7 +81,7 @@ export default function InOutCompare({
       </table>
 
       <p className="text-xs text-gray-400 mt-2">
-        ส่วนต่าง = รับเข้า − เบิกออก · <span className="text-rose-600">ติดลบ</span> = ช่วงนี้เบิกออกมากกว่ารับเข้า (แจกงานที่ค้างมาจากก่อนหน้า)
+        คงเหลือรอเบิก = รับเข้า − เบิกออก · <span className="text-rose-600">ติดลบ</span> = ช่วงนี้เบิกออกมากกว่ารับเข้า (แจกงานที่ค้างมาจากก่อนหน้า)
       </p>
     </div>
   );
