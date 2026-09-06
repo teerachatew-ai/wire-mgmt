@@ -82,9 +82,14 @@ export function monthCutoffRange(ym: string, settingsRows: { key: string; value:
 //        วันเริ่มของเดือน = วันสิ้นสุดของเดือนก่อนหน้า (วันเดียวกัน) เช่น รอบ ก.ย. เริ่มนับจาก
 //        วันรับของจริงวันสุดท้ายของ ส.ค. เป็นวันแรกเลย ไม่ใช่วันถัดไป
 // ถ้าเดือนไหนไม่มีประวัติรับของเลย fallback เป็นปฏิทิน 1-สิ้นเดือนของเดือนนั้นแทน
+// ข้อยกเว้น: ถ้า ym คือ "เดือนปัจจุบัน" (เดือนที่ยังไม่จบ) ให้วันสิ้นสุด = วันนี้เสมอ ไม่ใช่
+// วันรับของล่าสุดเท่านั้น — กันไม่ให้ใบเบิกที่ตัดหลังวันรับของล่าสุดของเดือน (แต่ยังอยู่ในเดือนนี้)
+// หายไปจากยอดรวมจนกว่าโรงงานจะมาส่งของรอบถัดไป (ผู้ใช้ยืนยันแล้วว่าต้องการดูยอดถึงวันนี้เสมอ)
 export function deliveryCutoffRange(ym: string, lastReceiveByMonth: Record<string, string>): { start: string; end: string } {
   const [y, m] = ym.split('-').map(Number);
-  const end = lastReceiveByMonth[ym] || fmt(y, m, lastDayOfMonth(y, m));
+  const today = todayThai();
+  const isCurrentMonth = ym === today.slice(0, 7);
+  const end = isCurrentMonth ? today : (lastReceiveByMonth[ym] || fmt(y, m, lastDayOfMonth(y, m)));
   const pm = prevMonth(ym);
   const [py, pmo] = pm.split('-').map(Number);
   const start = lastReceiveByMonth[pm] || fmt(py, pmo, 1);
