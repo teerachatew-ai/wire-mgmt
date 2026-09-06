@@ -1021,7 +1021,7 @@ router.post('/payroll-detail-export', (req, res) => {
   const month = typeof req.body?.month === 'string' && /^\d{4}-\d{2}$/.test(req.body.month) ? req.body.month : '';
   if (!month) return res.status(400).json({ error: 'month required' });
   const wantPdf = req.query.format === 'pdf';
-  const paperSize = req.body?.paper_size === 'A5' ? 'A5' : 'A4';
+  const paperSize = req.body?.paper_size === 'A4' ? 'A4' : 'A5'; // default A5 ตามที่ขอ
   const data: any = buildPayrollDetail(month);
   data.paper_size = paperSize;
   // ต้นฉบับ/คู่ฉบับ เรียงหน้าต่อกัน เฉพาะตอนแปลงเป็น PDF เท่านั้น — ไฟล์ Excel ที่ดาวน์โหลดตรงยังคง 1 ชีต/คนเหมือนเดิม

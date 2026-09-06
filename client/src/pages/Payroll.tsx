@@ -280,7 +280,7 @@ function MonthlyTab() {
   const [search, setSearch] = useState('');
   const [viewMember, setViewMember] = useState<any>(null);   // ดูรายละเอียดการรับงานรายคน
   const [detailBusy, setDetailBusy] = useState('');
-  const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A4');
+  const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A5'); // default A5 ตามที่ขอ — เลือกกลับเป็น A4 ได้จาก dropdown
   const [includeCopy, setIncludeCopy] = useState(true);   // เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือตรวจทาน (ต้นฉบับอย่างเดียว) — มีผลเฉพาะ PDF
 
   const load = async () => {
