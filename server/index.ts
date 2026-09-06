@@ -16,7 +16,9 @@ process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
 app.use(cors());
-app.use(express.json());
+// เก็บ raw body ไว้ใน req.rawBody ด้วย (นอกจาก req.body ที่ parse แล้ว) — ต้องใช้ตรวจลายเซ็น
+// webhook ของ LINE (x-line-signature คำนวณจาก raw bytes ก่อนแปลงเป็น JSON เท่านั้น)
+app.use(express.json({ verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 
 // ── endpoint สำหรับ "ปลุกเครื่องไม่ให้หลับ" ────────────────────────────────
@@ -76,6 +78,7 @@ function bootDb(attempt = 1): void {
   const portalRouter = require('./routes/portal').default;
   const returnRequestsRouter = require('./routes/returnRequests').default;
   const issueRequestsRouter = require('./routes/issueRequests').default;
+  const lineRouter = require('./routes/line').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -92,6 +95,7 @@ function bootDb(attempt = 1): void {
   app.use('/api/portal', portalRouter);
   app.use('/api/return-requests', returnRequestsRouter);
   app.use('/api/issue-requests', issueRequestsRouter);
+  app.use('/api/line', lineRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {
