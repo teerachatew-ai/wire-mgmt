@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
-import { monthCutoffRange } from '../payCycle';
+import { deliveryCutoffRange } from '../payCycle';
 
 const router = Router();
 
@@ -13,10 +13,11 @@ router.get('/', (req, res) => {
   if (date) {
     const d = String(date);
     if (/^\d{4}-\d{2}$/.test(d)) {
-      // โหมด "รายเดือน" — ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน
-      // ให้ยอดรับเข้าตรงกับรอบเดียวกับยอดเบิกออก เทียบกันแล้วไม่งง
-      const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
-      const { start, end } = monthCutoffRange(d, settings);
+      // โหมด "รายเดือน" — รอบเดือนอิงวันรับของจริงจากโรงงาน (ไม่ใช่ปฏิทิน 1-สิ้นเดือน)
+      // ให้ยอดรับเข้าตรงกับรอบที่ของจริงเข้ามา เทียบกับยอดเบิกออกแล้วไม่งง (คนละตัวกับรอบจ่ายค่าแรง)
+      const lastRecvRows = prepare(`SELECT substr(received_at,1,7) as ym, MAX(received_at) as last FROM receives GROUP BY ym`).all() as any[];
+      const lastRecvByMonth = Object.fromEntries(lastRecvRows.map((r: any) => [r.ym, r.last]));
+      const { start, end } = deliveryCutoffRange(d, lastRecvByMonth);
       sql += ` AND r.received_at >= ? AND r.received_at <= ?`; params.push(start, end);
     } else {
       sql += ` AND r.received_at LIKE ?`; params.push(`${d}%`);

@@ -76,6 +76,21 @@ export function monthCutoffRange(ym: string, settingsRows: { key: string; value:
   return payCycleWindow(ym, holidays, overrides, cutoffDay);
 }
 
+// รอบเดือนแบบ "อิงวันรับของจริงจากโรงงาน" — ใช้เฉพาะตารางเทียบรับเข้า vs เบิกออก
+// (คนละตัวกับ monthCutoffRange/payCycleWindow ด้านบนที่ใช้ตัดสินรอบจ่ายค่าแรงจริง — ไม่กระทบกัน)
+// กติกา: วันสิ้นสุดของเดือน = วันที่รับของจริงวันสุดท้ายที่มีบันทึกไว้ในเดือนนั้น (ไม่ใช่กฎวันทำการ)
+//        วันเริ่มของเดือน = วันสิ้นสุดของเดือนก่อนหน้า (วันเดียวกัน) เช่น รอบ ก.ย. เริ่มนับจาก
+//        วันรับของจริงวันสุดท้ายของ ส.ค. เป็นวันแรกเลย ไม่ใช่วันถัดไป
+// ถ้าเดือนไหนไม่มีประวัติรับของเลย fallback เป็นปฏิทิน 1-สิ้นเดือนของเดือนนั้นแทน
+export function deliveryCutoffRange(ym: string, lastReceiveByMonth: Record<string, string>): { start: string; end: string } {
+  const [y, m] = ym.split('-').map(Number);
+  const end = lastReceiveByMonth[ym] || fmt(y, m, lastDayOfMonth(y, m));
+  const pm = prevMonth(ym);
+  const [py, pmo] = pm.split('-').map(Number);
+  const start = lastReceiveByMonth[pm] || fmt(py, pmo, 1);
+  return { start, end };
+}
+
 // อ่านวันหยุด + วันเส้นตายที่ override จากตาราง settings
 //  - holidays      = "2026-04-13,2026-04-14,..."  (comma)
 //  - cutoff_YYYY-MM = "YYYY-MM-DD"                 (กำหนดเส้นตายเองรายเดือน)
