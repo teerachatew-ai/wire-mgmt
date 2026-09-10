@@ -189,7 +189,9 @@ export default function StockLedger() {
       if (toDate && d > toDate) break;
       const mv = moves.get(d)!;
       const inRange = !fromDate || d >= fromDate;
-      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev;   // วันเริ่มรอบ
+      // วันเริ่มรอบ — มีผลเฉพาะมุมมองรับ-ส่งโรงงาน เพราะเป็นกติกาของยอด "ส่งออก" เท่านั้น
+      // (มุมมองสต็อกหน้างานไม่เกี่ยวกับการส่งออกเลย ยอดเบิกออกวันรอยต่อเป็นของรอบใหม่ตามปกติ)
+      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev && mode === 'factory';
       const atEndSeam = inBelongsToNext && d === toDate;                     // วันปิดรอบ
 
       // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — หักเข้ายอดยกมาก่อนบันทึก snapshot
