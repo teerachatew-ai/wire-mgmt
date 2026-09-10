@@ -134,6 +134,10 @@ export default function StockLedger() {
 
   const outLabel = mode === 'site' ? 'เบิกออกให้สมาชิก' : 'ส่งงานออกโรงงาน';
   const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ส่วนต่างสะสม';
+  /* มุมมองสต็อกหน้างานสนใจแค่ "ตอนนี้เหลือเท่าไร" ของแต่ละชนิดงาน — โชว์เฉพาะบรรทัดล่างสุด
+     ไม่ต้องไล่ยอดคงเหลือรายวัน (แถวรายวันดูแค่รับเข้า/เบิกออกก็พอ อ่านง่ายกว่า)
+     ส่วนมุมมองรับ-ส่งโรงงานยังไล่ยอดสะสมรายวันเหมือนเดิม เพราะใช้กระทบยอดกับโรงงาน */
+  const showRunningBal = mode === 'factory';
 
   // ── รวมความเคลื่อนไหวรายวัน ──
   const { dates, moves } = useMemo(() => {
@@ -351,7 +355,7 @@ export default function StockLedger() {
         const gIn = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0), 0);
         const gOut = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0), 0);
         const gBal = g.items.reduce((s: number, p: any) => s + (ledger.closing[p.id] || 0), 0);
-        const hasOpening = g.items.some((p: any) => ledger.opening[p.id]);
+        const hasOpening = showRunningBal && g.items.some((p: any) => ledger.opening[p.id]);
 
         return (
           <div key={g.key} className="card !p-0 overflow-hidden">
@@ -376,7 +380,9 @@ export default function StockLedger() {
                       <th className="sticky left-0 bg-white z-10 px-3 py-1.5 text-left font-medium text-gray-500 border-b border-r">วันที่</th>
                       <th colSpan={g.items.length} className="px-2 py-1.5 bg-emerald-50 text-emerald-800 font-semibold border-b border-r">📦 รับเข้าจากโรงงาน</th>
                       <th colSpan={g.items.length} className="px-2 py-1.5 bg-blue-50 text-blue-800 font-semibold border-b border-r">{mode === 'site' ? '👤' : '🚚'} {outLabel}</th>
-                      <th colSpan={g.items.length} className="px-2 py-1.5 bg-slate-100 text-slate-800 font-semibold border-b">📊 {balLabel}</th>
+                      <th colSpan={g.items.length} className="px-2 py-1.5 bg-slate-100 text-slate-800 font-semibold border-b">
+                        📊 {balLabel}{!showRunningBal && <span className="font-normal text-slate-500"> (ล่าสุด)</span>}
+                      </th>
                     </tr>
                     <tr className="text-[11px] text-gray-500">
                       <th className="sticky left-0 bg-white z-10 border-b border-r px-3 py-1" />
@@ -401,7 +407,9 @@ export default function StockLedger() {
                         {g.items.map((p: any) => <td key={'i' + p.id} className="px-2 py-1.5 text-right bg-emerald-50/20"><Cell v={r.in[p.id] || 0} cls="text-emerald-700 font-medium" /></td>)}
                         {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
                         {g.items.map((p: any) => (
-                          <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold"><BalCell v={r.bal[p.id] || 0} /></td>
+                          <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold">
+                            {showRunningBal ? <BalCell v={r.bal[p.id] || 0} /> : null}
+                          </td>
                         ))}
                       </tr>
                     ))}
@@ -412,7 +420,9 @@ export default function StockLedger() {
                     <tr className="bg-gray-50 font-semibold border-t-2">
                       <td className="sticky left-0 bg-gray-50 z-10 px-3 py-2 border-r text-gray-700 leading-tight">
                         รวมช่วงนี้
-                        <div className="text-[10px] font-normal text-gray-400">{balLabel} = ยอดล่าสุด</div>
+                        <div className="text-[10px] font-normal text-gray-400">
+                          {showRunningBal ? `${balLabel} = ยอดล่าสุด` : `${balLabel} = ของที่เหลืออยู่ตอนนี้`}
+                        </div>
                       </td>
                       {g.items.map((p: any) => (
                         <td key={'ti' + p.id} className="px-2 py-2 text-right text-emerald-800">
