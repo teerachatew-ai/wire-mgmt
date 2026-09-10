@@ -11,6 +11,7 @@ import Billing from './pages/Billing';
 import OCR from './pages/OCR';
 import SettingsPage from './pages/SettingsPage';
 import StockFlow from './pages/StockFlow';
+import StockLedger from './pages/StockLedger';
 import Shipments from './pages/Shipments';
 import ShipmentPlan from './pages/ShipmentPlan';
 import PackingPlan from './pages/PackingPlan';
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="/issues" element={<Guard path="/issues"><Issues /></Guard>} />
         <Route path="/returns" element={<Guard path="/returns"><Returns /></Guard>} />
         <Route path="/stock" element={<Guard path="/stock"><StockFlow /></Guard>} />
+        <Route path="/stock-ledger" element={<Guard path="/stock-ledger"><StockLedger /></Guard>} />
         <Route path="/shipments" element={<Guard path="/shipments"><Shipments /></Guard>} />
         <Route path="/packing-plan" element={<Guard path="/packing-plan"><PackingPlan /></Guard>} />
         <Route path="/shipment-plan" element={<Guard path="/shipment-plan"><ShipmentPlan /></Guard>} />

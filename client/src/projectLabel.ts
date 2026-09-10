@@ -4,6 +4,7 @@ export const PROJECT_LABEL: Record<string, string> = {
   COT091: 'งานป้ายขาว',
   COT092: 'งานป้ายชมพู',
   COT102: 'งาน 3 สาย',
+  COT109: 'งานสายชมพูใหม่',
 };
 
 export const projectLabel = (key: string) => PROJECT_LABEL[key] || key;

@@ -3,12 +3,13 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, ArrowDownToLine,
   ArrowUpFromLine, RotateCcw, DollarSign,
-  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck
+  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck, ClipboardList
 } from 'lucide-react';
 import { useAuth, canAccess } from '../auth';
 
 const nav = [
   { to: '/stock',    icon: Layers,          label: 'สต็อค & ตรวจสอบ',    short: 'สต็อค' },
+  { to: '/stock-ledger', icon: ClipboardList, label: 'สต็อกสินค้า เข้า-ออก', short: 'สต็อกสินค้า' },
   { to: '/',         icon: LayoutDashboard, label: 'ภาพรวม',            short: 'ภาพรวม' },
   { to: '/members',  icon: Users,           label: 'สมาชิก',             short: 'สมาชิก' },
   { to: '/products', icon: Package,         label: 'ประเภทสินค้า',        short: 'สินค้า' },
