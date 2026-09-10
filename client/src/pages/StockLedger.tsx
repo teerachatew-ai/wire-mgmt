@@ -36,7 +36,7 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFract
 const isoOf = (d: Date) => new Intl.DateTimeFormat('en-CA').format(d);
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return isoOf(d); };
 
-type Preset = 'since' | 'all' | 'month' | '14d' | '7d' | 'custom';
+type Preset = 'all' | 'month' | '14d' | '7d' | 'custom';
 type Mode = 'site' | 'factory';
 type Move = { in: Record<number, number>; issue: Record<number, number>; ship: Record<number, number> };
 
@@ -64,18 +64,31 @@ const OpeningRow = ({ items, opening }: { items: any[]; opening: Record<number, 
 export default function StockLedger() {
   const [mode, setMode] = useState<Mode>('factory');   // เปิดหน้ามาเจอ "รับ-ส่ง โรงงาน" ก่อน (ดูทั้งหมดย้อนหลังได้)
   const [scope, setScope] = useState('ALL');
-  const [preset, setPreset] = useState<Preset>('all');
+  const [preset, setPreset] = useState<Preset>('month');   // เปิดหน้ามาเจอเดือนปัจจุบันก่อน
   const [month, setMonth] = useState(isoOf(new Date()).slice(0, 7));
   const [cFrom, setCFrom] = useState('');
   const [cTo, setCTo] = useState('');
   const [newestFirst, setNewestFirst] = useState(false);   // ค่าเริ่มต้น เก่า→ใหม่ (ยอดคงเหลือไหลลงตามธรรมชาติ)
 
-  // สลับมุมมองแล้วรีเซ็ตช่วงวันที่เป็นค่าเริ่มต้นของมุมมองนั้น
-  // (สต็อกหน้างาน = นับจากเส้นเริ่มนับ / รับ-ส่งโรงงาน = ดูทั้งหมด)
-  const switchMode = (m: Mode) => { setMode(m); setPreset(m === 'site' ? 'since' : 'all'); };
+  // สลับมุมมองแล้วคงช่วงวันที่เดิมไว้ — จะได้เทียบเดือนเดียวกันระหว่าง 2 มุมมองได้ทันที
+  const switchMode = (m: Mode) => setMode(m);
 
-  // ใบเบิกทั้งหมดมี ~2,900 แถว (1.3 MB) — ดึงเท่าที่จำเป็น: โหลดเต็มเฉพาะตอนดูสต็อกหน้างานย้อนก่อนเส้นเริ่มนับ
-  const issuesFrom = mode === 'site' && preset !== 'since' ? '' : STOCK_CUTOFF;
+  const mRange = monthRange(month);
+  const fromDate =
+    preset === 'all' ? '' :
+    preset === 'month' ? mRange.from :
+    preset === 'custom' ? cFrom :
+    daysAgo(preset === '14d' ? 14 : 7);
+  const toDate = preset === 'month' ? mRange.to : preset === 'custom' ? cTo : '';
+
+  /* จุด "เริ่มเดินยอด" ของโหมดสต็อกหน้างาน = STOCK_CUTOFF (ยอดก่อนหน้านั้นไม่ตรงกับของจริงหน้างาน)
+     ทำงานอัตโนมัติเมื่อช่วงที่ดูอยู่เริ่มตั้งแต่เส้นเริ่มนับเป็นต้นไป — ไม่ต้องมีปุ่มให้กดเอง
+     ถ้าย้อนไปดูก่อนหน้านั้น (เช่น เลือกเดือน ก.ค.) จะเดินยอดจากวันแรกของระบบแทน = ดูประวัติได้
+     แต่มีหมายเหตุใต้ตารางเตือนว่ายอดอาจไม่ตรงกับของจริง */
+  const countFrom = mode === 'site' && !!fromDate && fromDate >= STOCK_CUTOFF ? STOCK_CUTOFF : '';
+
+  // ใบเบิกทั้งหมดมี ~2,900 แถว (1.3 MB) — โหลดเต็มเฉพาะตอนต้องเดินยอดจากวันแรกของระบบจริงๆ
+  const issuesFrom = mode === 'site' && !countFrom ? '' : STOCK_CUTOFF;
 
   const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
   const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
@@ -85,17 +98,6 @@ export default function StockLedger() {
     queryFn: () => issueApi.list(issuesFrom ? { from: issuesFrom } : {}),
   });
   const loading = lp || lr || ls || li;
-
-  const mRange = monthRange(month);
-  // จุด "เริ่มเดินยอด": เฉพาะโหมดสต็อกหน้างานแบบ "ตั้งแต่เริ่มนับ" เท่านั้นที่ตัดข้อมูลก่อนหน้าทิ้ง
-  const countFrom = mode === 'site' && preset === 'since' ? STOCK_CUTOFF : '';
-  const fromDate =
-    preset === 'since' ? STOCK_CUTOFF :
-    preset === 'all' ? '' :
-    preset === 'month' ? mRange.from :
-    preset === 'custom' ? cFrom :
-    daysAgo(preset === '14d' ? 14 : 7);
-  const toDate = preset === 'month' ? mRange.to : preset === 'custom' ? cTo : '';
 
   const outLabel = mode === 'site' ? 'เบิกออกให้สมาชิก' : 'ส่งงานออกโรงงาน';
   const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ส่วนต่างสะสม';
@@ -209,7 +211,6 @@ export default function StockLedger() {
 
   // ป้ายอธิบายช่วงที่กำลังดูอยู่ (ให้รู้ทันทีว่ายอดคงเหลือคิดจากตรงไหน)
   const rangeNote =
-    preset === 'since' ? `นับสต็อกจาก ${dateTH(STOCK_CUTOFF)}` :
     preset === 'all' ? 'ดูทั้งหมดตั้งแต่วันแรกของระบบ' :
     preset === 'month' ? `เดือน ${monthTH(month)}` : '';
 
@@ -253,9 +254,8 @@ export default function StockLedger() {
         {/* ช่วงวันที่ + เรียงลำดับ + export */}
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <span className="text-xs text-gray-500">ช่วงวันที่:</span>
-          <button onClick={() => setPreset('all')} className={datePill(preset === 'all')}>ทั้งหมด</button>
-          <button onClick={() => setPreset('since')} className={datePill(preset === 'since')}>ตั้งแต่เริ่มนับสต็อก ({dateTH(STOCK_CUTOFF)})</button>
           <button onClick={() => setPreset('month')} className={datePill(preset === 'month')}>รายเดือน</button>
+          <button onClick={() => setPreset('all')} className={datePill(preset === 'all')}>ทั้งหมด</button>
           <button onClick={() => setPreset('14d')} className={datePill(preset === '14d')}>14 วันล่าสุด</button>
           <button onClick={() => setPreset('custom')} className={datePill(preset === 'custom')}>กำหนดเอง</button>
 
@@ -394,9 +394,9 @@ export default function StockLedger() {
       <p className="text-xs text-gray-400 px-1 leading-relaxed">
         {mode === 'site'
           ? <><b>สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก</b> คือของที่ยังอยู่หน้างานรอแจกจ่าย (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)
-              {preset === 'since'
-                ? <> · นับตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
-                : <> · ช่วงนี้รวมข้อมูลก่อน {dateTH(STOCK_CUTOFF)} ด้วย ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ดูย้อนหลังเท่านั้น)</>}</>
+              {countFrom
+                ? <> · เดินยอดตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
+                : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>
           : <><b>ส่วนต่างสะสม = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน</b> · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว · ดูย้อนหลังได้ทั้งหมด ไม่ตัดที่เส้นเริ่มนับสต็อก</>}
         {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
       </p>
