@@ -33,9 +33,14 @@ type Preset = 'since' | '7d' | '14d' | 'custom';
 type Mode = 'site' | 'factory';
 type Move = { in: Record<number, number>; issue: Record<number, number>; ship: Record<number, number> };
 
-// ตัวเลขในช่อง: 0 ให้จางลงเป็นขีด อ่านง่ายกว่าเลขศูนย์เต็มตาราง
+// ช่องรับเข้า/จ่ายออก: 0 = "วันนี้ไม่มีความเคลื่อนไหว" แสดงเป็นขีดจาง อ่านง่ายกว่าเลขศูนย์เต็มตาราง
 const Cell = ({ v, cls = '' }: { v: number; cls?: string }) =>
   v ? <span className={cls}>{fmt(v)}</span> : <span className="text-gray-300">–</span>;
+
+// ช่องคงเหลือ: ต้องโชว์เลข 0 เสมอ เพราะ "เหลือ 0" เป็นข้อมูลจริง (ของหมด) คนละความหมายกับ "ไม่มีความเคลื่อนไหว"
+const BalCell = ({ v }: { v: number }) => (
+  <span className={v < 0 ? 'text-rose-600' : v === 0 ? 'text-gray-400' : 'text-slate-800'}>{fmt(v)}</span>
+);
 
 // แถว "ยกมา" = ยอดคงเหลือสะสมก่อนวันแรกของช่วงที่เลือก (ทำให้ยอดต่อเนื่องถูกต้องแม้กรองช่วงสั้นๆ)
 const OpeningRow = ({ items, opening }: { items: any[]; opening: Record<number, number> }) => (
@@ -45,7 +50,7 @@ const OpeningRow = ({ items, opening }: { items: any[]; opening: Record<number, 
     {items.map(p => <td key={'oo' + p.id} className="px-2 py-1.5 text-right text-gray-300">–</td>)}
     {items.map(p => (
       <td key={'ob' + p.id} className="px-2 py-1.5 text-right font-medium">
-        <Cell v={opening[p.id] || 0} cls={(opening[p.id] || 0) < 0 ? 'text-rose-600' : ''} />
+        <BalCell v={opening[p.id] || 0} />
       </td>
     ))}
   </tr>
@@ -321,7 +326,7 @@ export default function StockLedger() {
                         {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
                         {g.items.map((p: any) => (
                           <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold">
-                            <Cell v={r.bal[p.id] || 0} cls={r.bal[p.id] < 0 ? 'text-rose-600' : 'text-slate-800'} />
+                            <BalCell v={r.bal[p.id] || 0} />
                           </td>
                         ))}
                       </tr>
