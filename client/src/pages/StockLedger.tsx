@@ -32,6 +32,11 @@ const monthRange = (ym: string) => {
   const last = new Date(y, m, 0).getDate();
   return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, '0')}` };
 };
+const prevMonth = (ym: string) => {
+  let [y, m] = ym.split('-').map(Number);
+  m--; if (m < 1) { m = 12; y--; }
+  return `${y}-${String(m).padStart(2, '0')}`;
+};
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const isoOf = (d: Date) => new Intl.DateTimeFormat('en-CA').format(d);
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return isoOf(d); };
@@ -73,13 +78,45 @@ export default function StockLedger() {
   // สลับมุมมองแล้วคงช่วงวันที่เดิมไว้ — จะได้เทียบเดือนเดียวกันระหว่าง 2 มุมมองได้ทันที
   const switchMode = (m: Mode) => setMode(m);
 
-  const mRange = monthRange(month);
+  const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
+  const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
+  const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger'], queryFn: () => shipmentApi.list() });
+
+  /* ── วันรอยต่อรอบ ──────────────────────────────────────────────────────────
+     รอบของแต่ละเดือนเริ่มนับจาก "วันที่โรงงานส่งของครั้งสุดท้ายของเดือนก่อน" (กติกาเดียวกับ
+     ตัวกรองรายเดือนในหน้าใบเบิกงาน) เช่น รอบเดือน ก.ย. เริ่ม 28 ส.ค.
+     วันรอยต่อนี้ของ 2 รอบมาเจอกัน จึงต้องแบ่งให้ชัดว่าอะไรเป็นของรอบไหน:
+       • รับเข้า / เบิกออก ของวันรอยต่อ = ของ "รอบใหม่" (ของที่เพิ่งส่งมาถึงเริ่มรอบใหม่)
+       • ส่งงานออกโรงงาน ของวันรอยต่อ  = ปิดยอดของ "รอบเก่า" (ไม่นับซ้ำในรอบใหม่) */
+  const { boundaries, lastRecvByMonth } = useMemo(() => {
+    const lastRecvByMonth = new Map<string, string>();
+    for (const r of (receives as any[])) {
+      const d = String(r.received_at).slice(0, 10), ym = d.slice(0, 7);
+      if (!lastRecvByMonth.has(ym) || d > lastRecvByMonth.get(ym)!) lastRecvByMonth.set(ym, d);
+    }
+    return { boundaries: new Set(lastRecvByMonth.values()), lastRecvByMonth };
+  }, [receives]);
+
+  const todayISO = isoOf(new Date());
+  // ช่วงของ "รอบเดือน" ที่เลือก — เดือนปัจจุบันยังไม่ปิดรอบ จึงเปิดถึงวันนี้
+  const cycle = useMemo(() => {
+    const start = lastRecvByMonth.get(prevMonth(month)) || monthRange(month).from;
+    const own = lastRecvByMonth.get(month);
+    const isCurrent = month === todayISO.slice(0, 7);
+    return { start, end: isCurrent ? todayISO : (own || monthRange(month).to), closed: !isCurrent && !!own };
+  }, [month, lastRecvByMonth, todayISO]);
+
   const fromDate =
     preset === 'all' ? '' :
-    preset === 'month' ? mRange.from :
+    preset === 'month' ? cycle.start :
     preset === 'custom' ? cFrom :
     daysAgo(preset === '14d' ? 14 : 7);
-  const toDate = preset === 'month' ? mRange.to : preset === 'custom' ? cTo : '';
+  const toDate = preset === 'month' ? cycle.end : preset === 'custom' ? cTo : '';
+
+  // ส่งออกของวันเริ่มรอบ = ของรอบก่อน (ยกไปอยู่ในยอดยกมาแทน ไม่โชว์ซ้ำในรอบนี้)
+  const shipBelongsToPrev = !!fromDate && boundaries.has(fromDate);
+  // รับเข้า/เบิกออกของวันปิดรอบ = ของรอบถัดไป (เฉพาะรอบที่ปิดแล้วเท่านั้น รอบเดือนปัจจุบันยังไม่ปิด)
+  const inBelongsToNext = preset === 'month' && cycle.closed && !!toDate && boundaries.has(toDate);
 
   /* จุด "เริ่มเดินยอด" ของโหมดสต็อกหน้างาน = STOCK_CUTOFF (ยอดก่อนหน้านั้นไม่ตรงกับของจริงหน้างาน)
      ทำงานอัตโนมัติเมื่อช่วงที่ดูอยู่เริ่มตั้งแต่เส้นเริ่มนับเป็นต้นไป — ไม่ต้องมีปุ่มให้กดเอง
@@ -89,10 +126,6 @@ export default function StockLedger() {
 
   // ใบเบิกทั้งหมดมี ~2,900 แถว (1.3 MB) — โหลดเต็มเฉพาะตอนต้องเดินยอดจากวันแรกของระบบจริงๆ
   const issuesFrom = mode === 'site' && !countFrom ? '' : STOCK_CUTOFF;
-
-  const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
-  const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
-  const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger'], queryFn: () => shipmentApi.list() });
   const { data: issues = [], isLoading: li } = useQuery({
     queryKey: ['issues', 'ledger', issuesFrom || 'all'],
     queryFn: () => issueApi.list(issuesFrom ? { from: issuesFrom } : {}),
@@ -149,29 +182,41 @@ export default function StockLedger() {
     const opening: Record<number, number> = {};
     let captured = false;
 
+    const EMPTY: Record<number, number> = {};
+
     for (const d of dates) {
       if (countFrom && d < countFrom) continue;      // ก่อนจุดเริ่มเดินยอด = ไม่นับเลย
       if (toDate && d > toDate) break;
       const mv = moves.get(d)!;
-      const outMap = mode === 'site' ? mv.issue : mv.ship;
       const inRange = !fromDate || d >= fromDate;
+      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev;   // วันเริ่มรอบ
+      const atEndSeam = inBelongsToNext && d === toDate;                     // วันปิดรอบ
+
+      // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — หักเข้ายอดยกมาก่อนบันทึก snapshot
+      if (atStartSeam) for (const [pid, q] of Object.entries(mv.ship)) bal[+pid] = (bal[+pid] || 0) - q;
       if (inRange && !captured) { Object.assign(opening, bal); captured = true; }
 
-      for (const [pid, q] of Object.entries(mv.in)) bal[+pid] = (bal[+pid] || 0) + q;
-      for (const [pid, q] of Object.entries(outMap)) bal[+pid] = (bal[+pid] || 0) - q;
+      // วันปิดรอบ: ของที่รับเข้า/เบิกออกวันนั้นเป็นของรอบถัดไป
+      const inQty = atEndSeam ? EMPTY : mv.in;
+      const outQty = mode === 'site'
+        ? (atEndSeam ? EMPTY : mv.issue)
+        : (atStartSeam ? EMPTY : mv.ship);
+
+      for (const [pid, q] of Object.entries(inQty)) bal[+pid] = (bal[+pid] || 0) + q;
+      for (const [pid, q] of Object.entries(outQty)) bal[+pid] = (bal[+pid] || 0) - q;
       if (!inRange) continue;
 
       for (const g of groups) {
-        if (!g.items.some((p: any) => mv.in[p.id] || outMap[p.id])) continue;   // กลุ่มนี้ไม่มีความเคลื่อนไหววันนี้
+        if (!g.items.some((p: any) => inQty[p.id] || outQty[p.id])) continue;   // กลุ่มนี้ไม่มีความเคลื่อนไหววันนี้
         const snap: Record<number, number> = {};
         for (const p of g.items) snap[p.id] = bal[p.id] || 0;
         if (!rows.has(g.key)) rows.set(g.key, []);
-        rows.get(g.key)!.push({ date: d, in: mv.in, out: outMap, bal: snap });
+        rows.get(g.key)!.push({ date: d, in: inQty, out: outQty, bal: snap });
       }
     }
     if (!captured) Object.assign(opening, bal);
     return { rows, opening, closing: bal };
-  }, [dates, moves, groups, fromDate, toDate, countFrom, mode]);
+  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext]);
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
@@ -212,7 +257,7 @@ export default function StockLedger() {
   // ป้ายอธิบายช่วงที่กำลังดูอยู่ (ให้รู้ทันทีว่ายอดคงเหลือคิดจากตรงไหน)
   const rangeNote =
     preset === 'all' ? 'ดูทั้งหมดตั้งแต่วันแรกของระบบ' :
-    preset === 'month' ? `เดือน ${monthTH(month)}` : '';
+    preset === 'month' ? `รอบเดือน ${monthTH(month)} · ${dateTH(cycle.start)} – ${dateTH(cycle.end)}` : '';
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -399,6 +444,12 @@ export default function StockLedger() {
                 : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>
           : <><b>ส่วนต่างสะสม = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน</b> · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว · ดูย้อนหลังได้ทั้งหมด ไม่ตัดที่เส้นเริ่มนับสต็อก</>}
         {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
+        {(shipBelongsToPrev || inBelongsToNext) && (
+          <><br /><b>วันรอยต่อรอบ:</b>
+            {shipBelongsToPrev && <> ยอด "ส่งงานออกโรงงาน" ของวันที่ {dateTH(fromDate)} เป็นการปิดยอดรอบก่อน จึงไม่นับซ้ำในรอบนี้ (รวมอยู่ในยอดยกมาแล้ว)</>}
+            {inBelongsToNext && <> · ยอด "รับเข้า/เบิกออก" ของวันที่ {dateTH(toDate)} เป็นของรอบถัดไป (วันที่ของมาถึงคือวันเริ่มรอบใหม่)</>}
+          </>
+        )}
       </p>
     </div>
   );
