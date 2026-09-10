@@ -9,14 +9,13 @@ import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Lo
 /* บัตรสต็อกสินค้า — ไล่วันที่ลงมา เห็นของเข้า ของออก และยอดคงเหลือในตารางเดียว
    (แทนไฟล์ Excel 交货明细 ที่เคยทำมือ — แยกบล็อกซ้าย-ขวาแล้วต้องบวกยอดคงเหลือเอง)
 
-   มี 2 มุมมอง:
-   1) สต็อกหน้างาน (ค่าเริ่มต้น) = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก
+   2 มุมมอง:
+   1) สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก
       คือของที่ยังอยู่หน้างานรอแจกจ่าย — ตรงกับการ์ด "เทียบรับเข้า vs เบิกออก" ในหน้าใบเบิกงาน
+      ค่าเริ่มต้นนับจาก STOCK_CUTOFF เพราะยอดสะสมช่วงก่อนหน้าไม่ตรงกับของจริงหน้างาน
+      (แต่ยังเลือกดูย้อนก่อนหน้านั้นได้ ถ้าต้องการดูประวัติ)
    2) รับ-ส่ง โรงงาน = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน (ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว)
-
-   เส้นเริ่มนับ (STOCK_CUTOFF): ข้อมูลก่อนวันนี้ไม่ถูกนำมาคิด เพราะยอดสะสมช่วงก่อนหน้า
-   ไม่ตรงกับของจริงหน้างาน (เช่น ส่งออกของที่รับเข้ามาก่อนเริ่มใช้ระบบ ทำให้ยอดติดลบเกินจริง)
-   ถ้าจะเลื่อนเส้นเริ่มนับใหม่ (เช่น หลังนับสต็อกจริงรอบถัดไป) แก้ค่าเดียวตรงนี้ */
+      ค่าเริ่มต้นดูทั้งหมด ไม่ตัดที่ STOCK_CUTOFF เพราะเป็นการกระทบยอดกับโรงงานย้อนหลัง */
 const STOCK_CUTOFF = '2026-08-28';
 
 const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -24,12 +23,20 @@ const dateTH = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number);
   return `${d} ${TH_M[m - 1]} ${String((y + 543) % 100).padStart(2, '0')}`;
 };
+const monthTH = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  return `${TH_M[m - 1]} ${y + 543}`;
+};
+const monthRange = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, '0')}` };
+};
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const isoOf = (d: Date) => new Intl.DateTimeFormat('en-CA').format(d);
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return isoOf(d); };
-const maxDate = (a: string, b: string) => (a > b ? a : b);
 
-type Preset = 'since' | '7d' | '14d' | 'custom';
+type Preset = 'since' | 'all' | 'month' | '14d' | '7d' | 'custom';
 type Mode = 'site' | 'factory';
 type Move = { in: Record<number, number>; issue: Record<number, number>; ship: Record<number, number> };
 
@@ -49,37 +56,51 @@ const OpeningRow = ({ items, opening }: { items: any[]; opening: Record<number, 
     {items.map(p => <td key={'oi' + p.id} className="px-2 py-1.5 text-right text-gray-300">–</td>)}
     {items.map(p => <td key={'oo' + p.id} className="px-2 py-1.5 text-right text-gray-300">–</td>)}
     {items.map(p => (
-      <td key={'ob' + p.id} className="px-2 py-1.5 text-right font-medium">
-        <BalCell v={opening[p.id] || 0} />
-      </td>
+      <td key={'ob' + p.id} className="px-2 py-1.5 text-right font-medium"><BalCell v={opening[p.id] || 0} /></td>
     ))}
   </tr>
 );
 
 export default function StockLedger() {
-  // ดึงเฉพาะข้อมูลตั้งแต่เส้นเริ่มนับ — เบาและตรงกับที่ใช้คำนวณจริง
-  const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
-  const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger', STOCK_CUTOFF], queryFn: () => receiveApi.list({ from: STOCK_CUTOFF }) });
-  const { data: issues = [], isLoading: li } = useQuery({ queryKey: ['issues', 'ledger', STOCK_CUTOFF], queryFn: () => issueApi.list({ from: STOCK_CUTOFF }) });
-  const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger', STOCK_CUTOFF], queryFn: () => shipmentApi.list({ from: STOCK_CUTOFF }) });
-  const loading = lp || lr || li || ls;
-
-  const [mode, setMode] = useState<Mode>('site');
+  const [mode, setMode] = useState<Mode>('factory');   // เปิดหน้ามาเจอ "รับ-ส่ง โรงงาน" ก่อน (ดูทั้งหมดย้อนหลังได้)
   const [scope, setScope] = useState('ALL');
-  const [preset, setPreset] = useState<Preset>('since');
+  const [preset, setPreset] = useState<Preset>('all');
+  const [month, setMonth] = useState(isoOf(new Date()).slice(0, 7));
   const [cFrom, setCFrom] = useState('');
   const [cTo, setCTo] = useState('');
   const [newestFirst, setNewestFirst] = useState(false);   // ค่าเริ่มต้น เก่า→ใหม่ (ยอดคงเหลือไหลลงตามธรรมชาติ)
 
-  // ไม่ว่าเลือกช่วงไหน ห้ามย้อนไปก่อนเส้นเริ่มนับ
-  const fromDate = maxDate(STOCK_CUTOFF,
-    preset === 'since' ? STOCK_CUTOFF : preset === 'custom' ? (cFrom || STOCK_CUTOFF) : daysAgo(preset === '7d' ? 7 : 14));
-  const toDate = preset === 'custom' ? cTo : '';
+  // สลับมุมมองแล้วรีเซ็ตช่วงวันที่เป็นค่าเริ่มต้นของมุมมองนั้น
+  // (สต็อกหน้างาน = นับจากเส้นเริ่มนับ / รับ-ส่งโรงงาน = ดูทั้งหมด)
+  const switchMode = (m: Mode) => { setMode(m); setPreset(m === 'site' ? 'since' : 'all'); };
+
+  // ใบเบิกทั้งหมดมี ~2,900 แถว (1.3 MB) — ดึงเท่าที่จำเป็น: โหลดเต็มเฉพาะตอนดูสต็อกหน้างานย้อนก่อนเส้นเริ่มนับ
+  const issuesFrom = mode === 'site' && preset !== 'since' ? '' : STOCK_CUTOFF;
+
+  const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
+  const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
+  const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger'], queryFn: () => shipmentApi.list() });
+  const { data: issues = [], isLoading: li } = useQuery({
+    queryKey: ['issues', 'ledger', issuesFrom || 'all'],
+    queryFn: () => issueApi.list(issuesFrom ? { from: issuesFrom } : {}),
+  });
+  const loading = lp || lr || ls || li;
+
+  const mRange = monthRange(month);
+  // จุด "เริ่มเดินยอด": เฉพาะโหมดสต็อกหน้างานแบบ "ตั้งแต่เริ่มนับ" เท่านั้นที่ตัดข้อมูลก่อนหน้าทิ้ง
+  const countFrom = mode === 'site' && preset === 'since' ? STOCK_CUTOFF : '';
+  const fromDate =
+    preset === 'since' ? STOCK_CUTOFF :
+    preset === 'all' ? '' :
+    preset === 'month' ? mRange.from :
+    preset === 'custom' ? cFrom :
+    daysAgo(preset === '14d' ? 14 : 7);
+  const toDate = preset === 'month' ? mRange.to : preset === 'custom' ? cTo : '';
 
   const outLabel = mode === 'site' ? 'เบิกออกให้สมาชิก' : 'ส่งงานออกโรงงาน';
   const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ส่วนต่างสะสม';
 
-  // ── รวมความเคลื่อนไหวรายวัน (ตั้งแต่เส้นเริ่มนับ) ──
+  // ── รวมความเคลื่อนไหวรายวัน ──
   const { dates, moves } = useMemo(() => {
     const moves = new Map<string, Move>();
     const at = (d: string) => {
@@ -88,19 +109,15 @@ export default function StockLedger() {
       return m;
     };
     for (const r of (receives as any[])) {
-      const d = String(r.received_at).slice(0, 10);
-      if (d < STOCK_CUTOFF) continue;
-      const m = at(d); m.in[r.product_id] = (m.in[r.product_id] || 0) + (Number(r.quantity) || 0);
+      const m = at(String(r.received_at).slice(0, 10));
+      m.in[r.product_id] = (m.in[r.product_id] || 0) + (Number(r.quantity) || 0);
     }
     for (const i of (issues as any[])) {
-      const d = String(i.issued_at).slice(0, 10);
-      if (d < STOCK_CUTOFF) continue;
-      const m = at(d); m.issue[i.product_id] = (m.issue[i.product_id] || 0) + (Number(i.quantity) || 0);
+      const m = at(String(i.issued_at).slice(0, 10));
+      m.issue[i.product_id] = (m.issue[i.product_id] || 0) + (Number(i.quantity) || 0);
     }
     for (const s of (shipments as any[])) {
-      const d = String(s.shipped_at).slice(0, 10);
-      if (d < STOCK_CUTOFF) continue;
-      const m = at(d);
+      const m = at(String(s.shipped_at).slice(0, 10));
       for (const it of (s.items || [])) {
         // ยอดที่โรงงานรับจริง (received_qty) ถ้ายืนยันแล้ว มิฉะนั้นใช้ยอดที่บันทึกส่ง
         const qty = (it.received_qty ?? it.good_qty ?? 0) + (it.defect_qty || 0);
@@ -123,7 +140,7 @@ export default function StockLedger() {
       .sort((a, b) => colorPriority(a.items[0]?.color) - colorPriority(b.items[0]?.color) || a.key.localeCompare(b.key));
   }, [products]);
 
-  // ── เดินยอดทีละวันจากเส้นเริ่มนับ เก็บเฉพาะแถวที่อยู่ในช่วงที่เลือก ──
+  // ── เดินยอดทีละวัน เก็บเฉพาะแถวที่อยู่ในช่วงที่เลือก ──
   const ledger = useMemo(() => {
     const bal: Record<number, number> = {};
     const rows = new Map<string, any[]>();
@@ -131,10 +148,11 @@ export default function StockLedger() {
     let captured = false;
 
     for (const d of dates) {
+      if (countFrom && d < countFrom) continue;      // ก่อนจุดเริ่มเดินยอด = ไม่นับเลย
       if (toDate && d > toDate) break;
       const mv = moves.get(d)!;
       const outMap = mode === 'site' ? mv.issue : mv.ship;
-      const inRange = d >= fromDate;
+      const inRange = !fromDate || d >= fromDate;
       if (inRange && !captured) { Object.assign(opening, bal); captured = true; }
 
       for (const [pid, q] of Object.entries(mv.in)) bal[+pid] = (bal[+pid] || 0) + q;
@@ -151,7 +169,7 @@ export default function StockLedger() {
     }
     if (!captured) Object.assign(opening, bal);
     return { rows, opening, closing: bal };
-  }, [dates, moves, groups, fromDate, toDate, mode]);
+  }, [dates, moves, groups, fromDate, toDate, countFrom, mode]);
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
@@ -186,29 +204,37 @@ export default function StockLedger() {
 
   const pill = (active: boolean) =>
     `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
+  const datePill = (active: boolean) =>
+    `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
+
+  // ป้ายอธิบายช่วงที่กำลังดูอยู่ (ให้รู้ทันทีว่ายอดคงเหลือคิดจากตรงไหน)
+  const rangeNote =
+    preset === 'since' ? `นับสต็อกจาก ${dateTH(STOCK_CUTOFF)}` :
+    preset === 'all' ? 'ดูทั้งหมดตั้งแต่วันแรกของระบบ' :
+    preset === 'month' ? `เดือน ${monthTH(month)}` : '';
 
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <ClipboardList size={20} className="text-blue-600" />
         <h1 className="text-xl font-bold text-gray-800">สต็อกสินค้า — เข้า / ออก / คงเหลือ</h1>
-        <span className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-2 py-0.5">
-          เริ่มนับ {dateTH(STOCK_CUTOFF)}
-        </span>
+        {rangeNote && (
+          <span className="text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-2 py-0.5">{rangeNote}</span>
+        )}
       </div>
 
       <div className="card space-y-3">
         {/* มุมมอง */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-gray-500 mr-1">มุมมอง:</span>
-          <button onClick={() => setMode('site')} className={`${pill(mode === 'site')} flex items-center gap-1.5`}>
-            <Boxes size={13} /> สต็อกหน้างาน
-          </button>
-          <button onClick={() => setMode('factory')} className={`${pill(mode === 'factory')} flex items-center gap-1.5`}>
+          <button onClick={() => switchMode('factory')} className={`${pill(mode === 'factory')} flex items-center gap-1.5`}>
             <Truck size={13} /> รับ-ส่ง โรงงาน
           </button>
+          <button onClick={() => switchMode('site')} className={`${pill(mode === 'site')} flex items-center gap-1.5`}>
+            <Boxes size={13} /> สต็อกหน้างาน
+          </button>
           <span className="text-xs text-gray-400 ml-1">
-            {mode === 'site' ? 'ของที่ยังอยู่หน้างานรอแจกจ่าย = รับเข้า − เบิกออกให้สมาชิก' : 'เทียบของที่รับจากโรงงาน กับที่ส่งกลับไปโรงงาน'}
+            {mode === 'site' ? 'ของที่ยังอยู่หน้างานรอแจกจ่าย = รับเข้า − เบิกออกให้สมาชิก' : 'เทียบของที่รับจากโรงงาน กับที่ส่งกลับไปโรงงาน (ดูย้อนหลังได้ทั้งหมด)'}
           </span>
         </div>
 
@@ -227,17 +253,20 @@ export default function StockLedger() {
         {/* ช่วงวันที่ + เรียงลำดับ + export */}
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <span className="text-xs text-gray-500">ช่วงวันที่:</span>
-          {([['since', `ตั้งแต่เริ่มนับ (${dateTH(STOCK_CUTOFF)})`], ['14d', '14 วันล่าสุด'], ['7d', '7 วันล่าสุด'], ['custom', 'กำหนดเอง']] as [Preset, string][]).map(([k, lbl]) => (
-            <button key={k} onClick={() => setPreset(k)}
-              className={`px-2.5 py-1 rounded-lg text-sm border transition ${preset === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-              {lbl}
-            </button>
-          ))}
+          <button onClick={() => setPreset('all')} className={datePill(preset === 'all')}>ทั้งหมด</button>
+          <button onClick={() => setPreset('since')} className={datePill(preset === 'since')}>ตั้งแต่เริ่มนับสต็อก ({dateTH(STOCK_CUTOFF)})</button>
+          <button onClick={() => setPreset('month')} className={datePill(preset === 'month')}>รายเดือน</button>
+          <button onClick={() => setPreset('14d')} className={datePill(preset === '14d')}>14 วันล่าสุด</button>
+          <button onClick={() => setPreset('custom')} className={datePill(preset === 'custom')}>กำหนดเอง</button>
+
+          {preset === 'month' && (
+            <input type="month" className="input w-40 text-sm" value={month} onChange={e => setMonth(e.target.value || month)} />
+          )}
           {preset === 'custom' && (
             <>
-              <input type="date" className="input w-36 text-sm" min={STOCK_CUTOFF} value={cFrom} onChange={e => setCFrom(e.target.value)} />
+              <input type="date" className="input w-36 text-sm" value={cFrom} onChange={e => setCFrom(e.target.value)} />
               <span className="text-gray-400 text-sm">ถึง</span>
-              <input type="date" className="input w-36 text-sm" min={STOCK_CUTOFF} value={cTo} onChange={e => setCTo(e.target.value)} />
+              <input type="date" className="input w-36 text-sm" value={cTo} onChange={e => setCTo(e.target.value)} />
             </>
           )}
 
@@ -261,7 +290,7 @@ export default function StockLedger() {
           <div className="text-xl font-bold text-blue-700 tabular-nums mt-0.5">{fmt(summary.tout)}</div>
         </div>
         <div className="card !p-3 border-l-4 border-l-slate-700">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel} (ล่าสุด)</div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel} (ล่าสุดของช่วง)</div>
           <div className={`text-xl font-bold tabular-nums mt-0.5 ${summary.closing < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{fmt(summary.closing)}</div>
         </div>
       </div>
@@ -275,7 +304,7 @@ export default function StockLedger() {
         const gIn = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0), 0);
         const gOut = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0), 0);
         const gBal = g.items.reduce((s: number, p: any) => s + (ledger.closing[p.id] || 0), 0);
-        const hasOpening = fromDate > STOCK_CUTOFF && g.items.some((p: any) => ledger.opening[p.id]);
+        const hasOpening = g.items.some((p: any) => ledger.opening[p.id]);
 
         return (
           <div key={g.key} className="card !p-0 overflow-hidden">
@@ -325,9 +354,7 @@ export default function StockLedger() {
                         {g.items.map((p: any) => <td key={'i' + p.id} className="px-2 py-1.5 text-right bg-emerald-50/20"><Cell v={r.in[p.id] || 0} cls="text-emerald-700 font-medium" /></td>)}
                         {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
                         {g.items.map((p: any) => (
-                          <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold">
-                            <BalCell v={r.bal[p.id] || 0} />
-                          </td>
+                          <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold"><BalCell v={r.bal[p.id] || 0} /></td>
                         ))}
                       </tr>
                     ))}
@@ -366,10 +393,12 @@ export default function StockLedger() {
 
       <p className="text-xs text-gray-400 px-1 leading-relaxed">
         {mode === 'site'
-          ? <><b>สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก</b> คือของที่ยังอยู่หน้างานรอแจกจ่าย (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)</>
-          : <><b>ส่วนต่างสะสม = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน</b> · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว</>}
-        {' '}· นับตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา (ข้อมูลก่อนหน้านั้นไม่นำมาคิด) ·
-        {' '}<span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
+          ? <><b>สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก</b> คือของที่ยังอยู่หน้างานรอแจกจ่าย (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)
+              {preset === 'since'
+                ? <> · นับตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
+                : <> · ช่วงนี้รวมข้อมูลก่อน {dateTH(STOCK_CUTOFF)} ด้วย ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ดูย้อนหลังเท่านั้น)</>}</>
+          : <><b>ส่วนต่างสะสม = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน</b> · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว · ดูย้อนหลังได้ทั้งหมด ไม่ตัดที่เส้นเริ่มนับสต็อก</>}
+        {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
       </p>
     </div>
   );
