@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { productApi, receiveApi, issueApi, shipmentApi } from '../api';
+import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api';
 import { projectLabel, parseProductLabel } from '../projectLabel';
 import { sortByColorGroup, colorPriority } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
@@ -41,6 +41,93 @@ const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFract
 const isoOf = (d: Date) => new Intl.DateTimeFormat('en-CA').format(d);
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return isoOf(d); };
 
+/* สถานะงาน ณ วันนี้ — แยกของที่ยังอยู่ที่กลุ่ม (ยังไม่ได้ส่งโรงงาน) ออกเป็นส่วนๆ ตามแถวสรุปในไฟล์ Excel 交货明细
+   ตัวเลขมาจาก server (computeStockStatus) ชุดเดียวกับหน้าจัดลังส่งงาน · รวมทุกแถว = รับเข้าทั้งหมด − ส่งออกทั้งหมด */
+const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: string; optional?: boolean }[] = [
+  { key: 'with_members', label: 'รอรับกลับจากสมาชิก', zh: '代加工完', hint: 'เบิกไปแล้ว ยังคืนไม่ครบ', cls: 'text-amber-700' },
+  { key: 'in_warehouse', label: 'รอแจกจ่ายสมาชิก', zh: '待领料', hint: `รับเข้าแล้ว ยังไม่ได้เบิก (นับตั้งแต่ ${dateTH(STOCK_CUTOFF)})`, cls: 'text-violet-700' },
+  { key: 'ret_waste', label: 'เศษ', zh: '零数', hint: 'บันทึกตอนรับคืน', cls: 'text-gray-600' },
+  { key: 'ret_lost', label: 'หาย', zh: '', hint: 'บันทึกตอนรับคืน', cls: 'text-rose-600', optional: true },
+  { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
+];
+
+/* กล่อง "สถานะงาน ณ วันนี้" ใต้ตารางของแต่ละกลุ่ม — ตอบคำถาม "ของที่ยังไม่ได้ส่งโรงงาน ตอนนี้อยู่ตรงไหนบ้าง"
+   ไม่ขึ้นกับช่วงวันที่ที่เลือกด้านบน (เป็นยอด ณ วันนี้เสมอ) */
+function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, any> }) {
+  if (!items.some(p => statusOf.has(p.id))) return null;
+  const val = (p: any, key: string) => Number(statusOf.get(p.id)?.[key]) || 0;
+  const rows = STATUS_ROWS.filter(r => !r.optional || items.some(p => val(p, r.key) > 0));
+  return (
+    <div className="border-t-4 border-double border-gray-200 bg-slate-50/60">
+      <div className="px-4 pt-2.5 pb-1 flex flex-wrap items-baseline gap-x-2">
+        <span className="text-sm font-semibold text-slate-800">สถานะงาน ณ วันนี้</span>
+        <span className="text-xs text-gray-400">{dateTH(isoOf(new Date()))} · นับรวมทุกวัน ไม่ขึ้นกับช่วงวันที่ด้านบน</span>
+      </div>
+      <div className="overflow-x-auto">
+        {/* ไม่ยืดเต็มกว้าง — ให้ตัวเลขอยู่ชิดชื่อแถว อ่านแนวนอนได้ทันทีแบบแถวสรุปในไฟล์ Excel */}
+        <table className="text-sm tabular-nums">
+          <thead>
+            <tr className="text-[11px] text-gray-500">
+              <th className="px-4 py-1 min-w-[230px]" />
+              {items.map(p => {
+                const { num, label } = parseProductLabel(p.name);
+                return (
+                  <th key={p.id} className="px-3 py-1 text-right font-medium whitespace-nowrap min-w-[110px]">
+                    <div className="font-semibold text-gray-700">{num}</div>
+                    <div className="text-[10px] font-normal text-gray-400">{label}</div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.key} className="border-t border-gray-100">
+                <td className="px-4 py-1.5 leading-tight whitespace-nowrap">
+                  <span className={`font-medium ${r.cls}`}>{r.label}</span>
+                  {r.zh && <span className="text-[10px] text-gray-400 ml-1.5">{r.zh}</span>}
+                  <div className="text-[10px] text-gray-400">{r.hint}</div>
+                </td>
+                {items.map(p => {
+                  const s = statusOf.get(p.id);
+                  if (!s) return <td key={p.id} className="px-3 py-1.5 text-right text-gray-300">–</td>;
+                  const v = val(p, r.key);
+                  // ยอดคำนวณติดลบ (ปัดเป็น 0 แล้ว) = บันทึกไม่สมดุล — ติดเครื่องหมายไว้ให้ตรวจสอบ ไม่ซ่อนเงียบๆ
+                  const raw = r.key === 'in_warehouse' ? Number(s.wait_raw) : r.key === 'stock_ready' ? Number(s.ready_raw) : v;
+                  const upb = Number(p.units_per_box) || 0;
+                  return (
+                    <td key={p.id} className="px-3 py-1.5 text-right align-top"
+                      title={raw < 0 ? `คำนวณได้ ${fmt(raw)} — ${r.key === 'in_warehouse' ? 'บันทึกเบิกเกินกว่ารับเข้า' : 'ยอดบันทึกไม่สมดุล'} แสดงเป็น 0` : undefined}>
+                      {v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>}
+                      {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
+                      {r.key === 'stock_ready' && v > 0 && upb > 0 && (
+                        <div className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(Math.floor(v / upb))} ลังเต็ม + {fmt(v % upb)}</div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr className="border-t-2 border-gray-300">
+              <td className="px-4 py-2 leading-tight whitespace-nowrap">
+                <span className="font-semibold text-slate-800">รวมของที่อยู่ที่กลุ่ม</span>
+                <div className="text-[10px] text-gray-400">รับเข้าทั้งหมด − ส่งออกทั้งหมด</div>
+              </td>
+              {items.map(p => (
+                <td key={p.id} className="px-3 py-2 text-right">
+                  {statusOf.has(p.id)
+                    ? <span className="inline-block border-b-[3px] border-double border-gray-500 pb-0.5 font-bold text-slate-900">{fmt(val(p, 'available'))}</span>
+                    : <span className="text-gray-300">–</span>}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 type Preset = 'all' | 'month' | '14d' | '7d' | 'custom';
 type Mode = 'site' | 'factory';
 type Move = { in: Record<number, number>; issue: Record<number, number>; ship: Record<number, number> };
@@ -65,6 +152,9 @@ export default function StockLedger() {
   const { data: products = [], isLoading: lp } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
   const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
   const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger'], queryFn: () => shipmentApi.list() });
+  // สถานะงาน ณ วันนี้ (รอรับกลับ / รอแจกจ่าย / เศษ / พร้อมส่ง) — query เดียวกับหน้าจัดลังส่งงาน ตัวเลขจึงตรงกันเสมอ
+  const { data: flow } = useQuery({ queryKey: ['stock-flow', 'all'], queryFn: () => reportApi.stockFlow() });
+  const statusOf = useMemo(() => new Map<number, any>(((flow?.products || []) as any[]).map(p => [p.id, p])), [flow]);
 
   /* ── วันรอยต่อรอบ ──────────────────────────────────────────────────────────
      รอบของแต่ละเดือนเริ่มนับจาก "วันที่โรงงานส่งของครั้งสุดท้ายของเดือนก่อน" (กติกาเดียวกับ
@@ -241,9 +331,20 @@ export default function StockLedger() {
         diff[`${outLabel} ${names[i]}`] = mode === 'factory' ? sIn - sOut : (ledger.closing[p.id] || 0);
       });
       out.push(total, diff);
+      // สถานะงาน ณ วันนี้ — วางใต้คอลัมน์ส่งออก แบบแถวสรุปในไฟล์ Excel
+      const statusRows = [...STATUS_ROWS, { key: 'available', label: 'รวมของที่อยู่ที่กลุ่ม', optional: false }];
+      for (const s of statusRows) {
+        if (s.optional && !g.items.some((p: any) => Number(statusOf.get(p.id)?.[s.key]) > 0)) continue;
+        const row: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': `ณ วันนี้: ${s.label}` };
+        g.items.forEach((p: any, i: number) => {
+          row[`รับเข้า ${names[i]}`] = '';
+          row[`${outLabel} ${names[i]}`] = statusOf.get(p.id)?.[s.key] ?? '';
+        });
+        out.push(row);
+      }
     }
     return out;
-  }, [shownGroups, ledger, outLabel, balLabel, mode]);
+  }, [shownGroups, ledger, outLabel, balLabel, mode, statusOf]);
 
   const pill = (active: boolean) =>
     `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
@@ -443,6 +544,7 @@ export default function StockLedger() {
                 </table>
               </div>
             )}
+            <StatusBlock items={g.items} statusOf={statusOf} />
           </div>
         );
       })}
@@ -455,6 +557,7 @@ export default function StockLedger() {
                 : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>
           : <><b>ยอดความต่าง = รวมรับเข้า − รวมส่งออก</b> ของช่วงที่เลือก (สูตรเดียวกับไฟล์ Excel 交货明细) · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว</>}
         {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
+        <br /><b>สถานะงาน ณ วันนี้:</b> รอรับกลับ + รอแจกจ่าย + เศษ + พร้อมส่ง = รวมของที่อยู่ที่กลุ่ม · ยอดพร้อมส่งเป็นชุดเดียวกับหน้าจัดลังส่งงาน
         {(shipBelongsToPrev || inBelongsToNext) && (
           <><br /><b>วันรอยต่อรอบ:</b>
             {shipBelongsToPrev && <> ยอด "ส่งงานออกโรงงาน" ของวันที่ {dateTH(fromDate)} เป็นการปิดยอดรอบก่อน จึงไม่นับซ้ำในรอบนี้</>}

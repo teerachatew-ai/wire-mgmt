@@ -692,6 +692,44 @@ router.post('/invoice-export', (req, res) => {
   });
 });
 
+/* สถานะงาน ณ วันนี้ ต่อรุ่น — แยก "ของที่ยังอยู่ที่กลุ่ม" (รับเข้าทั้งหมด − ส่งออกทั้งหมด) ออกเป็นส่วนๆ
+   แบบแถวสรุปในไฟล์ Excel 交货明细 (代加工完 / 待领料 / 零数 / 待出货)
+   - รอแจกจ่าย = รับเข้า − เบิกออก นับตั้งแต่ STOCK_CUTOFF (ยอดก่อนหน้านั้นไม่ตรงกับของจริงหน้างาน)
+   - รอรับกลับ = ใบเบิกที่ยังคืนไม่ครบ คิดทีละใบ (ใบที่คืนเกินจะได้ไม่ไปหักล้างใบที่ยังค้าง)
+   - เศษ / หาย = ยอดที่บันทึกตอนรับคืน
+   - พร้อมส่ง  = ส่วนที่เหลือ → ทุกส่วนรวมกันเท่ากับของที่อยู่ที่กลุ่มเสมอ
+   เดิมพร้อมส่งคิดจาก "คืนแล้วสะสม − ส่งออกสะสม" ซึ่งเพี้ยน เพราะช่วงแรกส่งออกโดยไม่ได้บันทึกเบิก/คืนครบ
+   (เช่นป้ายขาวเคยขึ้นพร้อมส่ง 2,794 ทั้งที่ของเหลืออยู่ที่กลุ่มแค่ 1,260) */
+const STOCK_CUTOFF = '2026-08-28';
+function computeStockStatus() {
+  const sumBy = (sql: string, ...params: any[]) =>
+    new Map((prepare(sql).all(...params) as any[]).map(r => [r.pid, Number(r.v) || 0]));
+  const received = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives GROUP BY product_id`);
+  const shipped = sumBy(`SELECT si.product_id pid, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) v
+    FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id GROUP BY si.product_id`);
+  const recvCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives WHERE received_at >= ? GROUP BY product_id`, STOCK_CUTOFF);
+  const issCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM issues WHERE issued_at >= ? GROUP BY product_id`, STOCK_CUTOFF);
+  const waste = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.waste_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id`);
+  const lost = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.lost_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id`);
+  const withMembers = sumBy(`
+    SELECT i.product_id pid, SUM(MAX(0, i.quantity - COALESCE(rt.t, 0))) v
+    FROM issues i LEFT JOIN (
+      SELECT issue_id, SUM(COALESCE(good_qty, 0) + COALESCE(defect_qty, 0) + COALESCE(waste_qty, 0) + COALESCE(lost_qty, 0)) t
+      FROM returns GROUP BY issue_id
+    ) rt ON rt.issue_id = i.id
+    GROUP BY i.product_id`);
+
+  return (pid: number) => {
+    const at_site = (received.get(pid) || 0) - (shipped.get(pid) || 0);
+    const wait_raw = (recvCut.get(pid) || 0) - (issCut.get(pid) || 0);
+    const wait_distribute = Math.max(0, wait_raw);   // ติดลบเล็กน้อย = บันทึกเบิกเกินรับเข้า ไม่ใช่ของที่มีจริง
+    const with_members = withMembers.get(pid) || 0;
+    const w = waste.get(pid) || 0, l = lost.get(pid) || 0;
+    const ready_raw = at_site - wait_distribute - with_members - w - l;
+    return { at_site, wait_raw, wait_distribute, with_members, waste: w, lost: l, ready_raw, ready: Math.max(0, ready_raw) };
+  };
+}
+
 function computeStockFlow(m: string) {
   // "โหมดเดือน" ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน ไม่งั้นยอด "ยกมา/ยกไป"
   // จะคาบเกี่ยวหรือขาดช่วงวันระหว่างวันสิ้นสุด Cut-off กับวันสิ้นเดือนปฏิทิน ทำให้ยอดคงเหลือดูงง
@@ -725,6 +763,7 @@ function computeStockFlow(m: string) {
     FROM products p WHERE p.active = 1
   `).all() as any[];
 
+  const status = m ? null : computeStockStatus();
   const rows = products.map(p => {
     if (m) {
       // โหมดเดือน: ยอดเคลื่อนไหว + งานคงค้างในระบบ (ยกมา/ยกไป)
@@ -735,17 +774,17 @@ function computeStockFlow(m: string) {
       const wait_distribute = Math.max(0, (p.received || 0) - (p.total_issued || 0));
       return { ...p, in_warehouse: null, with_members: null, stock_ready: null, balance: null, ok: true, carry_ready, closing_ready, wait_distribute };
     }
-    // ภาพรวมสะสม: แยก "ส่งออกตรงจากคลัง" (ช่วงข้อมูลย้อนหลังที่ส่งโดยไม่ผ่านเบิก/คืน) ออกจากสต๊อคพร้อมส่ง
-    const retGD = p.ret_good + p.ret_defect;                       // คืนจากสมาชิก (ดี+เสีย)
-    const direct = Math.max(0, p.shipped - retGD);                 // ส่งออกเกินกว่าที่คืนมา = ส่งตรงจากคลัง
-    const in_warehouse = p.received - p.total_issued - direct;     // ในคลังรอเบิก (หักส่วนที่ส่งตรงออกไปแล้ว)
-    const with_members = p.total_issued - (retGD + p.ret_waste + (p.ret_lost || 0));
-    const stock_ready  = Math.max(0, retGD - p.shipped);           // คืนแล้วรอส่ง (ไม่ติดลบ)
+    // ภาพรวมสะสม: ในคลัง / กับสมาชิก / พร้อมส่ง ใช้ชุดเดียวกับ "สถานะงาน ณ วันนี้" (computeStockStatus)
+    // ทุกหน้าที่อ่านยอดเหล่านี้ (จัดลังส่งงาน, สต็อกสินค้า เข้า-ออก, สต็อค & ตรวจสอบ, ช่องคงคลังตอนเบิก) จะเห็นเลขเดียวกัน
+    const st = status!(p.id);
+    const in_warehouse = st.wait_distribute;   // รับเข้าแล้ว รอเบิกให้สมาชิก
+    const with_members = st.with_members;      // เบิกไปแล้ว ยังคืนไม่ครบ
+    const stock_ready  = st.ready;             // คืนแล้ว รอส่งโรงงาน
     // ยอดคงเหลือพร้อมส่ง = รับเข้าสะสม − ส่งออกสะสม (ยกมา+รับเข้า−ส่งออก) — ไม่หักเศษ
     const available = p.received - p.shipped;
     const balance = p.received - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
     return { ...p, in_warehouse, with_members, stock_ready, available, balance,
-      ok: in_warehouse >= 0 && with_members >= 0 && stock_ready >= 0 };
+      wait_raw: st.wait_raw, ready_raw: st.ready_raw, ok: st.ready_raw >= 0 };
   });
 
   const incoming = prepare(`
