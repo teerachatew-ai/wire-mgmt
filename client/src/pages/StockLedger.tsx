@@ -101,7 +101,11 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                       {v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>}
                       {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
                       {r.key === 'stock_ready' && v > 0 && upb > 0 && (
-                        <div className="text-[10px] text-gray-400 whitespace-nowrap">{fmt(Math.floor(v / upb))} ลังเต็ม + {fmt(v % upb)}</div>
+                        <div className="text-[10px] text-gray-400 whitespace-nowrap">
+                          {v >= upb
+                            ? <>{fmt(Math.floor(v / upb))} ลังเต็ม{v % upb ? ` + ${fmt(v % upb)}` : ''}</>
+                            : <>ยังไม่ครบ 1 ลัง ({fmt(upb)}/ลัง)</>}
+                        </div>
                       )}
                     </td>
                   );
