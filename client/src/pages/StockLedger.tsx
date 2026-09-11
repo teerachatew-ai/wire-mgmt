@@ -15,7 +15,8 @@ import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Lo
       ค่าเริ่มต้นนับจาก STOCK_CUTOFF เพราะยอดสะสมช่วงก่อนหน้าไม่ตรงกับของจริงหน้างาน
       (แต่ยังเลือกดูย้อนก่อนหน้านั้นได้ ถ้าต้องการดูประวัติ)
    2) รับ-ส่ง โรงงาน = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน (ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว)
-      ค่าเริ่มต้นดูทั้งหมด ไม่ตัดที่ STOCK_CUTOFF เพราะเป็นการกระทบยอดกับโรงงานย้อนหลัง */
+      แบบ "รายเดือน" จับคู่ยอดส่งออกกับล็อตที่รับเข้า (ดู lotFlow ด้านล่าง)
+      ช่วงวันที่แบบอื่น (ทั้งหมด / 14 วัน / กำหนดเอง) ใช้ยอดเข้า-ออกตามวันที่จริง */
 const STOCK_CUTOFF = '2026-08-28';
 
 const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -44,6 +45,7 @@ const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n
 type Preset = 'all' | 'month' | '14d' | '7d' | 'custom';
 type Mode = 'site' | 'factory';
 type Move = { in: Record<number, number>; issue: Record<number, number>; ship: Record<number, number> };
+type Flow = { d: string; pid: number; q: number; cyc: string };   // ยอดเข้า/ออก 1 ก้อน พร้อมรอบที่เป็นเจ้าของ
 
 // ช่องรับเข้า/จ่ายออก: 0 = "วันนี้ไม่มีความเคลื่อนไหว" แสดงเป็นขีดจาง อ่านง่ายกว่าเลขศูนย์เต็มตาราง
 const Cell = ({ v, cls = '' }: { v: number; cls?: string }) =>
@@ -66,12 +68,10 @@ export default function StockLedger() {
   const { data: receives = [], isLoading: lr } = useQuery({ queryKey: ['receives', 'ledger'], queryFn: () => receiveApi.list() });
   const { data: shipments = [], isLoading: ls } = useQuery({ queryKey: ['shipments', 'ledger'], queryFn: () => shipmentApi.list() });
 
-  /* ── วันรอยต่อรอบ ──────────────────────────────────────────────────────────
+  /* ── รอบเดือน ─────────────────────────────────────────────────────────────
      รอบของแต่ละเดือนเริ่มนับจาก "วันที่โรงงานส่งของครั้งสุดท้ายของเดือนก่อน" (กติกาเดียวกับ
      ตัวกรองรายเดือนในหน้าใบเบิกงาน) เช่น รอบเดือน ก.ย. เริ่ม 28 ส.ค.
-     วันรอยต่อนี้ของ 2 รอบมาเจอกัน จึงต้องแบ่งให้ชัดว่าอะไรเป็นของรอบไหน:
-       • รับเข้า / เบิกออก ของวันรอยต่อ = ของ "รอบใหม่" (ของที่เพิ่งส่งมาถึงเริ่มรอบใหม่)
-       • ส่งงานออกโรงงาน ของวันรอยต่อ  = ปิดยอดของ "รอบเก่า" (ไม่นับซ้ำในรอบใหม่) */
+     ของที่รับเข้าวันรอยต่อ = ของรอบใหม่ · ส่วนยอดส่งออกเป็นของรอบไหน ตัดสินด้วยการจับคู่ล็อต (lotFlow) */
   const { boundaries, lastRecvByMonth } = useMemo(() => {
     const lastRecvByMonth = new Map<string, string>();
     for (const r of (receives as any[])) {
@@ -82,13 +82,26 @@ export default function StockLedger() {
   }, [receives]);
 
   const todayISO = isoOf(new Date());
-  // ช่วงของ "รอบเดือน" ที่เลือก — เดือนปัจจุบันยังไม่ปิดรอบ จึงเปิดถึงวันนี้
-  const cycle = useMemo(() => {
-    const start = lastRecvByMonth.get(prevMonth(month)) || monthRange(month).from;
-    const own = lastRecvByMonth.get(month);
-    const isCurrent = month === todayISO.slice(0, 7);
-    return { start, end: isCurrent ? todayISO : (own || monthRange(month).to), closed: !isCurrent && !!own };
-  }, [month, lastRecvByMonth, todayISO]);
+  // ช่วงของรอบเดือนใดๆ — เดือนปัจจุบันยังไม่ปิดรอบ จึงเปิดถึงวันนี้
+  // cycleOfDate: วันที่นี้ (ของที่รับเข้า) เป็นของรอบเดือนไหน
+  const { cycleWindow, cycleOfDate } = useMemo(() => {
+    const cycleWindow = (ym: string) => {
+      const start = lastRecvByMonth.get(prevMonth(ym)) || monthRange(ym).from;
+      const own = lastRecvByMonth.get(ym);
+      const isCurrent = ym === todayISO.slice(0, 7);
+      return { start, end: isCurrent ? todayISO : (own || monthRange(ym).to), closed: !isCurrent && !!own };
+    };
+    const months = [...lastRecvByMonth.keys()].sort();
+    const cycleOfDate = (d: string) => {
+      for (const m of months) {
+        const w = cycleWindow(m);
+        if (d >= w.start && (w.closed ? d < w.end : true)) return m;
+      }
+      return d.slice(0, 7);
+    };
+    return { cycleWindow, cycleOfDate };
+  }, [lastRecvByMonth, todayISO]);
+  const cycle = useMemo(() => cycleWindow(month), [cycleWindow, month]);
 
   const fromDate =
     preset === 'all' ? '' :
@@ -97,10 +110,8 @@ export default function StockLedger() {
     daysAgo(preset === '14d' ? 14 : 7);
   const toDate = preset === 'month' ? cycle.end : preset === 'custom' ? cTo : '';
 
-  // ส่งออกของวันเริ่มรอบ = ของรอบก่อน (ยกไปอยู่ในยอดยกมาแทน ไม่โชว์ซ้ำในรอบนี้)
-  const shipBelongsToPrev = !!fromDate && boundaries.has(fromDate);
-  // รับเข้า/เบิกออกของวันปิดรอบ = ของรอบถัดไป (เฉพาะรอบที่ปิดแล้วเท่านั้น รอบเดือนปัจจุบันยังไม่ปิด)
-  const inBelongsToNext = preset === 'month' && cycle.closed && !!toDate && boundaries.has(toDate);
+  // มุมมองสต็อกหน้างาน: รับเข้า/เบิกออกของวันปิดรอบ = ของรอบถัดไป (เฉพาะรอบที่ปิดแล้ว)
+  const inBelongsToNext = mode === 'site' && preset === 'month' && cycle.closed && !!toDate && boundaries.has(toDate);
 
   /* จุด "เริ่มเดินยอด" ของโหมดสต็อกหน้างาน = STOCK_CUTOFF (ยอดก่อนหน้านั้นไม่ตรงกับของจริงหน้างาน)
      ทำงานอัตโนมัติเมื่อช่วงที่ดูอยู่เริ่มตั้งแต่เส้นเริ่มนับเป็นต้นไป — ไม่ต้องมีปุ่มให้กดเอง
@@ -120,9 +131,11 @@ export default function StockLedger() {
   const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ยอดความต่าง';
   /* ตารางรายวันโชว์แค่ของเข้า/ของออก แล้วสรุปตัวเลขสุดท้ายไว้ "ใต้ตาราง" แถวเดียว แบบไฟล์ Excel 交货明细
      (ไม่ไล่ยอดสะสมทุกบรรทัด — เคยทำแล้วงง เพราะแยกไม่ออกว่าเลขไหนเป็นยอดเคลื่อนไหว เลขไหนเป็นยอดคงเหลือ)
-     - รับ-ส่งโรงงาน: ยอดความต่าง = รวมรับเข้า − รวมส่งออก ของช่วงที่เลือก (สูตรเดียวกับ Excel)
+     - รับ-ส่งโรงงาน: ยอดความต่าง = รวมรับเข้า − รวมส่งออก ของที่แสดงในตาราง
+       (แบบรายเดือน = ของที่รับเข้ารอบนี้ที่ยังไม่ได้ส่ง เพราะยอดส่งออกจับคู่ล็อตแล้ว)
      - สต็อกหน้างาน:  คงเหลือหน้างาน = ของที่เหลืออยู่จริง (เดินยอดจากเส้นเริ่มนับ) */
   const finalOf = (tin: number, tout: number, closing: number) => (mode === 'factory' ? tin - tout : closing);
+  const lotMatched = mode === 'factory' && preset === 'month';
 
   // ── รวมความเคลื่อนไหวรายวัน ──
   const { dates, moves } = useMemo(() => {
@@ -164,7 +177,88 @@ export default function StockLedger() {
       .sort((a, b) => colorPriority(a.items[0]?.color) - colorPriority(b.items[0]?.color) || a.key.localeCompare(b.key));
   }, [products]);
 
-  // ── เดินยอดทีละวัน เก็บเฉพาะแถวที่อยู่ในช่วงที่เลือก ──
+  /* ── จับคู่ยอดส่งออกกับล็อตที่รับเข้า (FIFO) ── ใช้กับมุมมองรับ-ส่งโรงงานแบบรายเดือน
+     ของที่ส่งออกหักจากล็อตที่รับเข้ามาก่อน แล้วนับเป็นยอดของ "รอบที่ล็อตนั้นรับเข้า"
+     เช่น ป้ายขาวรับล็อตสุดท้ายของ ก.ค. วันที่ 25 ก.ค. แล้วส่งออกวันที่ 3 ส.ค. → ยอดส่งนั้นเป็นของรอบ ก.ค.
+     ผล: เดือนที่ส่งครบแล้วยอดความต่างเป็น 0 · เดือนปัจจุบันเหลือเท่ากับของที่ยังไม่ได้ส่งจริง
+     (แทนกติกา "วันรอยต่อ" แบบเดิม ที่ตัดได้เฉพาะเที่ยวที่ส่งตรงวันรอยต่อพอดี — ส่งช้ากว่านั้นวันเดียวก็หลุดไปอีกเดือน
+      ทำให้ ส.ค. เคยติดลบ −4,000 ทั้งที่เป็นของล็อต ก.ค.)
+     ยอดส่งออกที่หาล็อตให้จับคู่ไม่ได้ (ข้อมูลช่วงแรกบางส่วน) นับเป็นของรอบตามวันที่ส่งจริง */
+  const lotFlow = useMemo(() => {
+    const recv: Flow[] = [];
+    const lotsByPid = new Map<number, { d: string; left: number; cyc: string }[]>();
+    for (const r of (receives as any[])) {
+      const d = String(r.received_at).slice(0, 10);
+      const q = Number(r.quantity) || 0;
+      const cyc = cycleOfDate(d);
+      recv.push({ d, pid: r.product_id, q, cyc });
+      if (!lotsByPid.has(r.product_id)) lotsByPid.set(r.product_id, []);
+      lotsByPid.get(r.product_id)!.push({ d, left: q, cyc });
+    }
+    for (const lots of lotsByPid.values()) lots.sort((a, b) => a.d.localeCompare(b.d));
+
+    const ships: { d: string; pid: number; q: number }[] = [];
+    for (const s of (shipments as any[])) {
+      const d = String(s.shipped_at).slice(0, 10);
+      for (const it of (s.items || [])) {
+        ships.push({ d, pid: it.product_id, q: (it.received_qty ?? it.good_qty ?? 0) + (it.defect_qty || 0) });
+      }
+    }
+    ships.sort((a, b) => a.d.localeCompare(b.d));
+
+    const chunks: Flow[] = [];
+    const cursor = new Map<number, number>();   // ล็อตแรกที่ยังเหลือของ ของแต่ละรุ่น
+    for (const s of ships) {
+      const lots = lotsByPid.get(s.pid) || [];
+      let i = cursor.get(s.pid) || 0;
+      let need = s.q;
+      while (need > 0 && i < lots.length && lots[i].d <= s.d) {
+        const take = Math.min(need, lots[i].left);
+        if (take > 0) { chunks.push({ d: s.d, pid: s.pid, q: take, cyc: lots[i].cyc }); lots[i].left -= take; need -= take; }
+        if (lots[i].left <= 0) i++;
+      }
+      cursor.set(s.pid, i);
+      if (need > 0) chunks.push({ d: s.d, pid: s.pid, q: need, cyc: cycleOfDate(s.d) });
+    }
+    return { recv, chunks };
+  }, [receives, shipments, cycleOfDate]);
+
+  // แถวรายวันของรอบเดือนที่เลือก (มุมมองรับ-ส่งโรงงาน) — นับเฉพาะยอดที่เป็นของรอบนี้
+  // ยอดส่งจริงในช่วงนี้แต่เป็นของรอบอื่น แสดงเป็นป้ายเล็กๆ ใต้ตัวเลข (ไม่นับรวม) ให้เทียบกับใบส่งของได้
+  const lotRows = useMemo(() => {
+    if (!lotMatched) return null;
+    const add = (m: Map<string, Record<number, number>>, d: string, pid: number, q: number) => {
+      let o = m.get(d);
+      if (!o) { o = {}; m.set(d, o); }
+      o[pid] = (o[pid] || 0) + q;
+    };
+    const inBy = new Map<string, Record<number, number>>();
+    const outBy = new Map<string, Record<number, number>>();
+    const prevBy = new Map<string, Record<number, number>>();
+    const nextBy = new Map<string, Record<number, number>>();
+    for (const r of lotFlow.recv) if (r.cyc === month) add(inBy, r.d, r.pid, r.q);
+    for (const c of lotFlow.chunks) {
+      if (c.cyc === month) add(outBy, c.d, c.pid, c.q);
+      else if (c.d >= cycle.start && c.d <= cycle.end) add(c.cyc < month ? prevBy : nextBy, c.d, c.pid, c.q);
+    }
+    const EMPTY: Record<number, number> = {};
+    const rows = new Map<string, any[]>();
+    for (const d of [...new Set([...inBy.keys(), ...outBy.keys()])].sort()) {
+      const inQ = inBy.get(d) || EMPTY, outQ = outBy.get(d) || EMPTY;
+      for (const g of groups) {
+        if (!g.items.some((p: any) => inQ[p.id] || outQ[p.id])) continue;
+        if (!rows.has(g.key)) rows.set(g.key, []);
+        rows.get(g.key)!.push({
+          date: d, in: inQ, out: outQ,
+          prev: prevBy.get(d) || EMPTY, next: nextBy.get(d) || EMPTY,
+          afterClose: cycle.closed && d > cycle.end,   // ของรอบนี้ แต่ส่งออกหลังรอบปิดไปแล้ว
+        });
+      }
+    }
+    return rows;
+  }, [lotMatched, lotFlow, month, cycle, groups]);
+
+  // ── เดินยอดทีละวัน เก็บเฉพาะแถวที่อยู่ในช่วงที่เลือก (สต็อกหน้างาน / รับ-ส่งโรงงานแบบไม่ใช่รายเดือน) ──
   const ledger = useMemo(() => {
     const bal: Record<number, number> = {};
     const rows = new Map<string, any[]>();
@@ -175,19 +269,10 @@ export default function StockLedger() {
       if (toDate && d > toDate) break;
       const mv = moves.get(d)!;
       const inRange = !fromDate || d >= fromDate;
-      // วันเริ่มรอบ — มีผลเฉพาะมุมมองรับ-ส่งโรงงาน เพราะเป็นกติกาของยอด "ส่งออก" เท่านั้น
-      // (มุมมองสต็อกหน้างานไม่เกี่ยวกับการส่งออกเลย ยอดเบิกออกวันรอยต่อเป็นของรอบใหม่ตามปกติ)
-      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev && mode === 'factory';
-      const atEndSeam = inBelongsToNext && d === toDate;                     // วันปิดรอบ
-
-      // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — ไม่นับในรอบนี้
-      if (atStartSeam) for (const [pid, q] of Object.entries(mv.ship)) bal[+pid] = (bal[+pid] || 0) - q;
-
-      // วันปิดรอบ: ของที่รับเข้า/เบิกออกวันนั้นเป็นของรอบถัดไป
+      // วันปิดรอบ (สต็อกหน้างาน): ของที่รับเข้า/เบิกออกวันนั้นเป็นของรอบถัดไป
+      const atEndSeam = inBelongsToNext && d === toDate;
       const inQty = atEndSeam ? EMPTY : mv.in;
-      const outQty = mode === 'site'
-        ? (atEndSeam ? EMPTY : mv.issue)
-        : (atStartSeam ? EMPTY : mv.ship);
+      const outQty = mode === 'site' ? (atEndSeam ? EMPTY : mv.issue) : mv.ship;
 
       for (const [pid, q] of Object.entries(inQty)) bal[+pid] = (bal[+pid] || 0) + q;
       for (const [pid, q] of Object.entries(outQty)) bal[+pid] = (bal[+pid] || 0) - q;
@@ -200,26 +285,29 @@ export default function StockLedger() {
       }
     }
     return { rows, closing: bal };
-  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext]);
+  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, inBelongsToNext]);
+
+  const rowsOf = (key: string): any[] => (lotRows ? lotRows.get(key) : ledger.rows.get(key)) || [];
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
   const summary = useMemo(() => {
     let tin = 0, tout = 0, closing = 0;
     for (const g of shownGroups) {
-      for (const r of (ledger.rows.get(g.key) || [])) {
+      for (const r of rowsOf(g.key)) {
         for (const p of g.items) { tin += r.in[p.id] || 0; tout += r.out[p.id] || 0; }
       }
       for (const p of g.items) closing += ledger.closing[p.id] || 0;
     }
     return { tin, tout, closing };
-  }, [shownGroups, ledger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownGroups, ledger, lotRows]);
 
   // Export ให้หน้าตาเหมือนไฟล์ Excel เดิม: รายวัน → แถว "รวม" → แถว "ยอดความต่าง" (ใต้คอลัมน์ส่งออก) ต่อกลุ่มงาน
   const exportRows = useMemo(() => {
     const out: Record<string, any>[] = [];
     for (const g of shownGroups) {
-      const rows = ledger.rows.get(g.key) || [];
+      const rows = rowsOf(g.key);
       if (rows.length === 0) continue;
       const names = g.items.map((p: any) => { const { num, label } = parseProductLabel(p.name); return `${num} ${label}`; });
       for (const r of rows) {
@@ -243,7 +331,8 @@ export default function StockLedger() {
       out.push(total, diff);
     }
     return out;
-  }, [shownGroups, ledger, outLabel, balLabel, mode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownGroups, ledger, lotRows, outLabel, balLabel, mode]);
 
   const pill = (active: boolean) =>
     `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
@@ -343,7 +432,7 @@ export default function StockLedger() {
 
       {/* ── ตารางแยกตามกลุ่มงาน ────────────────────────────── */}
       {!loading && shownGroups.map(g => {
-        const rows = ledger.rows.get(g.key) || [];
+        const rows = rowsOf(g.key);
         const view = newestFirst ? [...rows].reverse() : rows;
         const gIn = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0), 0);
         const gOut = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0), 0);
@@ -394,13 +483,30 @@ export default function StockLedger() {
                   <tbody>
                     {view.map((r: any) => (
                       <tr key={r.date} className="border-b border-gray-50 hover:bg-blue-50/30">
-                        <td className="sticky left-0 bg-white z-10 px-3 py-1.5 border-r whitespace-nowrap text-gray-700" title={r.date}>{dateTH(r.date)}</td>
+                        <td className="sticky left-0 bg-white z-10 px-3 py-1.5 border-r whitespace-nowrap text-gray-700" title={r.date}>
+                          {dateTH(r.date)}
+                          {r.afterClose && <div className="text-[10px] text-amber-600 leading-tight" title="ของที่รับเข้ารอบนี้ แต่ส่งออกหลังรอบปิดไปแล้ว">ส่งหลังปิดรอบ</div>}
+                        </td>
                         {g.items.map((p: any, i: number) => (
                           <td key={'i' + p.id} className={`px-2 py-1.5 text-right bg-emerald-50/20 ${i === g.items.length - 1 ? 'border-r' : ''}`}>
                             <Cell v={r.in[p.id] || 0} cls="text-emerald-700 font-medium" />
                           </td>
                         ))}
-                        {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
+                        {g.items.map((p: any) => (
+                          <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20">
+                            <Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" />
+                            {!!r.prev?.[p.id] && (
+                              <div className="text-[10px] text-gray-400 leading-tight whitespace-nowrap" title="ส่งจริงวันนี้ แต่เป็นของล็อตที่รับเข้ารอบก่อน จึงไปนับรวมที่รอบก่อน">
+                                + ของรอบก่อน {fmt(r.prev[p.id])}
+                              </div>
+                            )}
+                            {!!r.next?.[p.id] && (
+                              <div className="text-[10px] text-gray-400 leading-tight whitespace-nowrap" title="ส่งจริงวันนี้ แต่เป็นของล็อตที่รับเข้ารอบถัดไป จึงไปนับรวมที่รอบถัดไป">
+                                + ของรอบถัดไป {fmt(r.next[p.id])}
+                              </div>
+                            )}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
@@ -422,7 +528,7 @@ export default function StockLedger() {
                       <td className="sticky left-0 bg-white z-10 px-3 py-2.5 border-r text-gray-800 font-semibold leading-tight">
                         {balLabel}
                         <div className="text-[10px] font-normal text-gray-400">
-                          {mode === 'factory' ? 'รวมรับเข้า − รวมส่งออก' : 'ของที่เหลืออยู่ตอนนี้'}
+                          {mode === 'site' ? 'ของที่เหลืออยู่ตอนนี้' : lotMatched ? 'ของรอบนี้ที่ยังไม่ได้ส่ง' : 'รวมรับเข้า − รวมส่งออก'}
                         </div>
                       </td>
                       {g.items.map((p: any, i: number) => (
@@ -452,14 +558,16 @@ export default function StockLedger() {
           ? <><b>สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก</b> คือของที่ยังอยู่หน้างานรอแจกจ่าย (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)
               {countFrom
                 ? <> · เดินยอดตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
-                : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>
-          : <><b>ยอดความต่าง = รวมรับเข้า − รวมส่งออก</b> ของช่วงที่เลือก (สูตรเดียวกับไฟล์ Excel 交货明细) · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว</>}
-        {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
-        {(shipBelongsToPrev || inBelongsToNext) && (
-          <><br /><b>วันรอยต่อรอบ:</b>
-            {shipBelongsToPrev && <> ยอด "ส่งงานออกโรงงาน" ของวันที่ {dateTH(fromDate)} เป็นการปิดยอดรอบก่อน จึงไม่นับซ้ำในรอบนี้</>}
-            {inBelongsToNext && <> · ยอด "รับเข้า/เบิกออก" ของวันที่ {dateTH(toDate)} เป็นของรอบถัดไป (วันที่ของมาถึงคือวันเริ่มรอบใหม่)</>}
-          </>
+                : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}
+              {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)</>
+          : lotMatched
+            ? <><b>ยอดความต่าง = ของที่รับเข้ารอบนี้ ที่ยังไม่ได้ส่งออก</b> · ยอดส่งออกจับคู่กับล็อตที่รับเข้ามาก่อน แล้วนับเป็นของรอบที่ล็อตนั้นรับเข้า
+                (เช่น ของที่รับเข้าปลายเดือนก่อน แต่ส่งออกต้นเดือนนี้ นับเป็นของรอบเดือนก่อน) เดือนที่ส่งครบแล้วจึงเป็น 0
+                · ป้าย "+ ของรอบก่อน" = ส่งจริงวันนั้นแต่ไปนับที่รอบก่อน · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว</>
+            : <><b>ยอดความต่าง = รวมรับเข้า − รวมส่งออก</b> ตามวันที่จริงในช่วงที่เลือก · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว
+                · <span className="text-rose-600">ติดลบ</span> = ช่วงนี้ส่งออกมากกว่ารับเข้า (ส่งของที่รับเข้ามาก่อนช่วงนี้)</>}
+        {inBelongsToNext && (
+          <><br /><b>วันรอยต่อรอบ:</b> ยอด "รับเข้า/เบิกออก" ของวันที่ {dateTH(toDate)} เป็นของรอบถัดไป (วันที่ของมาถึงคือวันเริ่มรอบใหม่)</>
         )}
       </p>
     </div>
