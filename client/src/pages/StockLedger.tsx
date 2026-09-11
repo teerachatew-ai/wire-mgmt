@@ -49,22 +49,6 @@ type Move = { in: Record<number, number>; issue: Record<number, number>; ship: R
 const Cell = ({ v, cls = '' }: { v: number; cls?: string }) =>
   v ? <span className={cls}>{fmt(v)}</span> : <span className="text-gray-300">–</span>;
 
-// ช่องคงเหลือ: ต้องโชว์เลข 0 เสมอ เพราะ "เหลือ 0" เป็นข้อมูลจริง (ของหมด) คนละความหมายกับ "ไม่มีความเคลื่อนไหว"
-const BalCell = ({ v }: { v: number }) => (
-  <span className={v < 0 ? 'text-rose-600' : v === 0 ? 'text-gray-400' : 'text-slate-800'}>{fmt(v)}</span>
-);
-
-// แถว "ยกมา" = ยอดคงเหลือสะสมก่อนวันแรกของช่วงที่เลือก (ทำให้ยอดต่อเนื่องถูกต้องแม้กรองช่วงสั้นๆ)
-const OpeningRow = ({ items, opening }: { items: any[]; opening: Record<number, number> }) => (
-  <tr className="bg-amber-50/60 text-gray-600">
-    <td className="sticky left-0 bg-amber-50/60 z-10 px-3 py-1.5 border-r text-xs">ยกมา</td>
-    {items.map(p => <td key={'oi' + p.id} className="px-2 py-1.5 text-right text-gray-300">–</td>)}
-    {items.map(p => <td key={'oo' + p.id} className="px-2 py-1.5 text-right text-gray-300">–</td>)}
-    {items.map(p => (
-      <td key={'ob' + p.id} className="px-2 py-1.5 text-right font-medium"><BalCell v={opening[p.id] || 0} /></td>
-    ))}
-  </tr>
-);
 
 export default function StockLedger() {
   const [mode, setMode] = useState<Mode>('factory');   // เปิดหน้ามาเจอ "รับ-ส่ง โรงงาน" ก่อน (ดูทั้งหมดย้อนหลังได้)
@@ -133,11 +117,12 @@ export default function StockLedger() {
   const loading = lp || lr || ls || li;
 
   const outLabel = mode === 'site' ? 'เบิกออกให้สมาชิก' : 'ส่งงานออกโรงงาน';
-  const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ส่วนต่างสะสม';
-  /* มุมมองสต็อกหน้างานสนใจแค่ "ตอนนี้เหลือเท่าไร" ของแต่ละชนิดงาน — โชว์เฉพาะบรรทัดล่างสุด
-     ไม่ต้องไล่ยอดคงเหลือรายวัน (แถวรายวันดูแค่รับเข้า/เบิกออกก็พอ อ่านง่ายกว่า)
-     ส่วนมุมมองรับ-ส่งโรงงานยังไล่ยอดสะสมรายวันเหมือนเดิม เพราะใช้กระทบยอดกับโรงงาน */
-  const showRunningBal = mode === 'factory';
+  const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ยอดความต่าง';
+  /* ตารางรายวันโชว์แค่ของเข้า/ของออก แล้วสรุปตัวเลขสุดท้ายไว้ "ใต้ตาราง" แถวเดียว แบบไฟล์ Excel 交货明细
+     (ไม่ไล่ยอดสะสมทุกบรรทัด — เคยทำแล้วงง เพราะแยกไม่ออกว่าเลขไหนเป็นยอดเคลื่อนไหว เลขไหนเป็นยอดคงเหลือ)
+     - รับ-ส่งโรงงาน: ยอดความต่าง = รวมรับเข้า − รวมส่งออก ของช่วงที่เลือก (สูตรเดียวกับ Excel)
+     - สต็อกหน้างาน:  คงเหลือหน้างาน = ของที่เหลืออยู่จริง (เดินยอดจากเส้นเริ่มนับ) */
+  const finalOf = (tin: number, tout: number, closing: number) => (mode === 'factory' ? tin - tout : closing);
 
   // ── รวมความเคลื่อนไหวรายวัน ──
   const { dates, moves } = useMemo(() => {
@@ -183,9 +168,6 @@ export default function StockLedger() {
   const ledger = useMemo(() => {
     const bal: Record<number, number> = {};
     const rows = new Map<string, any[]>();
-    const opening: Record<number, number> = {};
-    let captured = false;
-
     const EMPTY: Record<number, number> = {};
 
     for (const d of dates) {
@@ -198,9 +180,8 @@ export default function StockLedger() {
       const atStartSeam = inRange && d === fromDate && shipBelongsToPrev && mode === 'factory';
       const atEndSeam = inBelongsToNext && d === toDate;                     // วันปิดรอบ
 
-      // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — หักเข้ายอดยกมาก่อนบันทึก snapshot
+      // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — ไม่นับในรอบนี้
       if (atStartSeam) for (const [pid, q] of Object.entries(mv.ship)) bal[+pid] = (bal[+pid] || 0) - q;
-      if (inRange && !captured) { Object.assign(opening, bal); captured = true; }
 
       // วันปิดรอบ: ของที่รับเข้า/เบิกออกวันนั้นเป็นของรอบถัดไป
       const inQty = atEndSeam ? EMPTY : mv.in;
@@ -214,14 +195,11 @@ export default function StockLedger() {
 
       for (const g of groups) {
         if (!g.items.some((p: any) => inQty[p.id] || outQty[p.id])) continue;   // กลุ่มนี้ไม่มีความเคลื่อนไหววันนี้
-        const snap: Record<number, number> = {};
-        for (const p of g.items) snap[p.id] = bal[p.id] || 0;
         if (!rows.has(g.key)) rows.set(g.key, []);
-        rows.get(g.key)!.push({ date: d, in: inQty, out: outQty, bal: snap });
+        rows.get(g.key)!.push({ date: d, in: inQty, out: outQty });
       }
     }
-    if (!captured) Object.assign(opening, bal);
-    return { rows, opening, closing: bal };
+    return { rows, closing: bal };
   }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext]);
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
@@ -237,23 +215,35 @@ export default function StockLedger() {
     return { tin, tout, closing };
   }, [shownGroups, ledger]);
 
+  // Export ให้หน้าตาเหมือนไฟล์ Excel เดิม: รายวัน → แถว "รวม" → แถว "ยอดความต่าง" (ใต้คอลัมน์ส่งออก) ต่อกลุ่มงาน
   const exportRows = useMemo(() => {
     const out: Record<string, any>[] = [];
     for (const g of shownGroups) {
-      for (const r of (ledger.rows.get(g.key) || [])) {
+      const rows = ledger.rows.get(g.key) || [];
+      if (rows.length === 0) continue;
+      const names = g.items.map((p: any) => { const { num, label } = parseProductLabel(p.name); return `${num} ${label}`; });
+      for (const r of rows) {
         const row: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': r.date };
-        for (const p of g.items) {
-          const { num, label } = parseProductLabel(p.name);
-          const n = `${num} ${label}`;
-          row[`รับเข้า ${n}`] = r.in[p.id] || 0;
-          row[`${outLabel} ${n}`] = r.out[p.id] || 0;
-          row[`${balLabel} ${n}`] = r.bal[p.id] || 0;
-        }
+        g.items.forEach((p: any, i: number) => {
+          row[`รับเข้า ${names[i]}`] = r.in[p.id] || 0;
+          row[`${outLabel} ${names[i]}`] = r.out[p.id] || 0;
+        });
         out.push(row);
       }
+      const total: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': 'รวม' };
+      const diff: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': balLabel };
+      g.items.forEach((p: any, i: number) => {
+        const sIn = rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0);
+        const sOut = rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0);
+        total[`รับเข้า ${names[i]}`] = sIn;
+        total[`${outLabel} ${names[i]}`] = sOut;
+        diff[`รับเข้า ${names[i]}`] = '';
+        diff[`${outLabel} ${names[i]}`] = mode === 'factory' ? sIn - sOut : (ledger.closing[p.id] || 0);
+      });
+      out.push(total, diff);
     }
     return out;
-  }, [shownGroups, ledger, outLabel, balLabel]);
+  }, [shownGroups, ledger, outLabel, balLabel, mode]);
 
   const pill = (active: boolean) =>
     `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
@@ -341,8 +331,11 @@ export default function StockLedger() {
           <div className="text-xl font-bold text-blue-700 tabular-nums mt-0.5">{fmt(summary.tout)}</div>
         </div>
         <div className="card !p-3 border-l-4 border-l-slate-700">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel} (ล่าสุดของช่วง)</div>
-          <div className={`text-xl font-bold tabular-nums mt-0.5 ${summary.closing < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{fmt(summary.closing)}</div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel}{mode === 'factory' ? 'ในช่วงนี้' : ' (ล่าสุด)'}</div>
+          {(() => {
+            const v = finalOf(summary.tin, summary.tout, summary.closing);
+            return <div className={`text-xl font-bold tabular-nums mt-0.5 ${v < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{fmt(v)}</div>;
+          })()}
         </div>
       </div>
 
@@ -355,7 +348,10 @@ export default function StockLedger() {
         const gIn = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0), 0);
         const gOut = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0), 0);
         const gBal = g.items.reduce((s: number, p: any) => s + (ledger.closing[p.id] || 0), 0);
-        const hasOpening = showRunningBal && g.items.some((p: any) => ledger.opening[p.id]);
+        const gFinal = finalOf(gIn, gOut, gBal);
+        const sumIn = (pid: number) => rows.reduce((a: number, r: any) => a + (r.in[pid] || 0), 0);
+        const sumOut = (pid: number) => rows.reduce((a: number, r: any) => a + (r.out[pid] || 0), 0);
+        const finalFor = (pid: number) => (mode === 'factory' ? sumIn(pid) - sumOut(pid) : (ledger.closing[pid] || 0));
 
         return (
           <div key={g.key} className="card !p-0 overflow-hidden">
@@ -366,7 +362,7 @@ export default function StockLedger() {
               <span className="ml-auto flex items-center gap-3 text-xs tabular-nums">
                 <span className="text-emerald-700">รับเข้า <b>{fmt(gIn)}</b></span>
                 <span className="text-blue-700">{outLabel} <b>{fmt(gOut)}</b></span>
-                <span className={gBal < 0 ? 'text-rose-600' : 'text-slate-800'}>{balLabel} <b>{fmt(gBal)}</b></span>
+                <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{balLabel} <b>{fmt(gFinal)}</b></span>
               </span>
             </div>
 
@@ -379,18 +375,15 @@ export default function StockLedger() {
                     <tr className="text-xs">
                       <th className="sticky left-0 bg-white z-10 px-3 py-1.5 text-left font-medium text-gray-500 border-b border-r">วันที่</th>
                       <th colSpan={g.items.length} className="px-2 py-1.5 bg-emerald-50 text-emerald-800 font-semibold border-b border-r">📦 รับเข้าจากโรงงาน</th>
-                      <th colSpan={g.items.length} className="px-2 py-1.5 bg-blue-50 text-blue-800 font-semibold border-b border-r">{mode === 'site' ? '👤' : '🚚'} {outLabel}</th>
-                      <th colSpan={g.items.length} className="px-2 py-1.5 bg-slate-100 text-slate-800 font-semibold border-b">
-                        📊 {balLabel}{!showRunningBal && <span className="font-normal text-slate-500"> (ล่าสุด)</span>}
-                      </th>
+                      <th colSpan={g.items.length} className="px-2 py-1.5 bg-blue-50 text-blue-800 font-semibold border-b">{mode === 'site' ? '👤' : '🚚'} {outLabel}</th>
                     </tr>
                     <tr className="text-[11px] text-gray-500">
                       <th className="sticky left-0 bg-white z-10 border-b border-r px-3 py-1" />
-                      {(['in', 'out', 'bal'] as const).map(kind => g.items.map((p: any, i: number) => {
+                      {(['in', 'out'] as const).map(kind => g.items.map((p: any, i: number) => {
                         const { num, label } = parseProductLabel(p.name);
-                        const last = i === g.items.length - 1;
+                        const divider = kind === 'in' && i === g.items.length - 1;
                         return (
-                          <th key={kind + p.id} className={`px-2 py-1 text-right font-medium border-b whitespace-nowrap ${last ? 'border-r' : ''} ${kind === 'in' ? 'bg-emerald-50/40' : kind === 'out' ? 'bg-blue-50/40' : 'bg-slate-50'}`}>
+                          <th key={kind + p.id} className={`px-2 py-1 text-right font-medium border-b whitespace-nowrap ${divider ? 'border-r' : ''} ${kind === 'in' ? 'bg-emerald-50/40' : 'bg-blue-50/40'}`}>
                             <div className="font-semibold text-gray-700">{num}</div>
                             <div className="text-[10px] font-normal text-gray-400">{label}</div>
                           </th>
@@ -399,46 +392,52 @@ export default function StockLedger() {
                     </tr>
                   </thead>
                   <tbody>
-                    {hasOpening && !newestFirst && <OpeningRow items={g.items} opening={ledger.opening} />}
-
                     {view.map((r: any) => (
                       <tr key={r.date} className="border-b border-gray-50 hover:bg-blue-50/30">
                         <td className="sticky left-0 bg-white z-10 px-3 py-1.5 border-r whitespace-nowrap text-gray-700" title={r.date}>{dateTH(r.date)}</td>
-                        {g.items.map((p: any) => <td key={'i' + p.id} className="px-2 py-1.5 text-right bg-emerald-50/20"><Cell v={r.in[p.id] || 0} cls="text-emerald-700 font-medium" /></td>)}
-                        {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
-                        {g.items.map((p: any) => (
-                          <td key={'b' + p.id} className="px-2 py-1.5 text-right bg-slate-50/60 font-semibold">
-                            {showRunningBal ? <BalCell v={r.bal[p.id] || 0} /> : null}
+                        {g.items.map((p: any, i: number) => (
+                          <td key={'i' + p.id} className={`px-2 py-1.5 text-right bg-emerald-50/20 ${i === g.items.length - 1 ? 'border-r' : ''}`}>
+                            <Cell v={r.in[p.id] || 0} cls="text-emerald-700 font-medium" />
                           </td>
                         ))}
+                        {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
                       </tr>
                     ))}
-
-                    {hasOpening && newestFirst && <OpeningRow items={g.items} opening={ledger.opening} />}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-gray-50 font-semibold border-t-2">
-                      <td className="sticky left-0 bg-gray-50 z-10 px-3 py-2 border-r text-gray-700 leading-tight">
-                        รวมช่วงนี้
+                    {/* แถว Total — ยอดรวมของเข้า/ของออกในช่วง */}
+                    <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
+                      <td className="sticky left-0 bg-gray-50 z-10 px-3 py-2 border-r text-gray-700">รวม</td>
+                      {g.items.map((p: any, i: number) => (
+                        <td key={'ti' + p.id} className={`px-2 py-2 text-right text-emerald-800 ${i === g.items.length - 1 ? 'border-r' : ''}`}>
+                          {fmt(sumIn(p.id))}
+                        </td>
+                      ))}
+                      {g.items.map((p: any) => (
+                        <td key={'to' + p.id} className="px-2 py-2 text-right text-blue-800">{fmt(sumOut(p.id))}</td>
+                      ))}
+                    </tr>
+                    {/* แถวยอดความต่าง — อยู่ใต้คอลัมน์ส่งออก ขีดเส้นใต้คู่ แบบไฟล์ Excel 交货明细 */}
+                    <tr>
+                      <td className="sticky left-0 bg-white z-10 px-3 py-2.5 border-r text-gray-800 font-semibold leading-tight">
+                        {balLabel}
                         <div className="text-[10px] font-normal text-gray-400">
-                          {showRunningBal ? `${balLabel} = ยอดล่าสุด` : `${balLabel} = ของที่เหลืออยู่ตอนนี้`}
+                          {mode === 'factory' ? 'รวมรับเข้า − รวมส่งออก' : 'ของที่เหลืออยู่ตอนนี้'}
                         </div>
                       </td>
-                      {g.items.map((p: any) => (
-                        <td key={'ti' + p.id} className="px-2 py-2 text-right text-emerald-800">
-                          <Cell v={rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0)} />
-                        </td>
+                      {g.items.map((p: any, i: number) => (
+                        <td key={'di' + p.id} className={i === g.items.length - 1 ? 'border-r' : ''} />
                       ))}
-                      {g.items.map((p: any) => (
-                        <td key={'to' + p.id} className="px-2 py-2 text-right text-blue-800">
-                          <Cell v={rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0)} />
-                        </td>
-                      ))}
-                      {g.items.map((p: any) => (
-                        <td key={'tb' + p.id} className={`px-2 py-2 text-right ${(ledger.closing[p.id] || 0) < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                          {fmt(ledger.closing[p.id] || 0)}
-                        </td>
-                      ))}
+                      {g.items.map((p: any) => {
+                        const v = finalFor(p.id);
+                        return (
+                          <td key={'dv' + p.id} className="px-2 py-2.5 text-right">
+                            <span className={`inline-block border-b-[3px] border-double border-gray-500 pb-0.5 text-base font-bold tabular-nums ${v < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                              {fmt(v)}
+                            </span>
+                          </td>
+                        );
+                      })}
                     </tr>
                   </tfoot>
                 </table>
@@ -454,11 +453,11 @@ export default function StockLedger() {
               {countFrom
                 ? <> · เดินยอดตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
                 : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>
-          : <><b>ส่วนต่างสะสม = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน</b> · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว · ดูย้อนหลังได้ทั้งหมด ไม่ตัดที่เส้นเริ่มนับสต็อก</>}
+          : <><b>ยอดความต่าง = รวมรับเข้า − รวมส่งออก</b> ของช่วงที่เลือก (สูตรเดียวกับไฟล์ Excel 交货明细) · ส่งออกใช้ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว</>}
         {' '}· <span className="text-rose-600">ติดลบ</span> = จ่ายออกมากกว่าที่รับเข้าในช่วงนี้ (ใช้ของค้างจากรอบก่อน)
         {(shipBelongsToPrev || inBelongsToNext) && (
           <><br /><b>วันรอยต่อรอบ:</b>
-            {shipBelongsToPrev && <> ยอด "ส่งงานออกโรงงาน" ของวันที่ {dateTH(fromDate)} เป็นการปิดยอดรอบก่อน จึงไม่นับซ้ำในรอบนี้ (รวมอยู่ในยอดยกมาแล้ว)</>}
+            {shipBelongsToPrev && <> ยอด "ส่งงานออกโรงงาน" ของวันที่ {dateTH(fromDate)} เป็นการปิดยอดรอบก่อน จึงไม่นับซ้ำในรอบนี้</>}
             {inBelongsToNext && <> · ยอด "รับเข้า/เบิกออก" ของวันที่ {dateTH(toDate)} เป็นของรอบถัดไป (วันที่ของมาถึงคือวันเริ่มรอบใหม่)</>}
           </>
         )}
