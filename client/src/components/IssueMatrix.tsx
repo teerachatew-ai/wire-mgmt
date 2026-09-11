@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Pencil } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
@@ -12,7 +12,12 @@ const nickOf = (name: string, nickname?: string) =>
 /* ตารางสรุปใบเบิกแบบ matrix — แถว = สมาชิก, คอลัมน์ = ประเภทงาน, แยกเป็นวันๆ
    อ่านทีเดียวเห็นทั้งวันว่าใครเบิกอะไรไปเท่าไหร่ ไม่ต้องไล่อ่านทีละใบ
    คอลัมน์ชื่อสมาชิกกับหัวตารางตรึงไว้ (sticky) เลื่อนดูงานหลายชนิดแล้วยังรู้ว่าแถวไหนของใคร */
-function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) => void }) {
+// ช่องที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ × งานชนิดนี้ × วันนี้ (ปกติ 1 ใบ แต่อาจเบิกหลายรอบในวันเดียว)
+export interface MatrixCell { date: string; memberCode: string; memberName: string; productName: string; color?: string; items: any[] }
+
+function IssueMatrix({ issues, onOpen, onEdit }: {
+  issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void;
+}) {
   if (issues.length === 0) return null;
 
   // ── จัดกลุ่ม: วันที่ -> สมาชิก -> ประเภทงาน ──
@@ -45,11 +50,11 @@ function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) 
           const key = String(i.member_id ?? i.member_code ?? i.member_name);
           const m = (memMap[key] ??= {
             key, code: i.member_code, name: i.member_name, nickname: i.member_nickname,
-            qty: {} as Record<string, number>, ids: {} as Record<string, number[]>,
+            qty: {} as Record<string, number>, items: {} as Record<string, any[]>,
             total: 0, returned: 0,
           });
           m.qty[i.product_name] = (m.qty[i.product_name] || 0) + (Number(i.quantity) || 0);
-          (m.ids[i.product_name] ??= []).push(i.id);
+          (m.items[i.product_name] ??= []).push(i);
           m.total += Number(i.quantity) || 0;
           m.returned += (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
         }
@@ -119,13 +124,22 @@ function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) 
                         </td>
                         {products.map(p => {
                           const v = m.qty[p.name] || 0;
-                          const ids: number[] = m.ids[p.name] || [];
+                          const items: any[] = m.items[p.name] || [];
                           return (
                             <td key={p.name}
                               className={`border-b px-2 py-2 text-center ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
                               {v > 0 ? (
-                                onOpen && ids.length === 1 ? (
-                                  <button type="button" onClick={() => onOpen(ids[0])}
+                                onEdit ? (
+                                  // คลิกแล้วแก้จำนวนได้ทันที ไม่ว่าช่องนั้นจะมีกี่ใบ
+                                  <button type="button"
+                                    onClick={() => onEdit({ date, memberCode: m.code, memberName: m.name, productName: p.name, color: p.color, items })}
+                                    title={items.length > 1 ? `${items.length} ใบ — คลิกเพื่อแก้จำนวน` : 'คลิกเพื่อแก้จำนวน'}
+                                    className="font-semibold text-gray-800 rounded px-1.5 -mx-1.5 hover:bg-blue-100 hover:text-blue-700 cursor-pointer">
+                                    {fmt(v)}
+                                    {items.length > 1 && <sup className="text-[9px] text-blue-500 ml-0.5">×{items.length}</sup>}
+                                  </button>
+                                ) : onOpen && items.length === 1 ? (
+                                  <button type="button" onClick={() => onOpen(items[0].id)}
                                     className="font-semibold text-gray-800 hover:text-blue-600 hover:underline">
                                     {fmt(v)}
                                   </button>
@@ -163,9 +177,11 @@ function IssueMatrix({ issues, onOpen }: { issues: any[]; onOpen?: (id: number) 
               </table>
             </div>
 
-            {onOpen && (
+            {(onEdit || onOpen) && (
               <p className="px-4 py-2 text-[11px] text-gray-400 border-t flex items-center gap-1.5">
-                <Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)
+                {onEdit
+                  ? <><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ช่องที่มี ×2 ขึ้นไป = มีหลายใบ แก้ได้ทีละใบในกล่องเดียว)</>
+                  : <><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</>}
               </p>
             )}
           </div>

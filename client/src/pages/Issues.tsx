@@ -7,7 +7,7 @@ import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
-import IssueMatrix from '../components/IssueMatrix';
+import IssueMatrix, { type MatrixCell } from '../components/IssueMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -363,14 +363,18 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
   const [siblings, setSiblings] = useState<any[] | null>(null); // ใบเบิกคู่กัน (เบิกพร้อมกัน) — รอถามว่าจะแก้จำนวนให้ตรงกันด้วยไหม
   const [pendingQty, setPendingQty] = useState<any>(null);
   const [applying, setApplying] = useState(false);
+  // แก้จำนวนให้น้อยกว่าที่คืนไปแล้ว -> เซิร์ฟเวอร์ขอให้ยืนยันก่อน (เก็บข้อมูลที่กรอกไว้รอส่งซ้ำแบบ force)
+  const [confirmBelow, setConfirmBelow] = useState<{ data: any; message: string } | null>(null);
 
   const activeProducts = (products as any[]).filter((p: any) => p.active || String(p.id) === String(issue.product_id));
   const returned = issue.returned_good + issue.returned_defect + issue.returned_waste;
 
-  const onSubmit = async (data: any) => {
+  // แยกจาก onSubmit เพราะ handleSubmit ส่ง event มาเป็นอาร์กิวเมนต์ที่ 2 — ถ้ารับ force ตรงนั้นจะกลายเป็น true เสมอ
+  const submitUpdate = async (data: any, force: boolean) => {
     setLoading(true); setError('');
     try {
-      const result = await issueApi.update(issue.id, data);
+      const result = await issueApi.update(issue.id, force ? { ...data, force: true } : data);
+      setConfirmBelow(null);
       if (result.siblings?.length > 0) {
         setSiblings(result.siblings);
         setPendingQty(data.quantity);
@@ -378,9 +382,12 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
         onSaved(); onClose();
       }
     } catch (e: any) {
-      setError(e.response?.data?.error || 'เกิดข้อผิดพลาด');
+      const d = e.response?.data;
+      if (e.response?.status === 409 && d?.confirm_required) setConfirmBelow({ data, message: d.message });
+      else setError(d?.error || 'เกิดข้อผิดพลาด');
     } finally { setLoading(false); }
   };
+  const onSubmit = (data: any) => submitUpdate(data, false);
 
   const skipSiblings = () => { onSaved(); onClose(); };
   const applySiblings = async () => {
@@ -401,6 +408,27 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
     setApplying(false);
     onSaved(); onClose();
   };
+
+  if (confirmBelow) {
+    return (
+      <Modal title={`แก้ไขใบเบิก ${issue.code}`} onClose={onClose}>
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">{confirmBelow.message}</div>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            ยอดรับคืนจะ<b>ไม่ถูกแก้ไข</b> (ค่าแรงที่คิดจากการคืนงานยังเท่าเดิม) และใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง
+          </p>
+          {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
+          <div className="flex gap-2 justify-end">
+            <button type="button" className="btn-secondary" disabled={loading} onClick={() => setConfirmBelow(null)}>กลับไปแก้</button>
+            <button type="button" className="btn-primary !bg-amber-600 hover:!bg-amber-700" disabled={loading}
+              onClick={() => submitUpdate(confirmBelow.data, true)}>
+              {loading ? 'กำลังบันทึก...' : 'ยืนยันแก้จำนวนเบิก'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   if (siblings) {
     return (
@@ -467,7 +495,7 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
         <div>
           <label className="label">จำนวนเบิก *</label>
           <input type="number" step="0.01" min="0.01" className="input" {...register('quantity', { required: true })} />
-          {returned > 0 && <p className="text-xs text-amber-600 mt-1">คืนไปแล้ว {returned} หน่วย — แก้จำนวนได้ไม่ต่ำกว่านี้</p>}
+          {returned > 0 && <p className="text-xs text-amber-600 mt-1">คืนไปแล้ว {returned} หน่วย — ถ้าแก้ให้น้อยกว่านี้ ระบบจะถามยืนยันก่อน (ยอดรับคืนไม่ถูกแก้)</p>}
         </div>
 
         <div>
@@ -481,6 +509,158 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="submit" className="btn-primary" disabled={loading}>
             {loading ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ── แก้จำนวนเบิกจากตารางสรุปรายวัน ──
+   คลิกตัวเลขในตารางแล้วแก้ได้ทันที ไม่ต้องไปค้นหาใบเบิกทีละใบ
+   ช่องหนึ่งอาจมีหลายใบ (คนเดียวกันเบิกงานชนิดเดียวกันหลายรอบในวันเดียว) จึงให้แก้ได้ทีละใบในกล่องเดียว
+   แก้ให้น้อยกว่าที่คืนไปแล้วได้ — เซิร์ฟเวอร์ตอบ 409 กลับมาให้ถามยืนยันก่อน แล้วค่อยส่งซ้ำแบบ force
+   (ใช้ยอดคืนจากเซิร์ฟเวอร์เป็นหลัก เพราะรวมยอดสูญหายที่รายการในตารางไม่ได้ดึงมาด้วย) */
+function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
+  cell: MatrixCell; onClose: () => void; onSaved: () => void; onOpenDetail: (id: number) => void;
+}) {
+  const items = cell.items;
+  const [draft, setDraft] = useState<Record<number, string>>(
+    () => Object.fromEntries(items.map((i: any) => [i.id, String(i.quantity)])));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmList, setConfirmList] = useState<any[] | null>(null);   // ใบที่แก้ให้น้อยกว่าที่คืน รอยืนยัน
+  const firstInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { firstInput.current?.select(); }, []);
+
+  const returnedOf = (i: any) => (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
+  const changed = items.filter((i: any) => draft[i.id] !== '' && Number(draft[i.id]) !== Number(i.quantity));
+  const draftTotal = items.reduce((s: number, i: any) => s + (Number(draft[i.id]) || 0), 0);
+  const origTotal = items.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+
+  // บันทึกไปแล้วบางใบ -> รีเฟรชตารางเสมอ แม้จะยังค้างใบที่รอยืนยันหรือเจอ error
+  const save = async () => {
+    setError('');
+    const bad = changed.find((i: any) => !(Number(draft[i.id]) > 0));
+    if (bad) { setError(`ใบ ${bad.code}: จำนวนเบิกต้องมากกว่า 0`); return; }
+    if (changed.length === 0) { onClose(); return; }
+
+    setSaving(true);
+    const needConfirm: any[] = [];
+    let savedAny = false;
+    for (const i of changed) {
+      const qty = Number(draft[i.id]);
+      try { await issueApi.updateQuantity(i.id, qty); savedAny = true; }
+      catch (e: any) {
+        const d = e.response?.data;
+        if (e.response?.status === 409 && d?.confirm_required) needConfirm.push({ ...i, newQty: qty, returnedTotal: d.returned_total });
+        else { setError(`ใบ ${i.code}: ${d?.error || 'บันทึกไม่สำเร็จ'}`); if (savedAny) onSaved(); setSaving(false); return; }
+      }
+    }
+    setSaving(false);
+    if (savedAny) onSaved();
+    if (needConfirm.length) setConfirmList(needConfirm); else onClose();
+  };
+
+  const confirmSave = async () => {
+    setSaving(true); setError('');
+    for (const i of confirmList || []) {
+      try { await issueApi.updateQuantity(i.id, i.newQty, true); }
+      catch (e: any) { setError(`ใบ ${i.code}: ${e.response?.data?.error || 'บันทึกไม่สำเร็จ'}`); setSaving(false); onSaved(); return; }
+    }
+    setSaving(false);
+    onSaved(); onClose();
+  };
+
+  const header = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm bg-gray-50 rounded-xl px-3 py-2">
+      <span><span className="font-mono text-xs text-gray-400 mr-1">{cell.memberCode}</span><b className="text-gray-800">{cell.memberName}</b></span>
+      <span className="inline-flex items-center gap-1.5 text-gray-600">
+        {cell.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: cell.color }} />}
+        {cell.productName}
+      </span>
+      <span className="text-gray-400 text-xs">เบิกวันที่ {cell.date}</span>
+    </div>
+  );
+
+  if (confirmList) {
+    return (
+      <Modal title="ยืนยันแก้จำนวนเบิกให้น้อยกว่าที่คืนไปแล้ว" onClose={onClose}>
+        <div className="space-y-4">
+          {header}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800 space-y-2">
+            {confirmList.map((i: any) => (
+              <div key={i.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-xs text-blue-700">{i.code}</span>
+                <span>คืนแล้ว <b>{i.returnedTotal}</b> → แก้จำนวนเบิกเป็น <b className="text-red-600">{i.newQty}</b></span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 leading-relaxed">
+            ยอดรับคืนจะ<b>ไม่ถูกแก้ไข</b> (ค่าแรงที่คิดจากการคืนงานยังเท่าเดิม) และใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง
+          </p>
+          {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
+          <div className="flex gap-2 justify-end">
+            <button type="button" className="btn-secondary" disabled={saving} onClick={() => setConfirmList(null)}>กลับไปแก้</button>
+            <button type="button" className="btn-primary !bg-amber-600 hover:!bg-amber-700" disabled={saving} onClick={confirmSave}>
+              {saving ? 'กำลังบันทึก...' : 'ยืนยันแก้จำนวนเบิก'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="แก้ไขจำนวนเบิก" onClose={onClose}>
+      <form className="space-y-4" onSubmit={e => { e.preventDefault(); save(); }}>
+        {header}
+
+        <div className="border rounded-xl divide-y">
+          {items.map((i: any, idx: number) => {
+            const returned = returnedOf(i);
+            const v = draft[i.id];
+            const below = v !== '' && Number(v) < returned;
+            return (
+              <div key={i.id} className="px-3 py-2.5 space-y-1">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-xs text-blue-600 font-semibold">{i.code}</div>
+                    <div className="text-[11px] text-gray-400">
+                      เดิม {Number(i.quantity).toLocaleString('th-TH')}
+                      {returned > 0 && <> · คืนแล้ว <span className="text-emerald-600 font-medium">{returned.toLocaleString('th-TH')}</span></>}
+                    </div>
+                  </div>
+                  <input ref={idx === 0 ? firstInput : undefined} type="number" inputMode="decimal" step="any" min="0.01"
+                    className={`input !w-32 text-right text-base font-semibold tabular-nums ${below ? '!border-amber-400 !bg-amber-50' : ''}`}
+                    value={v} onChange={e => setDraft(d => ({ ...d, [i.id]: e.target.value }))} />
+                  <button type="button" title="ดูรายละเอียดใบเบิก" className="text-gray-400 hover:text-blue-600"
+                    onClick={() => onOpenDetail(i.id)}><Eye size={16} /></button>
+                </div>
+                {below && (
+                  <p className="text-[11px] text-amber-700 text-right">น้อยกว่าที่คืนไปแล้ว — จะถามยืนยันก่อนบันทึก</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {items.length > 1 && (
+          <div className="flex justify-between text-sm px-1">
+            <span className="text-gray-500">รวมช่องนี้</span>
+            <span className="tabular-nums">
+              {origTotal !== draftTotal && <span className="text-gray-400 line-through mr-2">{origTotal.toLocaleString('th-TH')}</span>}
+              <b className="text-blue-700">{draftTotal.toLocaleString('th-TH')}</b>
+            </span>
+          </div>
+        )}
+
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
+
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="submit" className="btn-primary" disabled={saving || changed.length === 0}>
+            {saving ? 'กำลังบันทึก...' : changed.length > 1 ? `บันทึก ${changed.length} ใบ` : 'บันทึก'}
           </button>
         </div>
       </form>
@@ -779,6 +959,16 @@ export default function Issues() {
   // (มองว่า prop เปลี่ยนตลอด เลยสร้างตารางใหม่ทั้งหมดทุกครั้งที่พิมพ์)
   const openDetail = useCallback((id: number) => setDetailId(id), []);
 
+  // คลิกตัวเลขในตารางสรุปรายวัน -> แก้จำนวนเบิกได้ทันที (useCallback ด้วยเหตุผลเดียวกับ openDetail)
+  const [qtyCell, setQtyCell] = useState<MatrixCell | null>(null);
+  const openQtyEditor = useCallback((cell: MatrixCell) => setQtyCell(cell), []);
+  const handleQtySaved = () => {
+    qc.invalidateQueries({ queryKey: ['issues'] });
+    qc.invalidateQueries({ queryKey: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['stock-flow'] });
+    qc.invalidateQueries({ queryKey: ['stock-ledger'] });
+  };
+
   // ลบหลายใบพร้อมกัน — ใช้ force=1 ตรงๆ ทุกใบ (ข้ามขั้นยืนยันซ้อนแบบทีละใบ) เพราะเตือนเรื่องการลบรายการรับคืนที่ผูกอยู่ไว้ใน confirm() ครั้งเดียวตั้งแต่ต้นแล้ว
   const handleBulkDelete = async () => {
     const ids = Array.from(selected);
@@ -1001,7 +1191,7 @@ export default function Issues() {
               )}
             </div>
           )}
-          <IssueMatrix issues={visibleIssues} onOpen={openDetail} />
+          <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} />
         </>
       )}
 
@@ -1122,6 +1312,11 @@ export default function Issues() {
         />
       )}
 
+      {qtyCell && (
+        <QuickQtyEditor cell={qtyCell} onClose={() => setQtyCell(null)} onSaved={handleQtySaved} onOpenDetail={openDetail} />
+      )}
+
+      {/* วางหลังกล่องแก้จำนวน — กดดูรายละเอียดจากในกล่องแก้แล้วจะซ้อนขึ้นมาด้านบน */}
       {detailId && <DetailModal issue={detail} onClose={() => setDetailId(null)} />}
 
       {editing && (

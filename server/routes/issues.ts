@@ -129,17 +129,47 @@ router.post('/batch', (req, res) => {
   res.json({ created, failed });
 });
 
+// ยอดที่คืนแล้วของใบเบิก (ดี + เสีย + เศษ + สูญหาย)
+function returnedTotal(issueId: number | string): number {
+  const r = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(issueId) as any;
+  return Number(r?.total) || 0;
+}
+const statusFor = (returned: number, qty: number) => returned >= qty ? 'closed' : returned > 0 ? 'partial' : 'pending';
+
+// แก้จำนวนเบิกให้น้อยกว่าที่คืนไปแล้ว "ทำได้" (เช่น บันทึกเบิกเกินไปตอนแรก) แต่ต้องยืนยันก่อน —
+// ตอบ 409 ให้หน้าเว็บถามผู้ใช้ แล้วค่อยส่งซ้ำพร้อม force: true
+// ไม่แตะรายการรับคืนเลย ใบเบิกจะกลายเป็น "คืนครบ" (ไม่มีค้างส่ง) เพราะคืนมามากกว่าที่เบิก
+const belowReturnedConfirm = (code: string, returned: number, qty: number) => ({
+  confirm_required: true,
+  returned_total: returned,
+  message: `ใบเบิก ${code} คืนงานไปแล้ว ${returned} หน่วย แต่จะแก้จำนวนเบิกเป็น ${qty} (น้อยกว่าที่คืน) — ยอดรับคืนจะไม่ถูกแก้ ยืนยันหรือไม่?`,
+});
+
+// แก้เฉพาะจำนวนเบิก — ใช้จากตารางสรุปรายวัน (คลิกที่ตัวเลขแล้วแก้ได้ทันที ไม่ต้องไปค้นหาใบ)
+router.patch('/:id/quantity', (req, res) => {
+  const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(req.params.id) as any;
+  if (!issue) return res.status(404).json({ error: 'ไม่พบใบเบิก' });
+  const qty = Number(req.body?.quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'จำนวนเบิกต้องมากกว่า 0' });
+
+  const returned = returnedTotal(req.params.id);
+  if (qty < returned && req.body?.force !== true) return res.status(409).json(belowReturnedConfirm(issue.code, returned, qty));
+
+  prepare(`UPDATE issues SET quantity = ?, status = ? WHERE id = ?`).run(qty, statusFor(returned, qty), req.params.id);
+  res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id));
+});
+
 router.put('/:id', (req, res) => {
   const { issued_at, member_id, product_id, quantity, due_date, notes } = req.body;
   const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(req.params.id) as any;
   if (!issue) return res.status(404).json({ error: 'ไม่พบใบเบิก' });
   if (!issued_at || !member_id || !product_id || !quantity) return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
 
-  // จำนวนที่คืนแล้ว — ห้ามแก้จำนวนเบิกให้น้อยกว่าที่คืนไปแล้ว
-  const ret = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(req.params.id) as any;
-  if (parseFloat(quantity) < (ret.total || 0)) {
-    return res.status(400).json({ error: `แก้จำนวนเบิกได้ไม่ต่ำกว่าจำนวนที่คืนแล้ว (${ret.total} หน่วย)` });
+  const returned = returnedTotal(req.params.id);
+  if (parseFloat(quantity) < returned && req.body?.force !== true) {
+    return res.status(409).json(belowReturnedConfirm(issue.code, returned, parseFloat(quantity)));
   }
+  const ret = { total: returned };
 
   const member = prepare(`SELECT * FROM members WHERE id = ?`).get(member_id) as any;
   if (!member) return res.status(400).json({ error: 'ไม่พบสมาชิก' });

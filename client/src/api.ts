@@ -40,6 +40,8 @@ export const issueApi = {
   // สร้างหลายรุ่นให้คนเดียวในรอบเดียว — เร็วกว่ายิงทีละรุ่นมาก (ดู server/routes/issues.ts /batch)
   createBatch: (data: any) => api.post('/issues/batch', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/issues/${id}`, data).then(r => r.data),
+  // แก้เฉพาะจำนวนเบิก (ตารางสรุปรายวัน) — force = ยืนยันแล้วว่าแก้ให้น้อยกว่าที่คืนไปแล้วได้
+  updateQuantity: (id: number, quantity: number, force = false) => api.patch(`/issues/${id}/quantity`, { quantity, force }).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/issues/${id}${force ? '?force=1' : ''}`).then(r => r.data),
 };
 
