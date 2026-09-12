@@ -14,9 +14,11 @@ const nickOf = (name: string, nickname?: string) =>
    คอลัมน์ชื่อสมาชิกกับหัวตารางตรึงไว้ (sticky) เลื่อนดูงานหลายชนิดแล้วยังรู้ว่าแถวไหนของใคร */
 // ช่องที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ × งานชนิดนี้ × วันนี้ (ปกติ 1 ใบ แต่อาจเบิกหลายรอบในวันเดียว)
 export interface MatrixCell { date: string; memberCode: string; memberName: string; productName: string; color?: string; items: any[] }
+// แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
+export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit }: {
-  issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void;
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
+  issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
 }) {
   if (issues.length === 0) return null;
 
@@ -118,9 +120,23 @@ function IssueMatrix({ issues, onOpen, onEdit }: {
                     return (
                       <tr key={m.key} className="group">
                         <td className={`sticky left-0 z-10 border-b border-r px-3 py-2 ${idx % 2 ? 'bg-gray-50/60' : 'bg-white'} group-hover:bg-blue-50`}>
-                          <span className="font-mono text-[11px] text-gray-400 mr-1.5">{m.code}</span>
-                          <span className="font-medium text-gray-800">{m.name}</span>
-                          {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}
+                          {onEditRow ? (
+                            // คลิกที่ชื่อ -> แก้จำนวน/วันที่ของงานทุกชนิดที่คนนี้เบิกวันนี้ได้ทีเดียว (ทุกใบในแถว)
+                            <button type="button"
+                              onClick={() => onEditRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                              title="คลิกเพื่อแก้จำนวน/วันที่ของงานทุกชนิดที่คนนี้เบิกวันนี้"
+                              className="text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer">
+                              <span className="font-mono text-[11px] text-gray-400 mr-1.5">{m.code}</span>
+                              <span className="font-medium text-gray-800 hover:text-blue-700">{m.name}</span>
+                              {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}
+                            </button>
+                          ) : (
+                            <>
+                              <span className="font-mono text-[11px] text-gray-400 mr-1.5">{m.code}</span>
+                              <span className="font-medium text-gray-800">{m.name}</span>
+                              {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}
+                            </>
+                          )}
                         </td>
                         {products.map(p => {
                           const v = m.qty[p.name] || 0;
@@ -176,11 +192,11 @@ function IssueMatrix({ issues, onOpen, onEdit }: {
               </table>
             </div>
 
-            {(onEdit || onOpen) && (
-              <p className="px-4 py-2 text-[11px] text-gray-400 border-t flex items-center gap-1.5">
-                {onEdit
-                  ? <><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</>
-                  : <><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</>}
+            {(onEdit || onOpen || onEditRow) && (
+              <p className="px-4 py-2 text-[11px] text-gray-400 border-t flex flex-wrap items-center gap-x-4 gap-y-1">
+                {onEdit && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</span>}
+                {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
+                {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
               </p>
             )}
           </div>
