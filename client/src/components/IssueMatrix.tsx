@@ -76,6 +76,23 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
         const grandTotal = members.reduce((s: number, m: any) => s + m.total, 0);
         const grandPending = members.reduce((s: number, m: any) => s + Math.max(0, m.total - m.returned), 0);
 
+        // รวมยอดแยกตามล็อต — ต่อชนิดงาน (ใต้ยอดรวมแต่ละคอลัมน์) และรวมทั้งวันข้ามทุกชนิดงาน (ใต้ยอดรวมทั้งวัน)
+        // ไม่รู้ล็อต (ข้อมูลเก่าก่อนมีฟีเจอร์นี้) ไม่นับรวมในนี้ — โชว์เฉพาะที่รู้ล็อตจริง
+        const lotByProduct: Record<string, Record<string, number>> = {};
+        const lotGrand: Record<string, number> = {};
+        for (const i of rows) {
+          if (!i.lot_date) continue;
+          const q = Number(i.quantity) || 0;
+          (lotByProduct[i.product_name] ??= {})[i.lot_date] = (lotByProduct[i.product_name]?.[i.lot_date] || 0) + q;
+          lotGrand[i.lot_date] = (lotGrand[i.lot_date] || 0) + q;
+        }
+        const lotChip = (lot: string, qty: number, key: string) => (
+          <span key={key} className={`inline-block rounded px-1 py-px text-[9px] font-normal whitespace-nowrap border ${
+            lot === date ? 'bg-white border-gray-300 text-gray-500' : 'bg-violet-50 border-violet-200 text-violet-600'}`}>
+            {shortLot(lot)}: {fmt(qty)}
+          </span>
+        );
+
         return (
           <div key={date} className="card p-0 overflow-hidden">
             {/* หัวข้อวัน */}
@@ -210,12 +227,30 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                 </tbody>
                 <tfoot>
                   <tr className="font-bold">
-                    <td className="sticky left-0 z-10 bg-gray-100 border-r px-3 py-2.5 text-gray-700">รวมทั้งวัน</td>
-                    {products.map(p => (
-                      <td key={p.name} className="bg-gray-100 px-2 py-2.5 text-center text-gray-800">{fmt(colTotal(p.name))}</td>
-                    ))}
-                    <td className="bg-blue-100 border-l px-3 py-2.5 text-right text-blue-900">{fmt(grandTotal)}</td>
-                    <td className="bg-gray-100 px-3 py-2.5 text-right text-amber-700">{grandPending > 0 ? fmt(grandPending) : '–'}</td>
+                    <td className="sticky left-0 z-10 bg-gray-100 border-r px-3 py-2.5 text-gray-700 align-top">รวมทั้งวัน</td>
+                    {products.map(p => {
+                      const lots = Object.entries(lotByProduct[p.name] || {}).sort(([a], [b]) => a.localeCompare(b));
+                      return (
+                        <td key={p.name} className="bg-gray-100 px-2 py-2.5 text-center text-gray-800 align-top">
+                          <div>{fmt(colTotal(p.name))}</div>
+                          {/* แยกตามล็อต — โชว์เฉพาะตอนคอลัมน์นี้มาจากมากกว่า 1 ล็อต ไม่งั้นซ้ำกับยอดรวมเฉยๆ */}
+                          {lots.length > 1 && (
+                            <div className="mt-1 flex flex-col items-center gap-0.5 font-normal">
+                              {lots.map(([lot, qty]) => lotChip(lot, qty, lot))}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className="bg-blue-100 border-l px-3 py-2.5 text-right text-blue-900 align-top">
+                      <div>{fmt(grandTotal)}</div>
+                      {Object.keys(lotGrand).length > 1 && (
+                        <div className="mt-1 flex flex-col items-end gap-0.5 font-normal">
+                          {Object.entries(lotGrand).sort(([a], [b]) => a.localeCompare(b)).map(([lot, qty]) => lotChip(lot, qty, 'g' + lot))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="bg-gray-100 px-3 py-2.5 text-right text-amber-700 align-top">{grandPending > 0 ? fmt(grandPending) : '–'}</td>
                   </tr>
                 </tfoot>
               </table>
