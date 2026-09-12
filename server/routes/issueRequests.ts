@@ -50,8 +50,8 @@ router.post('/:id/confirm', (req, res) => {
   }
 
   const code = nextDateCode('IS', 'issues', issuedAt);
-  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, issuedAt, request.member_id, productId, qty, due_date || null, notes || request.notes || null, userOf(req));
+  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, orig_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, issuedAt, request.member_id, productId, qty, due_date || null, notes || request.notes || null, userOf(req), qty);
 
   prepare(`UPDATE issue_requests SET status='confirmed', confirmed_issue_id=?, confirmed_at=datetime('now'), confirmed_by=? WHERE id=?`)
     .run(result.lastInsertRowid, userOf(req), req.params.id);

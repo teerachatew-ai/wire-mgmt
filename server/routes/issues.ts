@@ -80,8 +80,8 @@ router.post('/', (req, res) => {
   }
 
   const code = nextDateCode('IS', 'issues', issued_at);
-  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, issued_at, member_id, product_id, quantity, due_date || null, notes || null, userOf(req), lot_date || null);
+  const result = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date, orig_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, issued_at, member_id, product_id, quantity, due_date || null, notes || null, userOf(req), lot_date || null, quantity);
 
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(result.lastInsertRowid));
 });
@@ -119,8 +119,8 @@ router.post('/batch', (req, res) => {
   for (const l of valid) {
     try {
       const code = nextDateCode('IS', 'issues', issued_at);
-      const r = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(code, issued_at, member_id, l.product_id, l.quantity, due_date || null, notes || null, by, l.lot_date || null);
+      const r = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date, orig_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(code, issued_at, member_id, l.product_id, l.quantity, due_date || null, notes || null, by, l.lot_date || null, l.quantity);
       created.push(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(r.lastInsertRowid));
     } catch (e: any) {
       failed.push({ product_id: l.product_id, error: e?.message || 'บันทึกไม่สำเร็จ' });

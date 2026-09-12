@@ -27,7 +27,30 @@ router.get('/', (req, res) => {
   if (from) { sql += ` AND r.received_at >= ?`; params.push(from); }
   if (to) { sql += ` AND r.received_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.received_at DESC, r.id DESC`;
-  res.json(prepare(sql).all(...params));
+  const rows = prepare(sql).all(...params) as any[];
+
+  /* จำนวนรับจริง = ยอดตามใบส่งของ + ส่วนต่างที่พบตอนแจกงาน
+     ส่วนต่างมาเองจากการแก้ยอดใบเบิก (สมาชิกนับของในมัดแล้วมาแจ้งว่าขาด/เกิน เจ้าหน้าที่แก้ยอดเบิก)
+     — เทียบ quantity ปัจจุบันกับ orig_quantity ที่บันทึกไว้ตอนแจกครั้งแรก แล้วผูกกลับมาที่ล็อตผ่าน lot_date
+     ไม่ต้องกรอกยอดรับจริงเองเลย */
+  const varRows = prepare(`
+    SELECT product_id, lot_date, SUM(quantity - COALESCE(orig_quantity, quantity)) as v
+    FROM issues WHERE lot_date IS NOT NULL GROUP BY product_id, lot_date
+  `).all() as any[];
+  const varOf = new Map(varRows.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
+
+  // ล็อตหนึ่ง (สินค้า+วันที่) อาจมีใบรับหลายใบ เช่นรอบที่ 1 / รอบที่ 2 ของวันเดียวกัน
+  // ลงส่วนต่างของทั้งล็อตไว้ที่ใบล่าสุดใบเดียว เวลารวมทั้งคอลัมน์จะได้ไม่นับซ้ำ
+  const lastIdOf = new Map<string, number>();
+  for (const r of rows) {
+    const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
+    if (!lastIdOf.has(k) || r.id > lastIdOf.get(k)!) lastIdOf.set(k, r.id);
+  }
+  res.json(rows.map(r => {
+    const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
+    const variance_qty = lastIdOf.get(k) === r.id ? (varOf.get(k) || 0) : 0;
+    return { ...r, variance_qty, actual_qty: (Number(r.quantity) || 0) + variance_qty };
+  }));
 });
 
 /* ล็อตที่รับเข้าจากโรงงาน แยกตามวันที่รับ พร้อมยอดคงเหลือที่ยังไม่ได้แจกให้สมาชิก

@@ -277,7 +277,8 @@ export default function Receives() {
           <input className="input w-52 text-sm" placeholder="🔍 เลขใบรับ / Ref / สินค้า" value={search} onChange={e => setSearch(e.target.value)} />
           <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
           <ExportExcelButton filename="รับของจากโรงงาน" rows={(receives as any[]).map(r => ({
-            'เลขที่รับ': r.code, 'วันที่': r.received_at, 'สินค้า': r.product_name, 'จำนวน': r.quantity, 'หน่วย': r.unit,
+            'เลขที่รับ': r.code, 'วันที่': r.received_at, 'สินค้า': r.product_name,
+            'ตามใบส่งของ': r.quantity, 'ขาด/เกิน': r.variance_qty || 0, 'รับจริง': r.actual_qty ?? r.quantity, 'หน่วย': r.unit,
             'เลขเอกสารโรงงาน': r.factory_ref || '', 'หมายเหตุ': r.notes || '', 'ผู้บันทึก': r.created_by || '',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => setShowModal(true)}>
@@ -325,14 +326,17 @@ export default function Receives() {
               <th className="px-4 py-3 font-medium">เลขที่รับ</th>
               <th className="px-4 py-3 font-medium">วันที่</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
-              <th className="px-4 py-3 font-medium text-right">จำนวน</th>
+              <th className="px-4 py-3 font-medium text-right">ตามใบส่งของ</th>
+              <th className="px-4 py-3 font-medium text-right" title="ยอดตามใบส่งของ ± ของที่ขาด/เกินจริง ซึ่งพบตอนสมาชิกเบิกงานไปนับ (ระบบปรับให้เองจากการแก้ยอดใบเบิก)">
+                รับจริง
+              </th>
               <th className="px-4 py-3 font-medium">เลขเอกสารโรงงาน</th>
               <th className="px-4 py-3 font-medium">หมายเหตุ</th>
               <th className="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={8} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={9} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {receives.map((r: any) => (
               <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${selected.has(r.id) ? 'bg-blue-50/50' : ''}`}>
                 <td className="px-4 py-3"><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
@@ -344,7 +348,18 @@ export default function Receives() {
                     {r.product_name}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right font-medium">{r.quantity.toLocaleString()} {r.unit}</td>
+                <td className="px-4 py-3 text-right text-gray-500">{r.quantity.toLocaleString()} {r.unit}</td>
+                {/* รับจริง — ระบบคิดให้เอง ไม่ต้องกรอก · เท่ากับใบส่งของถ้ายังไม่มีใครแจ้งว่าขาด/เกิน */}
+                <td className="px-4 py-3 text-right">
+                  <span className={`font-semibold ${r.variance_qty ? (r.variance_qty < 0 ? 'text-rose-600' : 'text-emerald-600') : 'text-gray-800'}`}>
+                    {Number(r.actual_qty ?? r.quantity).toLocaleString()}
+                  </span>
+                  {!!r.variance_qty && (
+                    <div className="text-[11px] text-gray-400" title="ส่วนต่างจากยอดที่แก้ในใบเบิกของล็อตวันนี้ (สมาชิกนับแล้วแจ้งว่าของขาด/เกิน)">
+                      {r.variance_qty < 0 ? 'ขาด' : 'เกิน'} {Math.abs(r.variance_qty).toLocaleString()}
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-gray-500">{r.factory_ref || '-'}</td>
                 <td className="px-4 py-3 text-gray-400 text-xs">{r.notes || '-'}</td>
                 <td className="px-4 py-3">
@@ -360,7 +375,7 @@ export default function Receives() {
                 </td>
               </tr>
             ))}
-            {!isLoading && receives.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && receives.length === 0 && <tr><td colSpan={9} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>
