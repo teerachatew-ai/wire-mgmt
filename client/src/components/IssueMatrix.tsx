@@ -150,9 +150,10 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                         {products.map(p => {
                           const v = m.qty[p.name] || 0;
                           const items: any[] = m.items[p.name] || [];
-                          // ป้ายล็อต — โชว์เฉพาะตอนงานมาจากล็อตวันอื่น (ไม่ใช่ของที่โรงงานส่งมาวันเดียวกับที่เบิก)
-                          // ล็อตตรงวันอยู่แล้ว = เรื่องปกติ ไม่ต้องโชว์ให้รกตา
-                          const otherLots = [...new Set(items.map((i: any) => i.lot_date).filter((d: any) => d && d !== date))] as string[];
+                          // ป้ายล็อต — โชว์ทุกครั้งที่รู้ล็อต จะได้ตรวจสอบย้อนกลับได้ทุกตัวเลข
+                          // สีเทา = ล็อตวันเดียวกับที่เบิก (ปกติ) · สีม่วง = ล็อตวันอื่น (ของเก่าที่ยังแจกไม่หมด)
+                          const lots = [...new Set(items.map((i: any) => i.lot_date).filter(Boolean))] as string[];
+                          const otherLots = lots.filter(d => d !== date);
                           return (
                             <td key={p.name}
                               className={`border-b px-2 py-2 text-center ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
@@ -176,11 +177,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                               ) : (
                                 <span className="text-gray-200">–</span>
                               )}
-                              {otherLots.length > 0 && (
+                              {lots.length > 0 && (
                                 <div className="mt-0.5 leading-none">
-                                  <span className="inline-block bg-violet-50 border border-violet-200 text-violet-600 rounded px-1 py-px text-[9px] font-medium whitespace-nowrap"
-                                    title={`งานล็อตที่โรงงานส่งมาวันที่ ${otherLots.map(shortLot).join(', ')} (ไม่ใช่ล็อตวันเดียวกับที่เบิก)`}>
-                                    {otherLots.length === 1 ? `ล็อต ${shortLot(otherLots[0])}` : `${otherLots.length} ล็อตเก่า`}
+                                  <span className={`inline-block rounded px-1 py-px text-[9px] font-medium whitespace-nowrap border ${
+                                    otherLots.length > 0 ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-gray-50 border-gray-200 text-gray-400'}`}
+                                    title={otherLots.length > 0
+                                      ? `งานล็อตที่โรงงานส่งมาวันที่ ${otherLots.map(shortLot).join(', ')} (ไม่ใช่ล็อตวันเดียวกับที่เบิก)`
+                                      : `งานล็อตที่โรงงานส่งมาวันที่ ${lots.map(shortLot).join(', ')}`}>
+                                    {lots.length === 1 ? `ล็อต ${shortLot(lots[0])}` : `${lots.length} ล็อต`}
                                   </span>
                                 </div>
                               )}
@@ -222,9 +226,11 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                 {onEdit && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</span>}
                 {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
                 {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-block bg-gray-50 border border-gray-200 text-gray-400 rounded px-1 py-px text-[9px] font-medium">ล็อต 12 ก.ย.</span>
+                  = ล็อตวันเดียวกับที่เบิก ·
                   <span className="inline-block bg-violet-50 border border-violet-200 text-violet-600 rounded px-1 py-px text-[9px] font-medium">ล็อต 7 ก.ย.</span>
-                  = เบิกงานของล็อตที่โรงงานส่งมาวันอื่น (ไม่มีป้าย = ล็อตวันเดียวกับที่เบิก)
+                  = เบิกงานของล็อตที่โรงงานส่งมาวันอื่น
                 </span>
               </p>
             )}
