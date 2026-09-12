@@ -145,15 +145,18 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
   const { data: allLots = [] } = useQuery({ queryKey: ['receive-lots'], queryFn: () => receiveApi.lots() });
   const lotsOf = useMemo(() => {
     const m: Record<string, any[]> = {};
-    for (const l of (allLots as any[])) {
-      if (Number(l.remaining_qty) <= 0) continue;               // แจกหมดแล้ว ไม่ต้องให้เลือก
-      (m[String(l.product_id)] ??= []).push(l);
-    }
+    for (const l of (allLots as any[])) (m[String(l.product_id)] ??= []).push(l);
     for (const k of Object.keys(m)) m[k].sort((a, b) => String(a.lot_date).localeCompare(String(b.lot_date)));
     return m;
   }, [allLots]);
-  // ค่าเริ่มต้น = ล็อตเก่าสุดที่ยังเหลือ (FIFO — เคลียร์ของเก่าก่อน) แก้เป็นล็อตอื่นได้
-  const lotFor = (pid: any) => lotBy[String(pid)] || lotsOf[String(pid)]?.[0]?.lot_date || '';
+  /* ค่าเริ่มต้น = ล็อตเก่าสุดที่ยังเหลือของ (FIFO — เคลียร์ของเก่าก่อน) เปลี่ยนเป็นล็อตอื่นได้
+     ถ้าทุกล็อตแจกหมดแล้ว (แต่ยังเบิกเพิ่ม เช่นยอดในระบบคลาดเคลื่อน) ใช้ล็อตล่าสุดเป็นค่าตั้งต้น */
+  const lotFor = (pid: any) => {
+    const key = String(pid);
+    if (lotBy[key]) return lotBy[key];
+    const lots = lotsOf[key] || [];
+    return (lots.find((l: any) => Number(l.remaining_qty) > 0) || lots[lots.length - 1])?.lot_date || '';
+  };
 
   // จัดกลุ่มตามโครงการ (ชื่อกลุ่มที่คนใช้งานคุ้นเคย เช่น "งานป้ายขาว")
   const groups = Object.values(
@@ -296,19 +299,30 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
                       {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-gray-800 text-sm truncate">{p.name}</div>
-                        <div className="text-[11px] text-gray-400">คงคลัง {st.toLocaleString()} {p.unit}</div>
-                        {/* มีล็อตค้างมากกว่า 1 ถึงจะให้เลือก — ล็อตเดียวผูกให้เองเงียบๆ */}
-                        {lots.length > 1 && (
-                          <select className="mt-1 text-[11px] border border-gray-200 rounded-lg px-1.5 py-0.5 bg-white text-gray-600 max-w-full"
-                            value={lotFor(p.id)} onChange={e => setLotBy(l => ({ ...l, [String(p.id)]: e.target.value }))}
-                            title="ล็อตที่รับเข้าจากโรงงาน — เลือกว่างานที่เบิกรอบนี้ตัดมาจากล็อตวันไหน">
-                            {lots.map((l: any) => (
-                              <option key={l.lot_date} value={l.lot_date}>
-                                ล็อต {shortLot(l.lot_date)} · เหลือ {Number(l.remaining_qty).toLocaleString('th-TH')}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                        <div className="text-[11px] text-gray-400 flex items-center gap-1 flex-wrap">
+                          <span>คงคลัง {st.toLocaleString()} {p.unit}</span>
+                          {/* โชว์ล็อตที่กำลังตัดตลอดเวลา (แม้มีล็อตเดียว) จะได้รู้ทันทีว่าเบิกจากของล็อตไหน
+                              มีหลายล็อตก็กดเปลี่ยนที่ช่องนี้ได้เลย · สีม่วง = ตัดจากล็อตวันอื่น ไม่ใช่ของที่เพิ่งส่งมาวันนี้ */}
+                          {lots.length > 0 && (
+                            <>
+                              <span className="text-gray-300">·</span>
+                              <span>ล็อต</span>
+                              <select
+                                className={`text-[11px] border rounded px-1 py-0.5 max-w-[190px] ${lotFor(p.id) && lotFor(p.id) !== issuedAt
+                                  ? 'border-violet-300 bg-violet-50 text-violet-700 font-medium' : 'border-gray-200 bg-white text-gray-600'}`}
+                                value={lotFor(p.id)} onChange={e => setLotBy(l => ({ ...l, [String(p.id)]: e.target.value }))}
+                                title="ล็อตที่โรงงานส่งมา — เลือกว่างานที่เบิกรอบนี้ตัดมาจากของล็อตวันไหน">
+                                {lots.map((l: any) => (
+                                  <option key={l.lot_date} value={l.lot_date}>
+                                    {shortLot(l.lot_date)}{Number(l.remaining_qty) > 0
+                                      ? ` · เหลือ ${Number(l.remaining_qty).toLocaleString('th-TH')}`
+                                      : ' · แจกหมดแล้ว'}
+                                  </option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <input type="number" min="0" step="0.01" inputMode="numeric" placeholder="0"
                         className={`input !min-h-[38px] !py-1 !px-2 w-24 shrink-0 text-right ${v > 0 ? 'font-bold' : ''} ${over ? '!border-rose-400 !bg-rose-50 !text-rose-700' : ''}`}
