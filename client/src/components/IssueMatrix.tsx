@@ -60,12 +60,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
           const m = (memMap[key] ??= {
             key, code: i.member_code, name: i.member_name, nickname: i.member_nickname,
             qty: {} as Record<string, number>, items: {} as Record<string, any[]>,
-            total: 0, returned: 0,
+            total: 0, returned: 0, lastReturnedAt: '',
           });
           m.qty[i.product_name] = (m.qty[i.product_name] || 0) + (Number(i.quantity) || 0);
           (m.items[i.product_name] ??= []).push(i);
           m.total += Number(i.quantity) || 0;
           m.returned += (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
+          // วันที่คืนงานล่าสุดของงานทุกชนิดที่เบิกวันนี้ — ใช้โชว์เป็น "วันที่คืนครบ" ตอนไม่มีค้างส่งแล้ว
+          if (i.last_returned_at && i.last_returned_at > m.lastReturnedAt) m.lastReturnedAt = i.last_returned_at;
         }
         const members = Object.values(memMap).sort((a: any, b: any) =>
           String(a.code || '').localeCompare(String(b.code || ''), 'th'));
@@ -189,9 +191,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                           {fmt(m.total)}
                         </td>
                         <td className={`border-b px-3 py-2 text-right ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
-                          {pending > 0
-                            ? <span className="font-semibold text-amber-600">{fmt(pending)}</span>
-                            : <span className="text-emerald-600" title="ส่งครบแล้ว">✓</span>}
+                          {pending > 0 ? (
+                            <span className="font-semibold text-amber-600">{fmt(pending)}</span>
+                          ) : (
+                            <span className="text-emerald-600" title={m.lastReturnedAt ? `ส่งครบแล้ว — คืนล่าสุด ${m.lastReturnedAt}` : 'ส่งครบแล้ว'}>
+                              ✓
+                              {m.lastReturnedAt && <span className="block text-[10px] text-gray-400 font-normal leading-tight">{shortLot(m.lastReturnedAt)}</span>}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );

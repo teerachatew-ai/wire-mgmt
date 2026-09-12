@@ -26,7 +26,8 @@ router.get('/', (req, res) => {
     p.name as product_name, p.unit, p.wage_per_unit, p.color, p.project,
     COALESCE((SELECT SUM(good_qty) FROM returns WHERE issue_id = i.id),0) as returned_good,
     COALESCE((SELECT SUM(defect_qty) FROM returns WHERE issue_id = i.id),0) as returned_defect,
-    COALESCE((SELECT SUM(waste_qty) FROM returns WHERE issue_id = i.id),0) as returned_waste
+    COALESCE((SELECT SUM(waste_qty) FROM returns WHERE issue_id = i.id),0) as returned_waste,
+    (SELECT MAX(returned_at) FROM returns WHERE issue_id = i.id) as last_returned_at
     FROM issues i
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
