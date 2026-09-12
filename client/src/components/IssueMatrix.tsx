@@ -136,7 +136,6 @@ function IssueMatrix({ issues, onOpen, onEdit }: {
                                     title={items.length > 1 ? `${items.length} ใบ — คลิกเพื่อแก้จำนวน` : 'คลิกเพื่อแก้จำนวน'}
                                     className="font-semibold text-gray-800 rounded px-1.5 -mx-1.5 hover:bg-blue-100 hover:text-blue-700 cursor-pointer">
                                     {fmt(v)}
-                                    {items.length > 1 && <sup className="text-[9px] text-blue-500 ml-0.5">×{items.length}</sup>}
                                   </button>
                                 ) : onOpen && items.length === 1 ? (
                                   <button type="button" onClick={() => onOpen(items[0].id)}
@@ -180,7 +179,7 @@ function IssueMatrix({ issues, onOpen, onEdit }: {
             {(onEdit || onOpen) && (
               <p className="px-4 py-2 text-[11px] text-gray-400 border-t flex items-center gap-1.5">
                 {onEdit
-                  ? <><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ช่องที่มี ×2 ขึ้นไป = มีหลายใบ แก้ได้ทีละใบในกล่องเดียว)</>
+                  ? <><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</>
                   : <><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</>}
               </p>
             )}
