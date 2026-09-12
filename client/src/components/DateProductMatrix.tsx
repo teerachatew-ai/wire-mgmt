@@ -10,6 +10,8 @@ export interface MatrixEntry {
   color?: string | null;
   unit?: string | null;
   qty: number;
+  // ส่วนต่างระหว่างยอดจริงกับยอดที่บันทึกไว้ตอนแรก (qty = ยอดจริงแล้ว) — ไม่ใส่มาก็ได้ ถือว่าไม่มีส่วนต่าง
+  variance?: number;
 }
 
 const THDAY = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
@@ -42,10 +44,16 @@ function DateProductMatrix({
 
   // แถว: วันที่ (ใหม่อยู่บน)
   const byDate: Record<string, Record<string, number>> = {};
+  const varOf: Record<string, Record<string, number>> = {};   // ส่วนต่างยอดจริง แยกตามวัน x ประเภทงาน
   for (const e of entries) {
     (byDate[e.date] ??= {});
     byDate[e.date][e.product_name] = (byDate[e.date][e.product_name] || 0) + (Number(e.qty) || 0);
+    if (e.variance) {
+      (varOf[e.date] ??= {});
+      varOf[e.date][e.product_name] = (varOf[e.date][e.product_name] || 0) + Number(e.variance);
+    }
   }
+  const hasVariance = Object.keys(varOf).length > 0;
   const dates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
 
   const rowTotal = (d: string) => products.reduce((s, p) => s + (byDate[d][p.name] || 0), 0);
@@ -91,9 +99,21 @@ function DateProductMatrix({
                   </td>
                   {products.map(p => {
                     const v = byDate[d][p.name] || 0;
+                    // ยอดที่โชว์คือยอดจริง — ถ้าต่างจากที่บันทึกไว้ตอนแรก เปลี่ยนสี + ใส่ลูกศร และบอกยอดเดิมไว้ใต้ตัวเลข
+                    const diff = varOf[d]?.[p.name] || 0;
                     return (
                       <td key={p.name} className={`border-b px-2 py-2 text-center ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
-                        {v > 0 ? <span className="font-semibold text-gray-800">{fmt(v)}</span> : <span className="text-gray-200">–</span>}
+                        {v > 0 || diff ? (
+                          <span title={diff ? `ตามใบส่งของ ${fmt(v - diff)} · รับจริง ${fmt(v)} (${diff > 0 ? 'เกิน' : 'ขาด'} ${fmt(Math.abs(diff))})` : undefined}>
+                            <span className={`font-semibold ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-gray-800'}`}>
+                              {diff !== 0 && <span className="text-[10px] mr-0.5">{diff > 0 ? '▲' : '▼'}</span>}
+                              {fmt(v)}
+                            </span>
+                            {diff !== 0 && (
+                              <span className="block text-[10px] text-gray-400 leading-tight">ใบส่ง {fmt(v - diff)}</span>
+                            )}
+                          </span>
+                        ) : <span className="text-gray-200">–</span>}
                       </td>
                     );
                   })}
@@ -117,6 +137,13 @@ function DateProductMatrix({
       </div>
       <p className="px-4 py-2 text-[11px] text-gray-400 border-t">
         หน่วย: {unitLabel} · คอลัมน์เรียงตามสีป้าย (ขาว → ชมพู/แดง → เขียว) เหมือนหน้าเบิกงานและรายงานค่าแรง
+        {hasVariance && (
+          <>
+            <br />ตัวเลขคือ<b>ยอดรับจริง</b> ·{' '}
+            <span className="text-emerald-600 font-semibold">▲ เขียว</span> = ได้เกินใบส่งของ ·{' '}
+            <span className="text-rose-600 font-semibold">▼ แดง</span> = ได้ขาดจากใบส่งของ (ระบบปรับให้เองจากยอดที่แก้ในใบเบิก)
+          </>
+        )}
       </p>
     </div>
   );

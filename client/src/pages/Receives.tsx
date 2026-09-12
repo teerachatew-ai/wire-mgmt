@@ -241,10 +241,12 @@ export default function Receives() {
   const activeProducts = (products as any[]).filter((p: any) => p.active);
   // มุมมอง: ตารางสรุปรายวัน (matrix แถว=วันที่ คอลัมน์=ประเภทงาน) หรือ รายการทีละใบ (มีปุ่มแก้ไข/ลบ)
   const [view, setView] = useState<'matrix' | 'list'>('matrix');
+  // ตารางสรุปโชว์ "ยอดรับจริง" (ยอดใบส่งของ ± ของที่ขาด/เกินซึ่งพบตอนแจกงาน) พร้อมส่วนต่างไว้ทำสัญลักษณ์
   const matrixEntries = (receives as any[]).map((r: any) => ({
     date: String(r.received_at || '').slice(0, 10),
     product_name: r.product_name, color: r.color, unit: r.unit,
-    qty: Number(r.quantity) || 0,
+    qty: Number(r.actual_qty ?? r.quantity) || 0,
+    variance: Number(r.variance_qty) || 0,
   }));
 
   const deleteMut = useMutation({
@@ -289,7 +291,8 @@ export default function Receives() {
 
       <DaySummary
         groups={Object.values((receives as any[]).reduce((a: any, r: any) => {
-          const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
+          // ใช้ยอดรับจริงให้ตรงกับตารางสรุปด้านล่าง (ยอดใบส่งของ ± ขาด/เกิน)
+          const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.actual_qty ?? r.quantity) || 0; return a;
         }, {})) as any[]}
         note={dateFilterLabel(dateFilter)} unitLabel="รับเข้า" />
 
