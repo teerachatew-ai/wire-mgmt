@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
 import { deliveryCutoffRange } from '../payCycle';
+import { STOCK_CUTOFF } from '../stockConfig';
 
 const router = Router();
 
@@ -27,6 +28,60 @@ router.get('/', (req, res) => {
   if (to) { sql += ` AND r.received_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.received_at DESC, r.id DESC`;
   res.json(prepare(sql).all(...params));
+});
+
+/* ล็อตที่รับเข้าจากโรงงาน แยกตามวันที่รับ พร้อมยอดคงเหลือที่ยังไม่ได้แจกให้สมาชิก
+   ใช้ตอนสร้างใบเบิก — ให้เลือกได้ว่างานที่เบิกวันนี้ตัดมาจากล็อตวันไหน (เผื่อมีล็อตเก่าแจกไม่หมดค้างอยู่)
+
+   ยอดคงเหลือรายล็อตคิดแบบนี้:
+   • ใบเบิกที่ระบุล็อตไว้แล้ว (lot_date) → หักออกจากล็อตนั้นตรงๆ
+   • ใบเบิกเก่าที่ยังไม่ได้ระบุล็อต → หักแบบ FIFO จากล็อตเก่าสุดไล่มา
+     (ถ้าไม่ทำแบบนี้ ล็อตเก่าที่แจกหมดไปแล้วจะยังโชว์ว่าเหลือเต็มจำนวน เพราะใบเบิกยุคก่อนไม่มีล็อตผูกไว้)
+   • นับเฉพาะตั้งแต่ STOCK_CUTOFF เป็นต้นมา ให้ผลรวมคงเหลือทุกล็อตเท่ากับยอด "รอแจกจ่าย" ในหน้าสต็อกพอดี */
+router.get('/lots', (req, res) => {
+  const productId = req.query.product_id ? parseInt(req.query.product_id as string, 10) : 0;
+  const where = productId ? ` AND product_id = ${productId}` : '';
+
+  const recv = prepare(`
+    SELECT product_id, substr(received_at,1,10) as lot_date, SUM(quantity) as received_qty
+    FROM receives WHERE received_at >= ?${where} GROUP BY product_id, lot_date
+  `).all(STOCK_CUTOFF) as any[];
+  const tagged = prepare(`
+    SELECT product_id, lot_date, SUM(quantity) as v
+    FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} GROUP BY product_id, lot_date
+  `).all(STOCK_CUTOFF) as any[];
+  const untagged = prepare(`
+    SELECT product_id, SUM(quantity) as v
+    FROM issues WHERE lot_date IS NULL AND issued_at >= ?${where} GROUP BY product_id
+  `).all(STOCK_CUTOFF) as any[];
+
+  const taggedOf = new Map(tagged.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
+  const untaggedLeft = new Map(untagged.map(r => [r.product_id, Number(r.v) || 0]));
+
+  const byProduct = new Map<number, any[]>();
+  for (const r of recv) {
+    if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
+    byProduct.get(r.product_id)!.push(r);
+  }
+
+  const out: any[] = [];
+  for (const [pid, rows] of byProduct) {
+    rows.sort((a, b) => String(a.lot_date).localeCompare(String(b.lot_date)));   // เก่าสุดก่อน (FIFO)
+    for (const r of rows) {
+      const received_qty = Number(r.received_qty) || 0;
+      const issued_tagged = taggedOf.get(`${pid}|${r.lot_date}`) || 0;
+      const capacity = Math.max(0, received_qty - issued_tagged);
+      const pool = untaggedLeft.get(pid) || 0;
+      const issued_untagged = Math.min(capacity, pool);        // เบิกเก่าที่ไม่ได้ระบุล็อต กินจากล็อตเก่าก่อน
+      untaggedLeft.set(pid, pool - issued_untagged);
+      out.push({
+        product_id: pid, lot_date: r.lot_date, received_qty,
+        issued_qty: issued_tagged + issued_untagged,
+        remaining_qty: capacity - issued_untagged,
+      });
+    }
+  }
+  res.json(out);
 });
 
 router.post('/', (req, res) => {

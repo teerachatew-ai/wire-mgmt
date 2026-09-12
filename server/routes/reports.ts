@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
+import { STOCK_CUTOFF } from '../stockConfig';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -700,7 +701,6 @@ router.post('/invoice-export', (req, res) => {
    - พร้อมส่ง  = ส่วนที่เหลือ → ทุกส่วนรวมกันเท่ากับของที่อยู่ที่กลุ่มเสมอ
    เดิมพร้อมส่งคิดจาก "คืนแล้วสะสม − ส่งออกสะสม" ซึ่งเพี้ยน เพราะช่วงแรกส่งออกโดยไม่ได้บันทึกเบิก/คืนครบ
    (เช่นป้ายขาวเคยขึ้นพร้อมส่ง 2,794 ทั้งที่ของเหลืออยู่ที่กลุ่มแค่ 1,260) */
-const STOCK_CUTOFF = '2026-08-28';
 function computeStockStatus() {
   const sumBy = (sql: string, ...params: any[]) =>
     new Map((prepare(sql).all(...params) as any[]).map(r => [r.pid, Number(r.v) || 0]));

@@ -349,6 +349,13 @@ CREATE TABLE IF NOT EXISTS managers (
     if (!cols.includes('created_by')) db.exec(`ALTER TABLE ${t} ADD COLUMN created_by TEXT`);
   }
 
+  {
+    const issueCols = db.exec(`PRAGMA table_info(issues)`)[0]?.values.map(r => r[1]) ?? [];
+    // วันที่ของล็อตที่รับเข้าจากโรงงาน ที่ใบเบิกนี้ตัดสต็อกมาจาก (NULL = ไม่ได้ระบุ/ไม่เกี่ยวกับล็อตเก่า)
+    // ใช้ตอนสมาชิกมาเบิกวันหนึ่ง แต่มีทั้งของล็อตวันนั้นกับล็อตเก่าที่ยังแจกไม่หมดปนกันอยู่
+    if (!issueCols.includes('lot_date')) db.exec(`ALTER TABLE issues ADD COLUMN lot_date TEXT`);
+  }
+
   // คำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — ยังไม่ใช่ยอดจริง ต้องรอเจ้าหน้าที่ตรวจนับของจริงแล้วกดยืนยันก่อน
   // ถึงจะกลายเป็นแถวใน returns (กันสมาชิกปลอมยอดเบิกเอง — เจ้าหน้าที่เห็น "ยอดที่แจ้ง" แต่กรอกยอดจริงตอนยืนยันได้)
   db.exec(`CREATE TABLE IF NOT EXISTS return_requests (

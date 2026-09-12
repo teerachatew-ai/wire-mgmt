@@ -7,7 +7,7 @@ import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
-import IssueMatrix, { type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
+import IssueMatrix, { shortLot, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -128,6 +128,7 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
   const [dueDate, setDueDate] = useState('');
   const [memberId, setMemberId] = useState<any>('');
   const [qty, setQty] = useState<Record<string, string>>({});
+  const [lotBy, setLotBy] = useState<Record<string, string>>({});   // ล็อตที่เลือกไว้ต่อรุ่น (วันที่รับเข้าจากโรงงาน)
   const [notes, setNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -138,6 +139,21 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
 
   const activeProducts = (products as any[]).filter((p: any) => p.active);
   const stockOf = (id: any) => Math.max(0, Math.round(stockMap[id] ?? 0));
+
+  /* ล็อตที่รับเข้าจากโรงงานและยังแจกไม่หมด — ให้เลือกได้ว่างานที่เบิกรอบนี้ตัดมาจากล็อตวันไหน
+     ปกติมีล็อตเดียวก็ผูกให้เงียบๆ ไม่ต้องโชว์อะไร (ไม่รกตา) จะโชว์ช่องเลือกเฉพาะตอนมีล็อตค้างมากกว่า 1 */
+  const { data: allLots = [] } = useQuery({ queryKey: ['receive-lots'], queryFn: () => receiveApi.lots() });
+  const lotsOf = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const l of (allLots as any[])) {
+      if (Number(l.remaining_qty) <= 0) continue;               // แจกหมดแล้ว ไม่ต้องให้เลือก
+      (m[String(l.product_id)] ??= []).push(l);
+    }
+    for (const k of Object.keys(m)) m[k].sort((a, b) => String(a.lot_date).localeCompare(String(b.lot_date)));
+    return m;
+  }, [allLots]);
+  // ค่าเริ่มต้น = ล็อตเก่าสุดที่ยังเหลือ (FIFO — เคลียร์ของเก่าก่อน) แก้เป็นล็อตอื่นได้
+  const lotFor = (pid: any) => lotBy[String(pid)] || lotsOf[String(pid)]?.[0]?.lot_date || '';
 
   // จัดกลุ่มตามโครงการ (ชื่อกลุ่มที่คนใช้งานคุ้นเคย เช่น "งานป้ายขาว")
   const groups = Object.values(
@@ -181,7 +197,7 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
       const r = await issueApi.createBatch({
         issued_at: issuedAt, due_date: dueDate || undefined, member_id: memberId,
         notes: notes || undefined,
-        lines: lines.map(({ p, q }: any) => ({ product_id: p.id, quantity: q })),
+        lines: lines.map(({ p, q }: any) => ({ product_id: p.id, quantity: q, lot_date: lotFor(p.id) || undefined })),
       });
       ok = (r.created || []).length;
       okQty = (r.created || []).reduce((s: number, c: any) => s + (Number(c.quantity) || 0), 0);
@@ -274,12 +290,25 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
                   const st = stockOf(p.id);
                   const v = parseFloat(qty[p.id]);
                   const over = v > st;
+                  const lots = lotsOf[String(p.id)] || [];
                   return (
                     <div key={p.id} className={`flex items-center gap-3 bg-white border rounded-2xl px-3 py-2 transition ${v > 0 ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200'}`}>
                       {p.color && <span className="w-6 h-6 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-gray-800 text-sm truncate">{p.name}</div>
                         <div className="text-[11px] text-gray-400">คงคลัง {st.toLocaleString()} {p.unit}</div>
+                        {/* มีล็อตค้างมากกว่า 1 ถึงจะให้เลือก — ล็อตเดียวผูกให้เองเงียบๆ */}
+                        {lots.length > 1 && (
+                          <select className="mt-1 text-[11px] border border-gray-200 rounded-lg px-1.5 py-0.5 bg-white text-gray-600 max-w-full"
+                            value={lotFor(p.id)} onChange={e => setLotBy(l => ({ ...l, [String(p.id)]: e.target.value }))}
+                            title="ล็อตที่รับเข้าจากโรงงาน — เลือกว่างานที่เบิกรอบนี้ตัดมาจากล็อตวันไหน">
+                            {lots.map((l: any) => (
+                              <option key={l.lot_date} value={l.lot_date}>
+                                ล็อต {shortLot(l.lot_date)} · เหลือ {Number(l.remaining_qty).toLocaleString('th-TH')}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <input type="number" min="0" step="0.01" inputMode="numeric" placeholder="0"
                         className={`input !min-h-[38px] !py-1 !px-2 w-24 shrink-0 text-right ${v > 0 ? 'font-bold' : ''} ${over ? '!border-rose-400 !bg-rose-50 !text-rose-700' : ''}`}
@@ -312,7 +341,11 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
               <p className="font-semibold mb-1">
                 {member ? `${member.code} ${member.name}` : 'ยังไม่ได้เลือกสมาชิก'} — {lines.length} รายการ รวม {totalQty.toLocaleString()} เส้น
               </p>
-              <p className="text-xs">{lines.map((x: any) => `${x.p.name} ${x.q.toLocaleString()}`).join(' · ')}</p>
+              <p className="text-xs">{lines.map((x: any) => {
+                const lot = lotFor(x.p.id);
+                // บอกล็อตต่อท้ายเฉพาะตอนตัดจากล็อตวันอื่น (ล็อตวันเดียวกับที่เบิก = ปกติ ไม่ต้องบอก)
+                return `${x.p.name} ${x.q.toLocaleString()}${lot && lot !== issuedAt ? ` (ล็อต ${shortLot(lot)})` : ''}`;
+              }).join(' · ')}</p>
             </div>
           )}
           <div className="flex gap-2 justify-end items-center flex-wrap">
@@ -1127,6 +1160,7 @@ export default function Issues() {
   const handleCreated = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['receive-lots'] });   // ยอดคงเหลือรายล็อตเปลี่ยนทุกครั้งที่เบิก
   };
 
   // useCallback — ถ้าส่ง arrow function ใหม่ทุกรอบ memo() ของ IssueMatrix จะไร้ผล
@@ -1144,6 +1178,7 @@ export default function Issues() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
     qc.invalidateQueries({ queryKey: ['stock-flow'] });
     qc.invalidateQueries({ queryKey: ['stock-ledger'] });
+    qc.invalidateQueries({ queryKey: ['receive-lots'] });
   };
 
   // ลบหลายใบพร้อมกัน — ใช้ force=1 ตรงๆ ทุกใบ (ข้ามขั้นยืนยันซ้อนแบบทีละใบ) เพราะเตือนเรื่องการลบรายการรับคืนที่ผูกอยู่ไว้ใน confirm() ครั้งเดียวตั้งแต่ต้นแล้ว
