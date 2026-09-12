@@ -233,8 +233,8 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                       return (
                         <td key={p.name} className="bg-gray-100 px-2 py-2.5 text-center text-gray-800 align-top">
                           <div>{fmt(colTotal(p.name))}</div>
-                          {/* แยกตามล็อต — โชว์เฉพาะตอนคอลัมน์นี้มาจากมากกว่า 1 ล็อต ไม่งั้นซ้ำกับยอดรวมเฉยๆ */}
-                          {lots.length > 1 && (
+                          {/* แยกตามล็อตเสมอ (แม้มีล็อตเดียว) ให้สอดคล้องกับป้ายล็อตที่โชว์ทุกช่องด้านบน */}
+                          {lots.length > 0 && (
                             <div className="mt-1 flex flex-col items-center gap-0.5 font-normal">
                               {lots.map(([lot, qty]) => lotChip(lot, qty, lot))}
                             </div>
@@ -244,7 +244,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                     })}
                     <td className="bg-blue-100 border-l px-3 py-2.5 text-right text-blue-900 align-top">
                       <div>{fmt(grandTotal)}</div>
-                      {Object.keys(lotGrand).length > 1 && (
+                      {Object.keys(lotGrand).length > 0 && (
                         <div className="mt-1 flex flex-col items-end gap-0.5 font-normal">
                           {Object.entries(lotGrand).sort(([a], [b]) => a.localeCompare(b)).map(([lot, qty]) => lotChip(lot, qty, 'g' + lot))}
                         </div>
