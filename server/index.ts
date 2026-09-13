@@ -79,6 +79,7 @@ function bootDb(attempt = 1): void {
   const returnRequestsRouter = require('./routes/returnRequests').default;
   const issueRequestsRouter = require('./routes/issueRequests').default;
   const lineRouter = require('./routes/line').default;
+  const stockAdjustmentsRouter = require('./routes/stockAdjustments').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -96,6 +97,7 @@ function bootDb(attempt = 1): void {
   app.use('/api/return-requests', returnRequestsRouter);
   app.use('/api/issue-requests', issueRequestsRouter);
   app.use('/api/line', lineRouter);
+  app.use('/api/stock-adjustments', stockAdjustmentsRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {

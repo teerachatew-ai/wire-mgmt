@@ -4,7 +4,8 @@ import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api
 import { projectLabel, parseProductLabel } from '../projectLabel';
 import { sortByColorGroup, colorPriority } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
-import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck } from 'lucide-react';
+import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck, Wrench } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 /* บัตรสต็อกสินค้า — ไล่วันที่ลงมา เห็นของเข้า ของออก และยอดคงเหลือในตารางเดียว
    (แทนไฟล์ Excel 交货明细 ที่เคยทำมือ — แยกบล็อกซ้าย-ขวาแล้วต้องบวกยอดคงเหลือเอง)
@@ -62,6 +63,10 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
       <div className="px-4 pt-2.5 pb-1 flex flex-wrap items-baseline gap-x-2">
         <span className="text-sm font-semibold text-slate-800">สถานะงาน ณ วันนี้</span>
         <span className="text-xs text-gray-400">{dateTH(isoOf(new Date()))} · นับรวมทุกวัน ไม่ขึ้นกับช่วงวันที่ด้านบน</span>
+        <Link to="/stock-adjustments" className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
+          title="ยอดในระบบไม่ตรงกับของจริงหน้างาน? ปรับยอดได้ที่นี่">
+          <Wrench size={12} /> ปรับยอดสต็อก
+        </Link>
       </div>
       <div className="overflow-x-auto">
         {/* ไม่ยืดเต็มกว้าง — ให้ตัวเลขอยู่ชิดชื่อแถว อ่านแนวนอนได้ทันทีแบบแถวสรุปในไฟล์ Excel */}

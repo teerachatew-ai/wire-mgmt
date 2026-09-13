@@ -162,6 +162,12 @@ export const expenseApi = {
   delete: (id: number) => api.delete(`/expenses/${id}`).then(r => r.data),
 };
 
+export const stockAdjustmentApi = {
+  list: (productId?: number) => api.get('/stock-adjustments', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
+  create: (data: any) => api.post('/stock-adjustments', data).then(r => r.data),
+  delete: (id: number) => api.delete(`/stock-adjustments/${id}`).then(r => r.data),
+};
+
 // พอร์ทัลส่วนตัวของสมาชิก — เข้าผ่านลิงก์/QR โทเคน ไม่ต้อง login
 export const portalApi = {
   get: (token: string) => api.get(`/portal/${token}`).then(r => r.data),

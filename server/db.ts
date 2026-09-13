@@ -364,6 +364,19 @@ CREATE TABLE IF NOT EXISTS managers (
     }
   }
 
+  // ปรับยอดสต็อกด้วยมือ — ใช้แก้ยอดคงเหลือ (สะสมทั้งระบบ) ที่คลาดเคลื่อนจากการบันทึกช่วงแรกๆ
+  // ไม่แก้ไขรายการรับเข้า/ส่งออกเดิมโดยตรง (จะหาต้นตอไม่เจอว่าใบไหนผิด) แต่บันทึกเป็นรายการแก้ยอดแยกต่างหาก
+  // ให้ตรวจสอบย้อนหลังได้ว่าใครปรับ ทำไม เมื่อไหร่ — quantity: บวก = พบของเกิน, ลบ = พบของขาด/ตัดยอดผีทิ้ง
+  db.exec(`CREATE TABLE IF NOT EXISTS stock_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    adjusted_at TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    reason TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // คำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — ยังไม่ใช่ยอดจริง ต้องรอเจ้าหน้าที่ตรวจนับของจริงแล้วกดยืนยันก่อน
   // ถึงจะกลายเป็นแถวใน returns (กันสมาชิกปลอมยอดเบิกเอง — เจ้าหน้าที่เห็น "ยอดที่แจ้ง" แต่กรอกยอดจริงตอนยืนยันได้)
   db.exec(`CREATE TABLE IF NOT EXISTS return_requests (

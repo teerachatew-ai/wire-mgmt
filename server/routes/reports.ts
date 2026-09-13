@@ -718,9 +718,11 @@ function computeStockStatus() {
       FROM returns GROUP BY issue_id
     ) rt ON rt.issue_id = i.id
     GROUP BY i.product_id`);
+  // ยอดปรับสต็อกด้วยมือ (ดูหน้า "ปรับยอดสต็อก") — แก้ยอดสะสมที่คลาดเคลื่อนจากการบันทึกช่วงแรกๆ
+  const adjustments = sumBy(`SELECT product_id pid, SUM(quantity) v FROM stock_adjustments GROUP BY product_id`);
 
   return (pid: number) => {
-    const at_site = (received.get(pid) || 0) - (shipped.get(pid) || 0);
+    const at_site = (received.get(pid) || 0) + (adjustments.get(pid) || 0) - (shipped.get(pid) || 0);
     const wait_raw = (recvCut.get(pid) || 0) - (issCut.get(pid) || 0);
     const wait_distribute = Math.max(0, wait_raw);   // ติดลบเล็กน้อย = บันทึกเบิกเกินรับเข้า ไม่ใช่ของที่มีจริง
     const with_members = withMembers.get(pid) || 0;
@@ -759,7 +761,8 @@ function computeStockFlow(m: string) {
       COALESCE((SELECT SUM(r.lost_qty)   FROM returns r JOIN issues i ON r.issue_id = i.id WHERE i.product_id = p.id${fRet}), 0) as ret_lost,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty) + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped,
       COALESCE((SELECT SUM(si.good_qty + si.defect_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id${fShip}), 0) as shipped_recorded,
-      COALESCE((SELECT SUM(si.received_qty - si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND si.received_qty IS NOT NULL${fShip}), 0) as recv_diff${carrySel}
+      COALESCE((SELECT SUM(si.received_qty - si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = p.id AND si.received_qty IS NOT NULL${fShip}), 0) as recv_diff,
+      COALESCE((SELECT SUM(quantity) FROM stock_adjustments WHERE product_id = p.id), 0) as adj_total${carrySel}
     FROM products p WHERE p.active = 1
   `).all() as any[];
 
@@ -780,9 +783,10 @@ function computeStockFlow(m: string) {
     const in_warehouse = st.wait_distribute;   // รับเข้าแล้ว รอเบิกให้สมาชิก
     const with_members = st.with_members;      // เบิกไปแล้ว ยังคืนไม่ครบ
     const stock_ready  = st.ready;             // คืนแล้ว รอส่งโรงงาน
-    // ยอดคงเหลือพร้อมส่ง = รับเข้าสะสม − ส่งออกสะสม (ยกมา+รับเข้า−ส่งออก) — ไม่หักเศษ
-    const available = p.received - p.shipped;
-    const balance = p.received - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
+    // ยอดคงเหลือพร้อมส่ง = รับเข้าสะสม ± ยอดปรับสต็อก − ส่งออกสะสม (ยกมา+รับเข้า−ส่งออก) — ไม่หักเศษ
+    const adj = p.adj_total || 0;
+    const available = p.received + adj - p.shipped;
+    const balance = p.received + adj - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
     return { ...p, in_warehouse, with_members, stock_ready, available, balance,
       wait_raw: st.wait_raw, ready_raw: st.ready_raw, ok: st.ready_raw >= 0 };
   });
