@@ -85,12 +85,20 @@ export default function PackingPlan() {
     return Math.ceil(q / p.units_per_box);
   };
 
-  let totalBoxes = 0;
+  // แยกลังเต็ม (ครบตามมาตรฐานบรรจุพอดี) กับลังเศษ (รุ่นที่จำนวนเหลือไม่ครบ 1 ลัง แต่ก็ต้องใช้ทั้งลัง)
+  // รุ่นหนึ่งมีลังเศษได้อย่างมาก 1 ลัง (ลังสุดท้ายของรุ่นนั้น) ที่เหลือเป็นลังเต็มทั้งหมด
+  let totalBoxes = 0, fullBoxes = 0, partialBoxes = 0;
   let hasUnknownStandard = false;
   for (const p of activeProducts) {
     const b = boxesOf(p);
-    if (b === null) { if ((parseFloat(qty[p.id]) || 0) > 0) hasUnknownStandard = true; }
-    else totalBoxes += b;
+    if (b === null) { if ((parseFloat(qty[p.id]) || 0) > 0) hasUnknownStandard = true; continue; }
+    totalBoxes += b;
+    if (b > 0 && p.units_per_box > 0) {
+      const q = parseFloat(qty[p.id]) || 0;
+      const remainder = q % p.units_per_box;
+      if (remainder > 0) { partialBoxes += 1; fullBoxes += b - 1; }
+      else fullBoxes += b;
+    }
   }
 
   const capacityState = totalBoxes === 0 ? 'empty' : totalBoxes < minBoxes ? 'under' : totalBoxes > maxBoxes ? 'over' : 'ok';
@@ -130,6 +138,11 @@ export default function PackingPlan() {
         {meta.icon}
         <div className="flex-1 min-w-[200px]">
           <p className="font-bold text-3xl tabular-nums">{fmt(totalBoxes)} ลัง</p>
+          {totalBoxes > 0 && (
+            <p className="text-xs tabular-nums opacity-80">
+              เต็มลัง {fmt(fullBoxes)} ลัง{partialBoxes > 0 && <> + เศษไม่เต็มลัง {fmt(partialBoxes)} ลัง</>}
+            </p>
+          )}
           <p className="text-base font-medium">{meta.text}</p>
         </div>
         <div className="flex items-center gap-2 text-sm">
