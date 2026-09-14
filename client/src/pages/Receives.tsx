@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { receiveApi, productApi, ocrApi } from '../api';
@@ -222,9 +222,131 @@ function ReceiveModal({ products, onClose }: { products: any[]; onClose: () => v
   );
 }
 
+/* ── แก้ยอดรับของทั้งวันในหน้าเดียว — คลิกวันที่ในตารางสรุปรายวันมาเปิด ──
+   หน้าตาเหมือนกล่อง "บันทึกรับของ" (ทุกสินค้าเรียงลงมาพร้อมช่องกรอก) แต่เติมยอดเดิมของวันนั้นมาให้แล้ว
+   แก้ตัวเลขแล้วกดบันทึกทีเดียว ไม่ต้องไล่เปิดทีละใบ
+   ปกติสินค้าหนึ่งมีใบรับวันเดียว 1 ใบ — ถ้ามีมากกว่านั้น (เช่น "รอบที่ 1/2") ส่วนต่างที่แก้จะลงที่ใบล่าสุดใบเดียว
+   ใบอื่นคงเดิม (กติกาเดียวกับที่ /api/receives ใช้ผูกยอด "รับจริง" ของล็อตอยู่แล้ว) */
+function EditDayModal({ date, products, onClose }: { date: string; products: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: dayReceives = [], isLoading } = useQuery({
+    queryKey: ['receives', 'day-edit', date],
+    queryFn: () => receiveApi.list({ date }),
+  });
+  const byProduct = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const r of (dayReceives as any[])) (m[String(r.product_id)] ??= []).push(r);
+    return m;
+  }, [dayReceives]);
+
+  const [qty, setQty] = useState<Record<string, string> | null>(null);
+  // ตั้งค่าเริ่มต้นครั้งเดียวหลังโหลดยอดเดิมเสร็จ (แก้ต่อได้อิสระหลังจากนั้น ไม่โดนยอดเดิมทับซ้ำ)
+  if (qty === null && !isLoading) {
+    const initial: Record<string, string> = {};
+    for (const p of products) {
+      const sum = (byProduct[String(p.id)] || []).reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+      if (sum > 0) initial[p.id] = String(sum);
+    }
+    setQty(initial);
+  }
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // สินค้าที่ยังใช้งานอยู่ + สินค้าที่ปิดใช้ไปแล้วแต่มีของรับวันนี้ค้างอยู่ (ต้องยังแก้ได้)
+  const visibleProducts = products.filter((p: any) => p.active || (byProduct[String(p.id)] || []).length > 0);
+
+  const save = async () => {
+    if (!qty) return;
+    setSaving(true); setError('');
+    try {
+      for (const p of visibleProducts) {
+        const recs = byProduct[String(p.id)] || [];
+        const newQty = parseFloat(qty[p.id]) || 0;
+        const oldSum = recs.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+        if (newQty === oldSum) continue;
+
+        if (recs.length === 0) {
+          if (newQty > 0) await receiveApi.create({ received_at: date, product_id: p.id, quantity: newQty });
+        } else if (recs.length === 1) {
+          if (newQty > 0) {
+            await receiveApi.update(recs[0].id, {
+              received_at: recs[0].received_at, product_id: p.id, quantity: newQty,
+              factory_ref: recs[0].factory_ref || '', notes: recs[0].notes || '',
+            });
+          } else {
+            await receiveApi.delete(recs[0].id);
+          }
+        } else {
+          // มีหลายใบ — ปรับเฉพาะใบล่าสุด ให้ผลรวมเท่ากับที่กรอกใหม่ ใบอื่นคงเดิมไว้ (กันงงว่ายอดไหนของใบไหน)
+          const last = recs.reduce((a: any, b: any) => (a.id > b.id ? a : b));
+          const othersSum = oldSum - (Number(last.quantity) || 0);
+          const lastNew = newQty - othersSum;
+          if (lastNew <= 0) {
+            throw new Error(`${p.name}: วันนี้มี ${recs.length} ใบ ยอดรวมใหม่น้อยกว่าใบอื่นๆรวมกัน (${othersSum}) แก้ในหน้านี้ไม่ได้ กรุณาไปแก้ทีละใบที่ "รายการทีละใบ"`);
+          }
+          await receiveApi.update(last.id, {
+            received_at: last.received_at, product_id: p.id, quantity: lastNew,
+            factory_ref: last.factory_ref || '', notes: last.notes || '',
+          });
+        }
+      }
+      qc.invalidateQueries({ queryKey: ['receives'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['stock-flow'] });
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filledCount = qty ? Object.values(qty).filter(v => parseFloat(v) > 0).length : 0;
+
+  return (
+    <Modal title={`แก้ไขยอดรับของ — ${date}`} onClose={onClose}>
+      {isLoading || qty === null ? (
+        <div className="py-8 text-center text-gray-400">กำลังโหลด...</div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="label mb-2 block">สินค้าที่รับ (กรอก 0 หรือเว้นว่าง = ไม่มี)</label>
+            <div className="space-y-2">
+              {visibleProducts.map((p: any) => {
+                const recs = byProduct[String(p.id)] || [];
+                return (
+                  <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                    <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 inline-flex items-center gap-2">
+                      {p.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                      <span className="truncate">{p.name}</span>
+                      {recs.length > 1 && <span className="text-[10px] text-amber-600 shrink-0">({recs.length} ใบ)</span>}
+                    </span>
+                    <input type="number" step="0.01" min="0" className="input w-32 shrink-0 text-right" placeholder="0"
+                      value={qty[p.id] ?? ''} onChange={e => setQty(q => ({ ...(q as any), [p.id]: e.target.value }))} />
+                    <span className="text-xs text-gray-400 w-10 shrink-0">{p.unit}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {error && <p className="text-red-500 text-sm whitespace-pre-line">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+            <button type="button" className="btn-primary" disabled={saving} onClick={save}>
+              {saving ? 'กำลังบันทึก...' : `บันทึก (${filledCount} รายการ)`}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function Receives() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [editingDay, setEditingDay] = useState<string | null>(null);
 
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const [search, setSearch] = useState('');
@@ -313,7 +435,7 @@ export default function Receives() {
           ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
           : <DateProductMatrix entries={matrixEntries} accent="blue"
               emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`}
-              onDateClick={d => { setDateFilter({ date: d }); setView('list'); }} />
+              onDateClick={setEditingDay} />
       )}
 
       {view === 'list' && <>
@@ -387,6 +509,10 @@ export default function Receives() {
 
       {showModal && (
         <ReceiveModal products={activeProducts} onClose={() => setShowModal(false)} />
+      )}
+
+      {editingDay && (
+        <EditDayModal date={editingDay} products={products as any[]} onClose={() => setEditingDay(null)} />
       )}
 
       {editing && (

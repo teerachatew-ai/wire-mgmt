@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { reportApi, shipmentApi, productApi, ocrApi } from '../api';
@@ -626,11 +626,155 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
   );
 }
 
+/* ── แก้ยอดส่งออกทั้งวันในหน้าเดียว — คลิกวันที่ในตารางสรุปรายวันมาเปิด (คู่กับ EditDayModal ของหน้ารับของ) ──
+   ต่างจากฝั่งรับของตรงที่ใบส่งหนึ่งมีทั้ง "งานดี" กับ "งานเสีย" แยกกัน — ช่องนี้แก้เฉพาะยอดรวม (งานดี+งานเสีย)
+   โดยปรับที่ "งานดี" เป็นหลัก ถ้ามีงานเสียแยกอยู่แล้วให้ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
+   ยอดทั้งวันปกติอยู่ในใบส่งเดียว — งานที่แก้จะลงใบล่าสุดของวันนั้น (สร้างใบใหม่ให้เองถ้าวันนั้นยังไม่มีใบส่งเลย) */
+function EditDayShipmentModal({ date, products, onClose }: { date: string; products: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: dayShipments = [], isLoading } = useQuery({
+    queryKey: ['shipments', 'day-edit', date],
+    queryFn: () => shipmentApi.list({ date }),
+  });
+  const byProduct = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const sh of (dayShipments as any[])) {
+      for (const it of (sh.items || [])) {
+        if (!it.product_id) continue;
+        (m[String(it.product_id)] ??= []).push(it);
+      }
+    }
+    return m;
+  }, [dayShipments]);
+
+  const [qty, setQty] = useState<Record<string, string> | null>(null);
+  if (qty === null && !isLoading) {
+    const initial: Record<string, string> = {};
+    for (const p of products) {
+      const sum = (byProduct[String(p.id)] || []).reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
+      if (sum > 0) initial[p.id] = String(sum);
+    }
+    setQty(initial);
+  }
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const visibleProducts = products.filter((p: any) => p.active || (byProduct[String(p.id)] || []).length > 0);
+
+  const save = async () => {
+    if (!qty) return;
+    setSaving(true); setError('');
+    try {
+      // ใบส่งเป้าหมาย = ใบล่าสุดของวันนี้ (id สูงสุด) — ส่วนต่างทั้งหมดที่แก้จะลงใบนี้ ใบอื่นคงเดิม
+      const targetShip = (dayShipments as any[]).length > 0
+        ? (dayShipments as any[]).reduce((a, b) => (a.id > b.id ? a : b)) : null;
+      const targetItems: any[] = targetShip ? targetShip.items.map((it: any) => ({ ...it })) : [];
+      const newItemsForFreshShipment: any[] = [];   // เผื่อวันนี้ยังไม่มีใบส่งเลย
+      let touchedTarget = false;
+
+      for (const p of visibleProducts) {
+        const items = byProduct[String(p.id)] || [];
+        const oldSum = items.reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
+        const newQty = parseFloat(qty[p.id]) || 0;
+        if (newQty === oldSum) continue;
+        const delta = newQty - oldSum;
+
+        if (!targetShip) {
+          if (newQty > 0) newItemsForFreshShipment.push({ product_id: p.id, good_qty: newQty, defect_qty: 0 });
+          continue;
+        }
+        const idx = targetItems.findIndex((it: any) => String(it.product_id) === String(p.id));
+        if (idx >= 0) {
+          const newGood = (Number(targetItems[idx].good_qty) || 0) + delta;
+          if (newGood < 0) {
+            throw new Error(`${p.name}: ยอดใหม่น้อยเกินไป (มีงานเสียพ่วงอยู่ในใบเดิม) กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
+          }
+          targetItems[idx] = { ...targetItems[idx], good_qty: newGood };
+        } else if (delta > 0) {
+          targetItems.push({ product_id: p.id, good_qty: delta, defect_qty: 0 });
+        } else {
+          continue;
+        }
+        touchedTarget = true;
+      }
+
+      if (touchedTarget && targetShip) {
+        await shipmentApi.update(targetShip.id, {
+          shipped_at: targetShip.shipped_at, notes: targetShip.notes || '',
+          items: targetItems.map((it: any) => ({
+            product_id: it.product_id, good_qty: Number(it.good_qty) || 0, defect_qty: Number(it.defect_qty) || 0,
+            received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
+          })),
+        });
+      }
+      if (newItemsForFreshShipment.length > 0) {
+        await shipmentApi.create({ shipped_at: date, notes: '', items: newItemsForFreshShipment });
+      }
+      qc.invalidateQueries({ queryKey: ['shipments'] });
+      qc.invalidateQueries({ queryKey: ['stock-flow'] });
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filledCount = qty ? Object.values(qty).filter(v => parseFloat(v) > 0).length : 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+          <h3 className="font-semibold text-gray-800">แก้ไขยอดส่งออก — {date}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        {isLoading || qty === null ? (
+          <div className="py-8 text-center text-gray-400">กำลังโหลด...</div>
+        ) : (
+          <>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-2">
+              <p className="text-xs text-gray-400 mb-1">
+                แก้เป็นยอดรวม (งานดี+งานเสีย) ถ้ามีงานเสียแยกอยู่แล้วในใบเดิม ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
+              </p>
+              {visibleProducts.map((p: any) => {
+                const items = byProduct[String(p.id)] || [];
+                const defect = items.reduce((s, it) => s + (Number(it.defect_qty) || 0), 0);
+                return (
+                  <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                    <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 inline-flex items-center gap-2">
+                      {p.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                      <span className="truncate">{p.name}</span>
+                      {defect > 0 && <span className="text-[10px] text-amber-600 shrink-0">(มีงานเสีย {fmt(defect)})</span>}
+                      {items.length > 1 && <span className="text-[10px] text-amber-600 shrink-0">({items.length} ใบ)</span>}
+                    </span>
+                    <input type="number" step="0.01" min="0" className="input w-32 shrink-0 text-right" placeholder="0"
+                      value={qty[p.id] ?? ''} onChange={e => setQty(q => ({ ...(q as any), [p.id]: e.target.value }))} />
+                    <span className="text-xs text-gray-400 w-10 shrink-0">{p.unit}</span>
+                  </div>
+                );
+              })}
+              {error && <p className="text-red-500 text-sm whitespace-pre-line">{error}</p>}
+            </div>
+            <div className="flex gap-2 justify-end px-5 py-4 border-t shrink-0">
+              <button className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+              <button className="btn-primary" onClick={save} disabled={saving}>
+                {saving ? 'กำลังบันทึก...' : `บันทึก (${filledCount} รายการ)`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Tab 3: Stock + Outgoing ─────────────────────────────── */
 export function StockOutgoingTab({ products }: { products: any[] }) {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editShip, setEditShip] = useState<any>(null);
+  const [editingDay, setEditingDay] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
   const readyProducts = products.filter(p => (p.available ?? 0) > 0);
 
@@ -772,7 +916,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
             : <DateProductMatrix entries={shipMatrixEntries} accent="emerald"
                 emptyText={sq ? 'ไม่พบที่ค้นหา' : `ไม่มีการส่งออกใน${dateFilterLabel(dateFilter)}`}
-                onDateClick={d => { setDateFilter({ date: d }); setShipView('list'); }} />
+                onDateClick={setEditingDay} />
         )}
 
         {shipView === 'list' && <>
@@ -859,6 +1003,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
 
       {showModal && <ShipmentModal products={readyProducts.length > 0 ? readyProducts : products} onClose={() => setShowModal(false)} />}
       {editShip && <EditShipmentModal shipment={editShip} onClose={() => setEditShip(null)} />}
+      {editingDay && <EditDayShipmentModal date={editingDay} products={products} onClose={() => setEditingDay(null)} />}
     </div>
   );
 }
