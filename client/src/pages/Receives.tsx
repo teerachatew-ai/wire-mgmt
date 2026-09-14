@@ -312,7 +312,8 @@ export default function Receives() {
         isLoading
           ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
           : <DateProductMatrix entries={matrixEntries} accent="blue"
-              emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`} />
+              emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`}
+              onDateClick={d => { setDateFilter({ date: d }); setView('list'); }} />
       )}
 
       {view === 'list' && <>

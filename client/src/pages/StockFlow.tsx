@@ -771,7 +771,8 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
           isLoading
             ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
             : <DateProductMatrix entries={shipMatrixEntries} accent="emerald"
-                emptyText={sq ? 'ไม่พบที่ค้นหา' : `ไม่มีการส่งออกใน${dateFilterLabel(dateFilter)}`} />
+                emptyText={sq ? 'ไม่พบที่ค้นหา' : `ไม่มีการส่งออกใน${dateFilterLabel(dateFilter)}`}
+                onDateClick={d => { setDateFilter({ date: d }); setShipView('list'); }} />
         )}
 
         {shipView === 'list' && <>

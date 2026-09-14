@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { Pencil } from 'lucide-react';
 import { sortByColorGroup } from '../productOrder';
 import { parseProductLabel } from '../projectLabel';
 
@@ -26,12 +27,14 @@ function thDate(iso: string) {
    ใช้ร่วมกันทั้งหน้า "รับของจากโรงงาน" และ "ส่งงานออกโรงงาน"
    คอลัมน์วันที่กับหัวตารางตรึงไว้ (sticky) เลื่อนดูงานหลายชนิดแล้วยังรู้ว่าแถวไหนวันไหน */
 function DateProductMatrix({
-  entries, accent = 'blue', unitLabel = 'เส้น', emptyText = 'ไม่มีรายการ',
+  entries, accent = 'blue', unitLabel = 'เส้น', emptyText = 'ไม่มีรายการ', onDateClick,
 }: {
   entries: MatrixEntry[];
   accent?: 'blue' | 'emerald';
   unitLabel?: string;
   emptyText?: string;
+  // คลิกที่วันที่เพื่อไปแก้ไขยอดของวันนั้น (สลับไปมุมมองรายการทีละใบ + กรองเหลือวันนั้นวันเดียว)
+  onDateClick?: (date: string) => void;
 }) {
   if (entries.length === 0) {
     return <div className="card text-center text-gray-400 py-8">{emptyText}</div>;
@@ -94,8 +97,20 @@ function DateProductMatrix({
               return (
                 <tr key={d} className="group">
                   <td className={`sticky left-0 z-10 border-b border-r px-3 py-2 whitespace-nowrap ${idx % 2 ? 'bg-gray-50/60' : 'bg-white'} group-hover:bg-blue-50`}>
-                    <span className="font-medium text-gray-800">{main}</span>
-                    <span className="text-[11px] text-gray-400 ml-1.5">{sub}</span>
+                    {onDateClick ? (
+                      <button type="button" onClick={() => onDateClick(d)}
+                        className="inline-flex items-center gap-1 hover:text-blue-700 hover:underline decoration-dotted underline-offset-2"
+                        title="คลิกเพื่อแก้ไขยอดของวันนี้">
+                        <span className="font-medium text-gray-800">{main}</span>
+                        <span className="text-[11px] text-gray-400">{sub}</span>
+                        <Pencil size={11} className="text-gray-300 group-hover:text-blue-500 shrink-0" />
+                      </button>
+                    ) : (
+                      <>
+                        <span className="font-medium text-gray-800">{main}</span>
+                        <span className="text-[11px] text-gray-400 ml-1.5">{sub}</span>
+                      </>
+                    )}
                   </td>
                   {products.map(p => {
                     const v = byDate[d][p.name] || 0;
@@ -137,6 +152,7 @@ function DateProductMatrix({
       </div>
       <p className="px-4 py-2 text-[11px] text-gray-400 border-t">
         หน่วย: {unitLabel} · คอลัมน์เรียงตามสีป้าย (ขาว → ชมพู/แดง → เขียว) เหมือนหน้าเบิกงานและรายงานค่าแรง
+        {onDateClick && <> · <Pencil size={10} className="inline -mt-0.5" /> คลิกที่วันที่เพื่อแก้ไขยอดของวันนั้น</>}
         {hasVariance && (
           <>
             <br />ตัวเลขคือ<b>ยอดรับจริง</b> ·{' '}

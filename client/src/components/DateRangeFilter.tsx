@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // ค่าตัวกรองวันที่ — ชื่อ field ตรงกับ query param ที่ backend รับอยู่แล้วเป๊ะ (date/from/to)
 // ใส่ date เป็น "YYYY-MM" (จากช่อง month) ได้ด้วย เพราะ backend ใช้ LIKE '${date}%' ครอบคลุมทั้งเดือนอยู่แล้ว
@@ -37,6 +37,13 @@ export function dateFilterLabel(v: DateFilterValue): string {
 
 export default function DateRangeFilter({ value, onChange }: { value: DateFilterValue; onChange: (v: DateFilterValue) => void }) {
   const [mode, setMode] = useState<Mode>(modeOf(value));
+
+  // value อาจถูกตั้งจากนอกคอมโพเนนต์นี้ (เช่น คลิกวันที่ในตารางสรุปเพื่อกรองไปวันนั้นเลย)
+  // sync มุมมองให้ตรงกับ value ที่เปลี่ยน — ไม่ sync ตอน 'all' เพราะเป็นค่าว่างชั่วคราวระหว่างผู้ใช้พิมพ์เอง (changeMode ก็ส่ง {} ออกไปก่อน)
+  useEffect(() => {
+    const m = modeOf(value);
+    if (m !== 'all') setMode(m);
+  }, [value]);
 
   const changeMode = (m: Mode) => {
     setMode(m);
