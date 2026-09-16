@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Eye, Pencil } from 'lucide-react';
+import { Eye, Pencil, RotateCcw } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
@@ -24,8 +24,9 @@ export interface MatrixCell { date: string; memberCode: string; memberName: stri
 // แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
 export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
   issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
+  onReturnRow?: (row: MatrixRow) => void;
 }) {
   if (issues.length === 0) return null;
 
@@ -213,7 +214,17 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
                         </td>
                         <td className={`border-b px-3 py-2 text-right ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
                           {pending > 0 ? (
-                            <span className="font-semibold text-amber-600">{fmt(pending)}</span>
+                            onReturnRow ? (
+                              // คลิกยอดค้างส่ง -> เปิดกล่องรับคืนงานทุกใบของคนนี้วันนี้ทีเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
+                              <button type="button"
+                                onClick={() => onReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                                title="คลิกเพื่อรับคืนงานของคนนี้"
+                                className="inline-flex items-center gap-1 font-semibold text-amber-600 rounded px-1.5 -mx-1.5 hover:bg-amber-100 hover:text-amber-800 cursor-pointer">
+                                {fmt(pending)} <RotateCcw size={11} className="opacity-60" />
+                              </button>
+                            ) : (
+                              <span className="font-semibold text-amber-600">{fmt(pending)}</span>
+                            )
                           ) : (
                             <span className="text-emerald-600" title={m.lastReturnedAt ? `ส่งครบแล้ว — คืนล่าสุด ${m.lastReturnedAt}` : 'ส่งครบแล้ว'}>
                               ✓
@@ -256,10 +267,11 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow }: {
               </table>
             </div>
 
-            {(onEdit || onOpen || onEditRow) && (
+            {(onEdit || onOpen || onEditRow || onReturnRow) && (
               <p className="px-4 py-2 text-[11px] text-gray-400 border-t flex flex-wrap items-center gap-x-4 gap-y-1">
                 {onEdit && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</span>}
                 {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
+                {onReturnRow && <span className="flex items-center gap-1.5"><RotateCcw size={12} /> คลิกที่ยอดค้างส่ง (สีส้ม) เพื่อรับคืนงานทุกชนิดที่ค้างของคนนั้นทีเดียว</span>}
                 {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
                 <span className="flex items-center gap-1.5 flex-wrap">
                   <span className="inline-block bg-gray-50 border border-gray-200 text-gray-400 rounded px-1 py-px text-[9px] font-medium">ล็อต 12 ก.ย.</span>

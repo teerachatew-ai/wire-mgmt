@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
-import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi } from '../api';
+import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi, returnApi } from '../api';
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
 import IssueMatrix, { shortLot, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
@@ -889,6 +889,148 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
   );
 }
 
+/* ── รับคืนงานทั้งหมดของสมาชิกคนหนึ่งในวันเดียว — คลิกที่ยอดค้างส่ง (สีส้ม) ในตารางสรุปรายวัน ──
+   รวมใบเบิกที่ยังค้างของคนนั้น "ทุกชนิดงาน" ที่เบิกวันนั้นมาคืนพร้อมกันในกล่องเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
+   ค่าเริ่มต้น = คืนครบทุกใบ ไม่มีงานเสีย (เหมือนหน้ารับคืนงานหลัก) เปิด "มีงานเสีย" ต่อใบถ้าต้องกรอกแยก
+   ใช้ remainOf สูตรเดียวกับที่ IssueMatrix ใช้ตัดสินว่าจะโชว์ปุ่มนี้ไหม (ผลรวม good+defect+waste ไม่รวม lost —
+   สอดคล้องกับยอด "ค้างส่ง" ที่เห็นในตาราง ตัวเลขจะได้ตรงกัน) */
+function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: () => void; onSaved: () => void }) {
+  const remainOf = (i: any) => i.quantity - (Number(i.returned_good) || 0) - (Number(i.returned_defect) || 0) - (Number(i.returned_waste) || 0);
+  const outstanding = useMemo(() => row.items
+    .filter((i: any) => remainOf(i) > 0.0001)
+    .sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th')), [row.items]);
+
+  const [returnedAt, setReturnedAt] = useState(row.date);
+  const [lines, setLines] = useState<Record<number, any>>(() => Object.fromEntries(
+    outstanding.map((i: any) => [i.id, { good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }])
+  ));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
+  // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ/หาย=0) — เหมือนหน้ารับคืนงานหลักเป๊ะ
+  const toggleDefect = (i: any, on: boolean) => setLines(l => ({
+    ...l,
+    [i.id]: on ? { ...l[i.id], hasDefect: true } : { good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false },
+  }));
+  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      const res = await returnApi.createBatch({
+        returned_at: returnedAt,
+        lines: outstanding.map((i: any) => {
+          const l = lines[i.id];
+          return { issue_id: i.id, good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0 };
+        }),
+      });
+      const problems = [
+        ...((res.warnings || []) as any[]).map((w: any) => `${w.code}: ${w.warning}`),
+        ...((res.failed || []) as any[]).map((f: any) => `${f.code || f.issue_id}: ${f.error}`),
+      ];
+      onSaved();
+      if (problems.length) setError(problems.join('\n'));
+      else onClose();
+    } catch (e: any) {
+      setError(e.response?.data?.error || 'เกิดข้อผิดพลาด');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const header = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm bg-gray-50 rounded-xl px-3 py-2.5">
+      <span><span className="font-mono text-xs text-gray-400 mr-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b></span>
+      <span className="text-gray-400 text-xs">เบิกวันที่ {row.date} · ค้างส่ง {outstanding.length} รายการ</span>
+      <div className="flex items-center gap-1.5 ml-auto">
+        <label className="text-xs text-gray-500">วันที่คืน</label>
+        <input type="date" className="input !min-h-0 !py-1 !px-2 text-sm w-36" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
+      </div>
+    </div>
+  );
+
+  if (outstanding.length === 0) {
+    // กันไว้เผื่อข้อมูลเปลี่ยนไปแล้วระหว่างที่ยังไม่ได้ปิดกล่อง (เช่นคืนไปจากที่อื่นพอดี) — ไม่ควรเกิดในการใช้งานปกติ
+    return (
+      <Modal title="รับคืนงาน" onClose={onClose}>
+        <div className="space-y-4">
+          {header}
+          <p className="text-sm text-gray-500 text-center py-4">ไม่มีงานค้างส่งแล้ว</p>
+          <div className="flex justify-end"><button type="button" className="btn-secondary" onClick={onClose}>ปิด</button></div>
+        </div>
+      </Modal>
+    );
+  }
+
+  const grandTotal = outstanding.reduce((s: number, i: any) => s + lineTotal(lines[i.id]), 0);
+
+  return (
+    <Modal title="รับคืนงาน" onClose={onClose} wide>
+      <div className="space-y-4">
+        {header}
+
+        <div className="border rounded-xl divide-y max-h-[55vh] overflow-y-auto">
+          {outstanding.map((i: any) => {
+            const l = lines[i.id];
+            const rem = remainOf(i);
+            return (
+              <div key={i.id} className="px-3 py-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-gray-800">
+                    {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                    {i.product_name}
+                    <span className="text-[11px] font-mono text-blue-600 font-normal">{i.code}</span>
+                  </span>
+                  <span className="text-xs text-gray-400">ค้าง {rem.toLocaleString('th-TH')} {i.unit}</span>
+                </div>
+                {!l.hasDefect ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-green-700">✅ คืนครบ <b>{rem.toLocaleString('th-TH')}</b> {i.unit} (ไม่มีงานเสีย)</span>
+                    <button type="button" onClick={() => toggleDefect(i, true)} className="text-xs text-amber-600 hover:underline shrink-0">+ มีงานเสีย/เศษ</button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {([['good_qty', 'งานดี'], ['ng_cut', 'เสีย-ตัด'], ['ng_factory', 'เสีย-รง.'], ['waste_qty', 'เศษ'], ['lost_qty', 'หาย']] as const).map(([f, label]) => (
+                        <div key={f}>
+                          <label className="block text-[10px] text-gray-400">{label}</label>
+                          <input type="number" step="0.01" min="0" className="input !min-h-[34px] !py-1 !px-1.5 text-sm"
+                            value={l[f]} onChange={e => updateLine(i.id, f, e.target.value)} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[11px] ${lineTotal(l) === rem ? 'text-gray-400' : 'text-amber-600'}`}>
+                        รวม {lineTotal(l).toLocaleString('th-TH')} / ค้าง {rem.toLocaleString('th-TH')} {i.unit}
+                      </span>
+                      <button type="button" onClick={() => toggleDefect(i, false)} className="text-[11px] text-green-600 hover:underline">↩ คืนครบ ไม่มีงานเสีย</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-between text-sm px-1">
+          <span className="text-gray-500">รวมรับคืนทั้งหมด</span>
+          <b className="text-blue-700 tabular-nums">{grandTotal.toLocaleString('th-TH')}</b>
+        </div>
+
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={saving} onClick={save}>
+            {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</> : <><RotateCcw size={14} /> รับคืน {outstanding.length} รายการ</>}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── Delete Issue Dialog ── */
 function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
   const [step, setStep] = useState<'confirm' | 'loading' | 'error' | 'siblings'>('confirm');
@@ -1187,6 +1329,9 @@ export default function Issues() {
   // คลิกที่ชื่อสมาชิกในแถว -> แก้จำนวน/วันที่ของงานทุกชนิดที่คนนั้นเบิกวันนั้นทีเดียว
   const [rowCell, setRowCell] = useState<MatrixRow | null>(null);
   const openRowEditor = useCallback((row: MatrixRow) => setRowCell(row), []);
+  // คลิกที่ยอดค้างส่ง (สีส้ม) -> รับคืนงานทุกชนิดที่ค้างของคนนั้นวันนั้นทีเดียว
+  const [returnRow, setReturnRow] = useState<MatrixRow | null>(null);
+  const openReturnRow = useCallback((row: MatrixRow) => setReturnRow(row), []);
   const handleQtySaved = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -1417,7 +1562,7 @@ export default function Issues() {
               )}
             </div>
           )}
-          <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} />
+          <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow} />
         </>
       )}
 
@@ -1544,6 +1689,10 @@ export default function Issues() {
 
       {rowCell && (
         <QuickRowEditor row={rowCell} onClose={() => setRowCell(null)} onSaved={handleQtySaved} onOpenDetail={openDetail} />
+      )}
+
+      {returnRow && (
+        <QuickReturnModal row={returnRow} onClose={() => setReturnRow(null)} onSaved={handleQtySaved} />
       )}
 
       {/* วางหลังกล่องแก้จำนวน — กดดูรายละเอียดจากในกล่องแก้แล้วจะซ้อนขึ้นมาด้านบน */}
