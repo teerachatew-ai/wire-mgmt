@@ -417,10 +417,10 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
   const returned = issue.returned_good + issue.returned_defect + issue.returned_waste;
 
   // แยกจาก onSubmit เพราะ handleSubmit ส่ง event มาเป็นอาร์กิวเมนต์ที่ 2 — ถ้ารับ force ตรงนั้นจะกลายเป็น true เสมอ
-  const submitUpdate = async (data: any, force: boolean) => {
+  const submitUpdate = async (data: any, force: boolean, adjustReturns = false) => {
     setLoading(true); setError('');
     try {
-      const result = await issueApi.update(issue.id, force ? { ...data, force: true } : data);
+      const result = await issueApi.update(issue.id, force ? { ...data, force: true, adjust_returns: adjustReturns } : data);
       setConfirmBelow(null);
       if (result.siblings?.length > 0) {
         setSiblings(result.siblings);
@@ -461,17 +461,23 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
       <Modal title={`แก้ไขใบเบิก ${issue.code}`} onClose={onClose}>
         <div className="space-y-4">
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">{confirmBelow.message}</div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            ยอดรับคืนจะ<b>ไม่ถูกแก้ไข</b> (ค่าแรงที่คิดจากการคืนงานยังเท่าเดิม) และใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง
-          </p>
           {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
-          <div className="flex gap-2 justify-end">
-            <button type="button" className="btn-secondary" disabled={loading} onClick={() => setConfirmBelow(null)}>กลับไปแก้</button>
-            <button type="button" className="btn-primary !bg-amber-600 hover:!bg-amber-700" disabled={loading}
-              onClick={() => submitUpdate(confirmBelow.data, true)}>
-              {loading ? 'กำลังบันทึก...' : 'ยืนยันแก้จำนวนเบิก'}
+          <div className="space-y-2">
+            <button type="button" disabled={loading} onClick={() => submitUpdate(confirmBelow.data, true, true)}
+              className="w-full text-left rounded-xl border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-blue-800 text-sm">✅ แก้ยอดคืนให้ตรงกันด้วย (แนะนำ)</p>
+              <p className="text-xs text-blue-700 mt-0.5">ตัดยอดรับคืนส่วนเกินออกให้เท่ากับจำนวนเบิกใหม่พอดี ไม่ต้องไปแก้ยอดคืนแยกอีกที (ตัดจากใบคืนล่าสุดก่อน)</p>
+            </button>
+            <button type="button" disabled={loading} onClick={() => submitUpdate(confirmBelow.data, true, false)}
+              className="w-full text-left rounded-xl border border-gray-200 hover:bg-gray-50 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-gray-700 text-sm">แก้จำนวนเบิกอย่างเดียว ไม่แตะยอดคืน</p>
+              <p className="text-xs text-gray-500 mt-0.5">ยอดรับคืนคงเดิม ใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง</p>
             </button>
           </div>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary" disabled={loading} onClick={() => setConfirmBelow(null)}>กลับไปแก้</button>
+          </div>
+          {loading && <p className="text-xs text-gray-400 text-right">กำลังบันทึก...</p>}
         </div>
       </Modal>
     );
@@ -609,10 +615,10 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
     if (needConfirm.length) setConfirmList(needConfirm); else onClose();
   };
 
-  const confirmSave = async () => {
+  const confirmSave = async (adjustReturns: boolean) => {
     setSaving(true); setError('');
     for (const i of confirmList || []) {
-      try { await issueApi.updateQuantity(i.id, i.newQty, true); }
+      try { await issueApi.updateQuantity(i.id, i.newQty, true, adjustReturns); }
       catch (e: any) { setError(`ใบ ${i.code}: ${e.response?.data?.error || 'บันทึกไม่สำเร็จ'}`); setSaving(false); onSaved(); return; }
     }
     setSaving(false);
@@ -643,16 +649,23 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            ยอดรับคืนจะ<b>ไม่ถูกแก้ไข</b> (ค่าแรงที่คิดจากการคืนงานยังเท่าเดิม) และใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง
-          </p>
           {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
-          <div className="flex gap-2 justify-end">
-            <button type="button" className="btn-secondary" disabled={saving} onClick={() => setConfirmList(null)}>กลับไปแก้</button>
-            <button type="button" className="btn-primary !bg-amber-600 hover:!bg-amber-700" disabled={saving} onClick={confirmSave}>
-              {saving ? 'กำลังบันทึก...' : 'ยืนยันแก้จำนวนเบิก'}
+          <div className="space-y-2">
+            <button type="button" disabled={saving} onClick={() => confirmSave(true)}
+              className="w-full text-left rounded-xl border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-blue-800 text-sm">✅ แก้ยอดคืนให้ตรงกันด้วย (แนะนำ)</p>
+              <p className="text-xs text-blue-700 mt-0.5">ตัดยอดรับคืนส่วนเกินออกให้เท่ากับจำนวนเบิกใหม่พอดี ไม่ต้องไปแก้ยอดคืนแยกอีกที (ตัดจากใบคืนล่าสุดก่อน)</p>
+            </button>
+            <button type="button" disabled={saving} onClick={() => confirmSave(false)}
+              className="w-full text-left rounded-xl border border-gray-200 hover:bg-gray-50 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-gray-700 text-sm">แก้จำนวนเบิกอย่างเดียว ไม่แตะยอดคืน</p>
+              <p className="text-xs text-gray-500 mt-0.5">ยอดรับคืนคงเดิม ใบเบิกนี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง</p>
             </button>
           </div>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary" disabled={saving} onClick={() => setConfirmList(null)}>กลับไปแก้</button>
+          </div>
+          {saving && <p className="text-xs text-gray-400 text-right">กำลังบันทึก...</p>}
         </div>
       </Modal>
     );
@@ -741,15 +754,15 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
 
   // ไม่แตะวันที่ -> ใช้ PATCH จำนวนอย่างเดียวเหมือน QuickQtyEditor · เปลี่ยนวันที่ -> ต้องใช้ PUT เต็มฟอร์ม
   // (คงฟิลด์อื่นของใบนั้นไว้ตามเดิมทั้งหมด แก้แค่วันที่กับจำนวน)
-  const applyOne = (i: any, force: boolean) => {
+  const applyOne = (i: any, force: boolean, adjustReturns = false) => {
     const qty = Number(draft[i.id]);
     if (dateChanged) {
       return issueApi.update(i.id, {
         issued_at: date, due_date: i.due_date || '', member_id: i.member_id, product_id: i.product_id,
-        quantity: qty, notes: i.notes || '', ...(force ? { force: true } : {}),
+        quantity: qty, notes: i.notes || '', ...(force ? { force: true, adjust_returns: adjustReturns } : {}),
       });
     }
-    return issueApi.updateQuantity(i.id, qty, force);
+    return issueApi.updateQuantity(i.id, qty, force, adjustReturns);
   };
 
   const save = async () => {
@@ -775,10 +788,10 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
     if (needConfirm.length) setConfirmList(needConfirm); else onClose();
   };
 
-  const confirmSave = async () => {
+  const confirmSave = async (adjustReturns: boolean) => {
     setSaving(true); setError('');
     for (const i of confirmList || []) {
-      try { await applyOne(i, true); }
+      try { await applyOne(i, true, adjustReturns); }
       catch (e: any) { setError(`ใบ ${i.code}: ${e.response?.data?.error || 'บันทึกไม่สำเร็จ'}`); setSaving(false); onSaved(); return; }
     }
     setSaving(false);
@@ -810,16 +823,23 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
               </div>
             ))}
           </div>
-          <p className="text-xs text-gray-500 leading-relaxed">
-            ยอดรับคืนจะ<b>ไม่ถูกแก้ไข</b> (ค่าแรงที่คิดจากการคืนงานยังเท่าเดิม) และใบเบิกเหล่านี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง
-          </p>
           {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
-          <div className="flex gap-2 justify-end">
-            <button type="button" className="btn-secondary" disabled={saving} onClick={() => setConfirmList(null)}>กลับไปแก้</button>
-            <button type="button" className="btn-primary !bg-amber-600 hover:!bg-amber-700" disabled={saving} onClick={confirmSave}>
-              {saving ? 'กำลังบันทึก...' : 'ยืนยันแก้จำนวนเบิก'}
+          <div className="space-y-2">
+            <button type="button" disabled={saving} onClick={() => confirmSave(true)}
+              className="w-full text-left rounded-xl border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-blue-800 text-sm">✅ แก้ยอดคืนให้ตรงกันด้วย (แนะนำ)</p>
+              <p className="text-xs text-blue-700 mt-0.5">ตัดยอดรับคืนส่วนเกินออกให้เท่ากับจำนวนเบิกใหม่พอดี ไม่ต้องไปแก้ยอดคืนแยกอีกที (ตัดจากใบคืนล่าสุดก่อน)</p>
+            </button>
+            <button type="button" disabled={saving} onClick={() => confirmSave(false)}
+              className="w-full text-left rounded-xl border border-gray-200 hover:bg-gray-50 p-3 transition disabled:opacity-60">
+              <p className="font-semibold text-gray-700 text-sm">แก้จำนวนเบิกอย่างเดียว ไม่แตะยอดคืน</p>
+              <p className="text-xs text-gray-500 mt-0.5">ยอดรับคืนคงเดิม ใบเบิกเหล่านี้จะถือว่าคืนครบแล้ว ไม่มียอดค้างส่ง</p>
             </button>
           </div>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary" disabled={saving} onClick={() => setConfirmList(null)}>กลับไปแก้</button>
+          </div>
+          {saving && <p className="text-xs text-gray-400 text-right">กำลังบันทึก...</p>}
         </div>
       </Modal>
     );

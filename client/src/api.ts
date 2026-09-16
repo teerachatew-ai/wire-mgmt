@@ -43,7 +43,9 @@ export const issueApi = {
   createBatch: (data: any) => api.post('/issues/batch', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/issues/${id}`, data).then(r => r.data),
   // แก้เฉพาะจำนวนเบิก (ตารางสรุปรายวัน) — force = ยืนยันแล้วว่าแก้ให้น้อยกว่าที่คืนไปแล้วได้
-  updateQuantity: (id: number, quantity: number, force = false) => api.patch(`/issues/${id}/quantity`, { quantity, force }).then(r => r.data),
+  // adjustReturns = ให้ตัดยอดรับคืนลงมาให้เท่ากับจำนวนเบิกใหม่ด้วยเลย (ไม่ต้องไปแก้ยอดคืนแยกต่างหาก)
+  updateQuantity: (id: number, quantity: number, force = false, adjustReturns = false) =>
+    api.patch(`/issues/${id}/quantity`, { quantity, force, adjust_returns: adjustReturns }).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/issues/${id}${force ? '?force=1' : ''}`).then(r => r.data),
 };
 

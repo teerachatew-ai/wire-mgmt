@@ -138,13 +138,42 @@ function returnedTotal(issueId: number | string): number {
 const statusFor = (returned: number, qty: number) => returned >= qty ? 'closed' : returned > 0 ? 'partial' : 'pending';
 
 // แก้จำนวนเบิกให้น้อยกว่าที่คืนไปแล้ว "ทำได้" (เช่น บันทึกเบิกเกินไปตอนแรก) แต่ต้องยืนยันก่อน —
-// ตอบ 409 ให้หน้าเว็บถามผู้ใช้ แล้วค่อยส่งซ้ำพร้อม force: true
-// ไม่แตะรายการรับคืนเลย ใบเบิกจะกลายเป็น "คืนครบ" (ไม่มีค้างส่ง) เพราะคืนมามากกว่าที่เบิก
+// ตอบ 409 ให้หน้าเว็บถามผู้ใช้ แล้วค่อยส่งซ้ำพร้อม force: true (และเลือกได้ว่าจะ adjust_returns ด้วยหรือไม่)
 const belowReturnedConfirm = (code: string, returned: number, qty: number) => ({
   confirm_required: true,
   returned_total: returned,
-  message: `ใบเบิก ${code} คืนงานไปแล้ว ${returned} หน่วย แต่จะแก้จำนวนเบิกเป็น ${qty} (น้อยกว่าที่คืน) — ยอดรับคืนจะไม่ถูกแก้ ยืนยันหรือไม่?`,
+  message: `ใบเบิก ${code} คืนงานไปแล้ว ${returned} หน่วย แต่จะแก้จำนวนเบิกเป็น ${qty} (น้อยกว่าที่คืน)`,
 });
+
+// ตัดยอดคืนงานของใบเบิกให้เหลือเท่ากับ targetQty พอดี — ใช้ตอนผู้ใช้เลือก "แก้ยอดคืนให้ตรงกันด้วย"
+// แทนที่จะปล่อยให้ยอดคืน > ยอดเบิกค้างไว้เฉยๆ (ต้องไปแก้ทีละรายการคืนเองอีกที)
+// ตัดจากใบคืนล่าสุดก่อน (ใบเก่ากว่าไม่โดนแตะถ้าไม่จำเป็น) ตามลำดับ: งานดี -> เสีย (defect รวม ng_cut/ng_factory
+// ให้ผลรวมตรงกันเสมอ) -> เศษ -> สูญหาย · ใบที่เหลือ 0 ทุกช่องหลังตัดจะถูกลบทิ้ง (ใบคืนเปล่าไม่มีประโยชน์เก็บไว้)
+function trimReturnsTo(issueId: number | string, targetQty: number) {
+  let excess = returnedTotal(issueId) - targetQty;
+  if (excess <= 0.0001) return;
+  const rows = prepare(`SELECT * FROM returns WHERE issue_id = ? ORDER BY id DESC`).all(issueId) as any[];
+  for (const row of rows) {
+    if (excess <= 0.0001) break;
+    let g = Number(row.good_qty) || 0, dft = Number(row.defect_qty) || 0,
+        w = Number(row.waste_qty) || 0, l = Number(row.lost_qty) || 0,
+        nc = Number(row.ng_cut) || 0, nf = Number(row.ng_factory) || 0;
+    const gCut = Math.min(g, excess); g -= gCut; excess -= gCut;
+    const dCut = Math.min(dft, excess); dft -= dCut; excess -= dCut;
+    if (dCut > 0) {
+      const ncCut = Math.min(nc, dCut); nc -= ncCut;
+      const nfCut = Math.min(nf, dCut - ncCut); nf -= nfCut;
+    }
+    const wCut = Math.min(w, excess); w -= wCut; excess -= wCut;
+    const lCut = Math.min(l, excess); l -= lCut; excess -= lCut;
+    if (g + dft + w + l <= 0.0001) {
+      prepare(`DELETE FROM returns WHERE id = ?`).run(row.id);
+    } else {
+      prepare(`UPDATE returns SET good_qty=?, defect_qty=?, ng_cut=?, ng_factory=?, waste_qty=?, lost_qty=? WHERE id=?`)
+        .run(g, dft, nc, nf, w, l, row.id);
+    }
+  }
+}
 
 // แก้เฉพาะจำนวนเบิก — ใช้จากตารางสรุปรายวัน (คลิกที่ตัวเลขแล้วแก้ได้ทันที ไม่ต้องไปค้นหาใบ)
 router.patch('/:id/quantity', (req, res) => {
@@ -153,8 +182,12 @@ router.patch('/:id/quantity', (req, res) => {
   const qty = Number(req.body?.quantity);
   if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'จำนวนเบิกต้องมากกว่า 0' });
 
-  const returned = returnedTotal(req.params.id);
+  let returned = returnedTotal(req.params.id);
   if (qty < returned && req.body?.force !== true) return res.status(409).json(belowReturnedConfirm(issue.code, returned, qty));
+  if (qty < returned && req.body?.adjust_returns === true) {
+    trimReturnsTo(req.params.id, qty);
+    returned = returnedTotal(req.params.id);
+  }
 
   prepare(`UPDATE issues SET quantity = ?, status = ? WHERE id = ?`).run(qty, statusFor(returned, qty), req.params.id);
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id));
@@ -166,9 +199,13 @@ router.put('/:id', (req, res) => {
   if (!issue) return res.status(404).json({ error: 'ไม่พบใบเบิก' });
   if (!issued_at || !member_id || !product_id || !quantity) return res.status(400).json({ error: 'กรุณากรอกข้อมูลให้ครบ' });
 
-  const returned = returnedTotal(req.params.id);
+  let returned = returnedTotal(req.params.id);
   if (parseFloat(quantity) < returned && req.body?.force !== true) {
     return res.status(409).json(belowReturnedConfirm(issue.code, returned, parseFloat(quantity)));
+  }
+  if (parseFloat(quantity) < returned && req.body?.adjust_returns === true) {
+    trimReturnsTo(req.params.id, parseFloat(quantity));
+    returned = returnedTotal(req.params.id);
   }
   const ret = { total: returned };
 
