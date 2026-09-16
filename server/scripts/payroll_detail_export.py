@@ -375,8 +375,10 @@ def write_member_sheet(m, label=None):
     # บรรทัดบนสุด = ชื่อเอกสาร "ใบเสร็จรับเงิน" ตัวใหญ่เด่นชัด (เดิมเป็นชื่อกลุ่มวิสาหกิจ)
     if reprint:
         # กันคอลัมน์ A ไว้เป็นป้าย REPRINT แยกจากหัวเรื่องหลัก (merge เริ่มที่ B แทน A)
+        # ตัวใหญ่เกือบเท่าหัวเรื่องหลักให้เห็นชัดจริงๆ — ขยายความกว้างคอลัมน์ A ทีหลัง (หลัง write_pivot_table
+        # ซึ่งจะตั้งความกว้างคอลัมน์ A ทับเป็น 13 อีกที) ไม่งั้นตัวหนังสือใหญ่จะถูกคอลัมน์แคบบังคับให้แสดงไม่เต็ม
         ws.merge_cells(f"B1:{LAST_P_LETTER}1")
-        cell(ws, "A1", "REPRINT", font=Font(name=FONT, size=FS(12), bold=True, color="DC2626"), align=L)
+        cell(ws, "A1", "REPRINT", font=Font(name=FONT, size=FS(18), bold=True, color="DC2626"), align=L)
         cell(ws, "B1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
     else:
         ws.merge_cells(f"A1:{LAST_P_LETTER}1")
@@ -406,6 +408,9 @@ def write_member_sheet(m, label=None):
 
     row = 6
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
+    # write_pivot_table ตั้งความกว้างคอลัมน์ A ทับเป็น 13 (สำหรับหัว "วันที่เบิก") — ขยายทีหลังให้ "REPRINT" ตัวใหญ่ไม่ถูกบัง
+    if reprint:
+        ws.column_dimensions["A"].width = 18
 
     net_formula_parts = [wage_total_ref]
     if m.get("ng_deduction"):
