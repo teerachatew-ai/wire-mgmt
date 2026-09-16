@@ -17,6 +17,8 @@ paper_size = d.get("paper_size") if d.get("paper_size") in PAPER_SIZE_CODE else 
 duplicate_for_pdf = bool(d.get("duplicate_for_pdf"))
 # print เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือแค่ตรวจทาน (ต้นฉบับอย่างเดียว) — มีผลเฉพาะตอน duplicate_for_pdf เท่านั้น
 include_copy = bool(d.get("include_copy", True))
+# ป้าย "REPRINT" มุมซ้ายบน — ใช้ตอนพิมพ์ซ้ำ (เอกสารตัวจริงหายหรือพิมพ์ผิดพลาด) กันสับสนกับใบต้นฉบับจริง
+reprint = bool(d.get("reprint"))
 
 TH = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -371,8 +373,14 @@ def write_member_sheet(m, label=None):
     # หัวชีต — ถ้ามี label (ต้นฉบับ/คู่ฉบับ) กันคอลัมน์ขวาสุดไว้เป็นป้ายมุมขวาบน ให้เห็นชัดแยกจากหัวเรื่องหลัก
     # รวม cut-off ไว้บรรทัดเดียวกับชื่อเดือน
     # บรรทัดบนสุด = ชื่อเอกสาร "ใบเสร็จรับเงิน" ตัวใหญ่เด่นชัด (เดิมเป็นชื่อกลุ่มวิสาหกิจ)
-    ws.merge_cells(f"A1:{LAST_P_LETTER}1")
-    cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
+    if reprint:
+        # กันคอลัมน์ A ไว้เป็นป้าย REPRINT แยกจากหัวเรื่องหลัก (merge เริ่มที่ B แทน A)
+        ws.merge_cells(f"B1:{LAST_P_LETTER}1")
+        cell(ws, "A1", "REPRINT", font=Font(name=FONT, size=FS(12), bold=True, color="DC2626"), align=L)
+        cell(ws, "B1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
+    else:
+        ws.merge_cells(f"A1:{LAST_P_LETTER}1")
+        cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
     # ชื่อกลุ่มวิสาหกิจย้ายลงมาบรรทัดที่ 2 ต่อกับรอบจ่าย/เส้นตัดยอด — ยังต้องมีอยู่ในเอกสาร
     # เพราะเป็นชื่อผู้ออกใบเสร็จ (ถ้าตัดทิ้งใบเสร็จจะใช้อ้างอิงไม่ได้)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")

@@ -1071,6 +1071,8 @@ router.post('/payroll-detail-export', (req, res) => {
   data.duplicate_for_pdf = wantPdf;
   // เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือตรวจทาน (ต้นฉบับอย่างเดียว) — ผู้ใช้เลือกได้เฉพาะตอน export PDF
   data.include_copy = req.body?.include_copy !== false;
+  // ป้าย "REPRINT" มุมซ้ายบน — เลือกได้ทั้ง Excel และ PDF (เผื่อพิมพ์ซ้ำเอกสารที่หายหรือพิมพ์ผิดพลาด)
+  data.reprint = req.body?.reprint === true;
   const root = process.cwd();
   const script = path.join(root, 'server', 'scripts', 'payroll_detail_export.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');

@@ -282,6 +282,7 @@ function MonthlyTab() {
   const [detailBusy, setDetailBusy] = useState('');
   const [paperSize, setPaperSize] = useState<'A4' | 'A5'>('A5'); // default A5 ตามที่ขอ — เลือกกลับเป็น A4 ได้จาก dropdown
   const [includeCopy, setIncludeCopy] = useState(true);   // เต็มรูปแบบ (ต้นฉบับ+คู่ฉบับ) หรือตรวจทาน (ต้นฉบับอย่างเดียว) — มีผลเฉพาะ PDF
+  const [reprint, setReprint] = useState(false);   // ติดป้าย "REPRINT" มุมซ้ายบน — ใช้ตอนพิมพ์ซ้ำเอกสารที่หายหรือพิมพ์ผิด (ทั้ง Excel และ PDF)
 
   const load = async () => {
     setFetching(true);
@@ -293,7 +294,7 @@ function MonthlyTab() {
     const tab = openDownloadTab();
     setDetailBusy(format);
     try {
-      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined, paperSize, includeCopy);
+      const blob = await reportApi.payrollDetailExport(month, format === 'pdf' ? 'pdf' : undefined, paperSize, includeCopy, reprint);
       downloadBlob(blob, `รายงานเบิกงาน-ส่งงาน-${month}.${format}`, tab);
     } catch { tab?.close(); alert('สร้างรายงานไม่สำเร็จ'); }
     finally { setDetailBusy(''); }
@@ -350,6 +351,12 @@ function MonthlyTab() {
               <option value="review">ตรวจทาน (ต้นฉบับอย่างเดียว)</option>
             </select>
           </div>
+        )}
+        {data?.members?.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none pb-2.5" title="ติดป้าย REPRINT สีแดงตัวหนามุมซ้ายบนของทุกใบ ใช้ตอนพิมพ์ซ้ำเอกสารที่หายหรือพิมพ์ผิดพลาด">
+            <input type="checkbox" className="w-4 h-4" checked={reprint} onChange={e => setReprint(e.target.checked)} />
+            ทำเครื่องหมาย REPRINT
+          </label>
         )}
         {data?.members?.length > 0 && (
           <button className="btn-secondary flex items-center gap-2" disabled={!!detailBusy} onClick={() => downloadPayrollDetail('pdf')}>
