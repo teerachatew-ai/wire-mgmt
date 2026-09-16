@@ -90,8 +90,8 @@ export const reportApi = {
   memberPayCycle: (memberId: number, cycle: string) => api.get(`/reports/member-paycycle/${memberId}`, { params: { cycle } }).then(r => r.data),
   stockReconcile: () => api.get('/reports/stock-reconcile').then(r => r.data),
   plExport: (month: string, format?: 'pdf') => api.post('/reports/pl-export', { month }, { params: format ? { format } : {}, responseType: 'blob', timeout: 60000 }).then(r => r.data),
-  payrollDetailExport: (month: string, format?: 'pdf', paperSize?: 'A4' | 'A5', includeCopy?: boolean, reprint?: boolean) =>
-    api.post('/reports/payroll-detail-export', { month, paper_size: paperSize || 'A5', include_copy: includeCopy !== false, reprint: !!reprint },
+  payrollDetailExport: (month: string, format?: 'pdf', paperSize?: 'A4' | 'A5', includeCopy?: boolean, reprint?: boolean, blackAndWhite?: boolean) =>
+    api.post('/reports/payroll-detail-export', { month, paper_size: paperSize || 'A5', include_copy: includeCopy !== false, reprint: !!reprint, black_and_white: !!blackAndWhite },
       { params: format ? { format } : {}, responseType: 'blob', timeout: 90000 }).then(r => r.data),
   getSettings: () => api.get('/reports/settings').then(r => r.data),
   saveSettings: (data: any) => api.put('/reports/settings', data).then(r => r.data),

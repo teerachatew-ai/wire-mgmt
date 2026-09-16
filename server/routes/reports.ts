@@ -1073,6 +1073,8 @@ router.post('/payroll-detail-export', (req, res) => {
   data.include_copy = req.body?.include_copy !== false;
   // ป้าย "REPRINT" มุมซ้ายบน — เลือกได้ทั้ง Excel และ PDF (เผื่อพิมพ์ซ้ำเอกสารที่หายหรือพิมพ์ผิดพลาด)
   data.reprint = req.body?.reprint === true;
+  // เวอร์ชันขาวดำ — แปลงสีทุกจุดเป็นเฉดเทาในไฟล์เลย (ประหยัดหมึกสี/เครื่องพิมพ์ไม่มีสี) เลือกได้ทั้ง Excel และ PDF
+  data.black_and_white = req.body?.black_and_white === true;
   const root = process.cwd();
   const script = path.join(root, 'server', 'scripts', 'payroll_detail_export.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');

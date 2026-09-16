@@ -19,6 +19,10 @@ duplicate_for_pdf = bool(d.get("duplicate_for_pdf"))
 include_copy = bool(d.get("include_copy", True))
 # ป้าย "REPRINT" มุมซ้ายบน — ใช้ตอนพิมพ์ซ้ำ (เอกสารตัวจริงหายหรือพิมพ์ผิดพลาด) กันสับสนกับใบต้นฉบับจริง
 reprint = bool(d.get("reprint"))
+# เวอร์ชันขาวดำ — แปลงสีทุกจุด (ตัวหนังสือ+พื้นหลัง) เป็นเฉดเทาตามความสว่างเดิม หลังสร้างชีตเสร็จทั้งไฟล์
+# (ไม่ใช่แค่ตั้งค่า "พิมพ์ขาวดำ" ของ Excel เพราะตัวแปลง PDF บน production เป็น LibreOffice ซึ่งอาจไม่รองรับ
+# ค่านั้น — แปลงสีจริงในไฟล์แทนจึงได้ผลแน่นอนไม่ว่าจะเปิดดู/พิมพ์/แปลง PDF ด้วยโปรแกรมไหน)
+black_and_white = bool(d.get("black_and_white"))
 
 TH = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
       "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"]
@@ -481,6 +485,27 @@ for m in d["members"]:
             write_member_sheet(m, label="คู่ฉบับ")
     else:
         write_member_sheet(m)
+
+if black_and_white:
+    def to_gray6(argb):
+        hexpart = (argb or "000000")[-6:]
+        try:
+            r, g, b = int(hexpart[0:2], 16), int(hexpart[2:4], 16), int(hexpart[4:6], 16)
+        except ValueError:
+            return hexpart
+        lum = round(0.299 * r + 0.587 * g + 0.114 * b)
+        return f"{lum:02X}{lum:02X}{lum:02X}"
+
+    for wsx in wb.worksheets:
+        for row_cells in wsx.iter_rows():
+            for c in row_cells:
+                f = c.font
+                if f and f.color is not None and isinstance(getattr(f.color, "rgb", None), str):
+                    c.font = Font(name=f.name, size=f.size, bold=f.bold, italic=f.italic,
+                                  underline=f.underline, strike=f.strike, color=to_gray6(f.color.rgb))
+                fl = c.fill
+                if fl and fl.patternType == "solid" and isinstance(getattr(fl.fgColor, "rgb", None), str):
+                    c.fill = PatternFill("solid", fgColor=to_gray6(fl.fgColor.rgb))
 
 wb.save(out)
 print(out)
