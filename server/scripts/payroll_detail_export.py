@@ -297,11 +297,10 @@ ws0.merge_cells(f"A1:{last_col_letter}1")
 cell(ws0, "A1", d.get("org_name", ""), font=Font(name=FONT, size=FS(13), bold=True, color=NAVY), align=CW)
 ws0.merge_cells(f"A2:{last_col_letter}2")
 cell(ws0, "A2", f"สรุปรายงานเบิกงาน/ส่งงาน — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}", font=Font(name=FONT, size=FS(11), color=GREY), align=CW)
-ws0.merge_cells(f"A3:{last_col_letter}3")
-cell(ws0, "A3", f"เส้นตัดยอด (cut-off): {date_th(d['cutoff'])}  ·  งานที่คืนหลังจากนี้ยกไปจ่ายรอบเดือน {month_th(d['next_month'])}", font=Font(name=FONT, size=FS(9.5), italic=True, color=GREY), align=CW)
+# ไม่บอกวันตัดยอด/งานที่ยกไปเดือนหน้า — บอกแค่เดือน เหมือนใบเสร็จรายคน (แถว 3 เว้นว่างไว้เป็นช่องไฟ)
 ws0.row_dimensions[1].height = RH(30)
 ws0.row_dimensions[2].height = RH(26)
-ws0.row_dimensions[3].height = RH(24)
+ws0.row_dimensions[3].height = RH(10)
 
 hdr_row = 5
 headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
@@ -367,7 +366,7 @@ CONFIRM_TEXT = "ข้าพเจ้าขอยืนยันว่ารา�
 
 def write_member_sheet(m, label=None):
     # จำนวนวันที่เบิกจริง (นับวันซ้ำครั้งเดียว) ของคนนี้ — ใช้ตัดสินว่าต้องลด scale ลงไหมเพื่อกันล้นไปอีกหน้า
-    n_rows = len({r["issued_at"] for r in m.get("rows", [])}) + len({r["issued_at"] for r in m.get("carry_rows", [])})
+    n_rows = len({r["issued_at"] for r in m.get("rows", [])})
     _scale_state["v"] = scale_for_row_count(n_rows)
 
     sheet_label = f'{m["member_code"]} {m["member_name"]}' + (f' {label}' if label else '')
@@ -387,11 +386,11 @@ def write_member_sheet(m, label=None):
     else:
         ws.merge_cells(f"A1:{LAST_P_LETTER}1")
         cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
-    # ชื่อกลุ่มวิสาหกิจย้ายลงมาบรรทัดที่ 2 ต่อกับรอบจ่าย/เส้นตัดยอด — ยังต้องมีอยู่ในเอกสาร
+    # ชื่อกลุ่มวิสาหกิจย้ายลงมาบรรทัดที่ 2 ต่อกับรอบจ่าย — ยังต้องมีอยู่ในเอกสาร
     # เพราะเป็นชื่อผู้ออกใบเสร็จ (ถ้าตัดทิ้งใบเสร็จจะใช้อ้างอิงไม่ได้)
+    # บอกแค่เดือน ไม่ต้องบอกช่วงวันตัดยอด (เจ้าของขอ — สมาชิกดูแล้วงง)
     ws.merge_cells(f"A2:{LAST_P_LETTER}2")
-    subtitle = (f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}  ·  "
-                f"เส้นตัดยอด (cut-off): {date_th(d.get('cutoff_start'))} - {date_th(d['cutoff'])}")
+    subtitle = f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}"
     # ข้อความยาว -> shrink_to_fit แทน wrap_text กันตกบรรทัด/ถูกตัดท้าย
     # (wrap_text + auto-height ไม่เสถียรกับชีตที่สร้างจาก openpyxl ล้วนตอนแปลง PDF ผ่าน Excel COM)
     cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY),
@@ -436,13 +435,8 @@ def write_member_sheet(m, label=None):
     ws.row_dimensions[row].height = RH(20)
     row += 1
 
-    if m.get("carry_rows"):
-        ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-        cell(ws, f"A{row}", f'งานที่คืนหลังเส้นตัดยอด ({date_th(d["cutoff"])}) — ยกยอดไปจ่ายรอบเดือน {month_th(d["next_month"])}',
-             font=Font(name=FONT, size=FS(10), bold=True, color="FFFFFF"), fill=AMBER, align=LW)
-        ws.row_dimensions[row].height = RH(28)
-        row += 1
-        row, _carry_col_totals, _carry_wage_total, _carry_wage_ref = write_pivot_table(ws, row, m["carry_rows"])
+    # ไม่แสดงงานที่คืนหลังวันตัดยอด (ยกไปจ่ายรอบเดือนถัดไป) ในใบเสร็จนี้ — ใบเสร็จแสดงเฉพาะงานของรอบเดือนนั้นๆ
+    # งานพวกนั้นจะไปโผล่ในใบเสร็จของเดือนถัดไปเองอยู่แล้ว
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
