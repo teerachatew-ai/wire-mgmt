@@ -2,7 +2,7 @@
 # รายงานเบิกงาน/ส่งงานรายบุคคล ประจำรอบจ่ายค่าแรง — 1 คน = 1 ชีต, รวมทุกคนในไฟล์เดียว
 # แปลงเป็น PDF แล้วแต่ละชีตจะกลายเป็นหน้าเรียงต่อกันตามลำดับโดยอัตโนมัติ
 # Usage: python payroll_detail_export.py <data.json> <out.xlsx>
-import sys, json, re, warnings
+import sys, json, re, math, warnings
 warnings.simplefilter("ignore")
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -81,23 +81,20 @@ def RH(height):  # ขยายความสูงแถวตามสัด�
     return round(height * _scale_state["v"], 1)
 
 # ── ขนาดฟอนต์ (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน ──────────────────────────
-# ตัวเลขจำนวน/ค่าแรงในตารางคือสิ่งที่สมาชิกต้องอ่าน จึงให้ใหญ่ที่สุดในใบ ส่วนหัวเรื่อง/หัวคอลัมน์/
-# ข้อความยืนยันลดลงมา — พื้นที่ 1 หน้ามีจำกัด ตัวไหนเล็กได้ต้องเล็ก ตัวเลขจะได้ใหญ่ขึ้น
+# ทุกอย่าง "ในตาราง" ใช้ขนาดเดียวกันหมด (F_TABLE) ทั้งหัวคอลัมน์ วันที่เบิก ตัวเลขจำนวน ค่าแรง
+# และแถวรวม — สมาชิกสูงอายุอ่านง่ายกว่าตัวใหญ่บ้างเล็กบ้าง ส่วนหัวเรื่อง/ข้อความยืนยันนอกตาราง
+# เล็กลงได้ เพราะไม่ใช่ตัวเลขที่ต้องเพ่งอ่านทุกบรรทัด
+F_TABLE = 15
 F_TITLE, F_REPRINT, F_SUB, F_NAME, F_BANK = 15, 15, 9.5, 12, 8.5
-F_HEAD, F_DATE, F_DATA, F_TOTAL, F_WAGEROW = 9, 9.5, 15, 12, 11.5
+F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 F_NG, F_NET, F_CONFIRM, F_SIGN = 10, 13, 8.5, 10.5
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
-H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP, H_HEAD = 20, 14, 16, 13, 6, 27
-H_DATA, H_TOTAL, H_WAGEROW, H_NG, H_NET = 17, 18, 18, 15, 20
+# แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
+H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP = 20, 14, 16, 13, 6
+H_DATA, H_TOTAL, H_WAGEROW, H_NG, H_NET = 17, 21, 21, 15, 20
 H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 16, 15, 15, 18, 15
-
-# ── ความกว้างคอลัมน์ตารางใบเสร็จ (หน่วย Excel) ──
-# วันที่เบิกบีบให้แคบที่สุดเท่าที่ยังใส่ "01/08/69" ได้ (เจ้าของขอ) — พื้นที่ที่ได้คืนยกให้คอลัมน์จำนวน
-W_DATE, W_PROD, W_WAGE = 8.5, 11, 14
-# โหมด REPRINT ใช้คอลัมน์แรกเป็นที่วางป้ายตัวแดงตัวใหญ่ จึงต้องกว้างกว่าปกติ (ตั้งตั้งแต่ตอนสร้างตาราง
-# ไม่ใช่ไปขยายทีหลัง ไม่งั้นความกว้างคอลัมน์จะถูกเขียนทับ)
-W_DATE_EFF = 18.0 if reprint else W_DATE
+LINE_H = 1.35  # ความสูงต่อบรรทัดของ TH SarabunPSK เทียบกับขนาดฟอนต์
 
 # ── ขนาดตัวหนังสือบนกระดาษ: ปล่อยให้ตัวแปลง PDF เป็นคนย่อให้พอดี 1 หน้า ──────────
 # เดิมสคริปต์คำนวณเองว่าต้องย่อเท่าไร โดยเดาความกว้างคอลัมน์เป็นจุด ซึ่งขึ้นกับฟอนต์เริ่มต้นของ
@@ -195,15 +192,96 @@ label_freq = {}
 for name in product_order:
     lbl = base_label(name)
     label_freq[lbl] = label_freq.get(lbl, 0) + 1
+# หัวคอลัมน์แยก 2 บรรทัด: ชื่อ / รหัส — ตัวหนังสือหัวตารางใหญ่เท่าตัวเลขในตาราง (เจ้าของขอ)
+# ชื่อกับรหัสจึงไม่พอในบรรทัดเดียว ตัดขึ้นบรรทัดใหม่เองตรงนี้ให้ทุกคอลัมน์หน้าตาเหมือนกัน
+# (ถ้าปล่อยให้โปรแกรมตัดเอง แต่ละเครื่อง/แต่ละตัวแปลง PDF ตัดไม่เหมือนกัน ความสูงหัวตารางเดาไม่ได้)
 product_label = {}
 for name in product_order:
-    lbl = base_label(name)
-    if label_freq[lbl] > 1:
-        prefix = strip_noise_words(name.split(" (")[0].strip())
-        lbl = f"{lbl} ({prefix})"
-    product_label[name] = lbl
+    lbl = strip_noise_words(short_label(name))
+    if label_freq[base_label(name)] > 1:
+        lbl = f"{lbl} ({strip_noise_words(name.split(' (')[0].strip())})"
+    code = code_num(name)
+    product_label[name] = lbl + "\n" + code if code else lbl
 
 n_prod = len(product_order)
+
+# ── ความกว้างข้อความโดยประมาณ (หน่วย em) — ใช้ตั้งความกว้างคอลัมน์/ความสูงหัวตาราง ──
+# ค่าต่อตัวอักษรวัดจาก PDF ที่ระบบออกจริง (TH SarabunPSK): ไทย 0.38, ตัวเลข 0.376,
+# จุด/จุลภาค 0.19, ทับ 0.28, ช่องว่าง/วงเล็บ 0.22 — สระบน/ล่าง/วรรณยุกต์ลอยอยู่บน-ล่าง ไม่กินความกว้าง
+def text_em(t):
+    w = 0.0
+    for ch in t:
+        o = ord(ch)
+        # สระบน/ล่าง + วรรณยุกต์ (ไม่รวม า/ำ ซึ่งกินความกว้างเต็มตัว)
+        if o == 0x0E31 or 0x0E34 <= o <= 0x0E3A or 0x0E47 <= o <= 0x0E4E:
+            continue
+        if ch.isdigit():
+            w += 0.376
+        elif ch in ".,":
+            w += 0.19
+        elif ch == "/":
+            w += 0.28
+        elif ch in " ()":
+            w += 0.22
+        else:
+            w += 0.38
+    return w
+
+def text_pt(t):  # ความกว้างข้อความบนชีตจริง (ฟอนต์ในตารางถูกคูณสเกลไว้แล้ว)
+    return text_em(t) * F_TABLE * MEMBER_FONT_SCALE
+
+def col_pt(width_units):  # ความกว้างคอลัมน์ (หน่วย Excel) -> จุด (หักขอบในช่อง 4 จุด)
+    return (round(width_units * 7) + 5) * 0.75 - 4
+
+# ความกว้างคอลัมน์คิดจากข้อความที่ยาวที่สุดที่จะไปโผล่ในคอลัมน์นั้นจริงๆ (ไม่ใช่ตั้งค่าคงที่เดา)
+# แคบไปแล้ว Excel จะขึ้น ###### แทนตัวเลข กว้างไปก็เปลืองหน้ากระดาษจนตัวหนังสือถูกย่อเล็กลง
+def width_for(texts, min_units=9.0, max_units=17.0):
+    need = max([text_pt(t) for t in texts] or [0]) * 1.04 + 4
+    units = (need / 0.75 - 5) / 7
+    units = min(max(units, min_units), max_units)
+    return math.ceil(units * 2) / 2  # ปัดขึ้นเป็นครึ่งหน่วย — ปัดลงแล้วเสี่ยงขาดไปนิดเดียวจนขึ้น ######
+
+# รวบรวมข้อความจริงของแต่ละคอลัมน์จากข้อมูลทั้งไฟล์ (ทุกคนใช้ความกว้างชุดเดียวกัน หน้าตาจะได้เหมือนกัน)
+_date_texts, _wage_texts = ["วันที่เบิก", "รวม", "ค่าแรง"], ["ค่าแรง", "(บาท)"]
+_qty_texts = []
+for m in d["members"]:
+    per_day = {}
+    per_prod_qty, per_prod_wage = {}, {}
+    for r in m.get("rows", []):
+        _date_texts.append(date_th_short(r["issued_at"]))
+        k = r["issued_at"]
+        per_day[k] = per_day.get(k, 0) + r["wage"]
+        per_prod_qty[r["product_name"]] = per_prod_qty.get(r["product_name"], 0) + r["good_qty"]
+        per_prod_wage[r["product_name"]] = per_prod_wage.get(r["product_name"], 0) + r["wage"]
+        _qty_texts.append(f'{r["good_qty"]:,.0f}')
+    _wage_texts += [f"{v:,.2f}" for v in per_day.values()]
+    _wage_texts.append(f'{m.get("total_wage", 0):,.2f}')
+    _qty_texts += [f"{v:,.0f}" for v in per_prod_qty.values()]
+    _qty_texts += [f"{v:,.2f}" for v in per_prod_wage.values()]  # แถวค่าแรงแยกตามชนิด (มีทศนิยม)
+
+W_DATE = width_for(_date_texts)
+# ความกว้างคอลัมน์สินค้าคิดจาก "ตัวเลข" อย่างเดียว — ชื่อสินค้าที่ยาวกว่าช่องปล่อยให้ตกบรรทัดในหัวตาราง
+# (ขยายคอลัมน์ตามชื่อจะทำให้ตารางกว้างจนถูกย่อทั้งใบ ตัวเลขเลยเล็กลงทั้งที่ไม่จำเป็น)
+# ขั้นต่ำ 13 หน่วย ให้ตารางกว้างเต็มหน้าพอสมควร (ขนาดตัวหนังสือเท่าเดิม เพราะความสูงเป็นตัวกำหนด
+# อยู่แล้ว แต่ตารางแคบเกินไปจะเหลือขอบซ้าย-ขวาว่างเยอะโดยเปล่าประโยชน์)
+W_PROD = width_for(_qty_texts + [code_num(n) for n in product_order], min_units=13.0)
+W_WAGE = width_for(_wage_texts)
+# โหมด REPRINT ใช้คอลัมน์แรกวางป้ายตัวแดงตัวใหญ่ จึงกว้างกว่าปกติ
+W_DATE_EFF = max(18.0, W_DATE) if reprint else W_DATE
+
+def head_lines(text, width_units):  # จำนวนบรรทัดที่หัวคอลัมน์นี้ต้องใช้จริง (เผื่อคลาดเคลื่อน 3%)
+    avail = col_pt(width_units) * 0.97
+    n = 0
+    for part in str(text).split("\n"):
+        n += max(1, -(-round(text_pt(part), 2) // avail))
+    return int(n)
+
+# ความสูงหัวตาราง = จำนวนบรรทัดมากสุดในบรรดาหัวคอลัมน์ทั้งหมด (กันตัวหนังสือถูกตัด)
+H_HEAD = max(
+    head_lines("วันที่เบิก", W_DATE_EFF),
+    head_lines("ค่าแรง (บาท)", W_WAGE),
+    max([head_lines(product_label[n], W_PROD) for n in product_order] or [2]),
+) * LINE_H * F_HEAD + 3
 
 # ── ตารางแบบ pivot (ชีตรายบุคคล): วันที่เบิก + คอลัมน์แต่ละชนิดสายไฟ (จำนวน) + ค่าแรงรวมของวันนั้น ──
 # แถวรวมท้ายตารางใช้สูตร =SUM(...) อ้างอิงแถวข้อมูลจริง ไม่ใช่ตัวเลขคงที่ — แก้ตัวเลขในแถวไหนใน Excel
