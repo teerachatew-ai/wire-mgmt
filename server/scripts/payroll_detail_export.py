@@ -41,6 +41,16 @@ def date_th(iso):
     y, m, dd = parts
     return f"{dd}/{m}/{int(y) + 543}"
 
+def date_th_short(iso):
+    # วันที่แบบสั้น (พ.ศ. 2 หลัก) สำหรับคอลัมน์ "วันที่เบิก" ในใบเสร็จ — บีบคอลัมน์ให้แคบที่สุด
+    # เอาพื้นที่ที่เหลือไปขยายตัวเลขจำนวนให้ใหญ่ขึ้น (เจ้าของขอ — สมาชิกสูงอายุอ่านตัวเลขไม่ชัด)
+    s = date_th(iso)
+    parts = s.split("/")
+    if len(parts) == 3 and len(parts[2]) == 4:
+        parts[2] = parts[2][2:]
+        return "/".join(parts)
+    return s
+
 def hexcolor(c):
     if not c:
         return None
@@ -63,25 +73,43 @@ def short_label(name):
     return mm.group(1) if mm else (name or "-")
 
 FONT = "TH SarabunPSK"
-BASE_FONT_SCALE = 1.40  # ขยายตัวหนังสือทุกจุดในรายงานขึ้น — ค่าปกติสำหรับคนที่มีรายการไม่เยอะ
-# คนที่มีรายการ (จำนวนวันที่เบิก) เยอะจนล้นไปอีกหน้า จะลด scale ลงเฉพาะชีตของคนนั้น (ดูใน write_member_sheet)
-# ไม่ลดทุกคนพร้อมกัน กันคนรายการน้อยเสียโอกาสได้ตัวหนังสือใหญ่ไปโดยไม่จำเป็น
+BASE_FONT_SCALE = 1.40  # สเกลของชีตสรุปรวม (หน้าแรก) — ชีตใบเสร็จรายคนคิดสเกลของตัวเองต่างหาก
 _scale_state = {"v": BASE_FONT_SCALE}
 def FS(size):
     return round(size * _scale_state["v"], 2)
 def RH(height):  # ขยายความสูงแถวตามสัดส่วนฟอนต์ ป้องกันตัวหนังสือถูกตัด
     return round(height * _scale_state["v"], 1)
-# โมเดลความสูงเนื้อหา วัดจาก PDF จริง (A4 แนวนอน): ตำแหน่งขอบล่างของเนื้อหา (จุด)
-#   bottom ≈ (H0 + HROW × จำนวนแถวข้อมูล) × scale
-# คาลิเบรตจากการวัด 2 จุดที่ scale 1.25: 9 แถว = 479pt, 12 แถว = 543pt (ตอนนั้นยังไม่มีบรรทัดว่างคั่นลงชื่อ/วันที่)
-# H0 บวกเผื่อบรรทัดว่างที่คั่นเพิ่ม (สูง 18 หน่วยก่อนคูณ scale เหมือนแถวอื่น) กันคนที่ข้อมูลพอดี 1 หน้าล้นไปหน้า 2
-# MAXY = ขอบล่างสุดที่ยังอยู่ในหน้าเดียว (วัดได้ว่า 543 ยังพอดี / 556 ล้นไปหน้าใหม่)
-_H0, _HROW, _MAXY = 254.6, 17.07, 535.0
-def scale_for_row_count(n_rows):
-    # หาสเกลใหญ่สุดที่เนื้อหายังจบใน 1 หน้า แทนการเดาจำนวนแถวแบบตายตัว
-    # (สูตรเดิม BASE*12/n ลดเกินจำเป็นสำหรับคนที่มีหลายแถว เช่น 17 แถวเคยได้ 0.88 ตอนนี้ได้ ~1.05)
-    fit = _MAXY / (_H0 + _HROW * max(0, n_rows))
-    return max(0.90, min(BASE_FONT_SCALE, fit))
+
+# ── ขนาดฟอนต์ (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน ──────────────────────────
+# ตัวเลขจำนวน/ค่าแรงในตารางคือสิ่งที่สมาชิกต้องอ่าน จึงให้ใหญ่ที่สุดในใบ ส่วนหัวเรื่อง/หัวคอลัมน์/
+# ข้อความยืนยันลดลงมา — พื้นที่ 1 หน้ามีจำกัด ตัวไหนเล็กได้ต้องเล็ก ตัวเลขจะได้ใหญ่ขึ้น
+F_TITLE, F_REPRINT, F_SUB, F_NAME, F_BANK = 15, 15, 9.5, 12, 8.5
+F_HEAD, F_DATE, F_DATA, F_TOTAL, F_WAGEROW = 9, 9.5, 15, 12, 11.5
+F_NG, F_NET, F_CONFIRM, F_SIGN = 10, 13, 8.5, 10.5
+# ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว โมเดลคำนวณหน้าจะได้แม่นยำ ──
+H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP, H_HEAD = 20, 14, 16, 13, 6, 27
+H_DATA, H_TOTAL, H_WAGEROW, H_NG, H_NET = 17, 18, 18, 15, 20
+H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 16, 15, 15, 18, 15
+H_FIXED = (H_TITLE + H_SUB + H_NAME + H_BANK + H_GAP + H_HEAD + H_TOTAL + H_WAGEROW
+           + H_NET + H_CONFIRM + H_SIGNGAP + H_SIGN + H_SIGSPACE + H_DATEROW)
+
+# ── ความกว้างคอลัมน์ตารางใบเสร็จ (หน่วย Excel) ──
+# วันที่เบิกบีบให้แคบที่สุดเท่าที่ยังใส่ "01/08/69" ได้ (เจ้าของขอ) — พื้นที่ที่ได้คืนยกให้คอลัมน์จำนวน
+W_DATE, W_PROD, W_WAGE = 8.5, 11, 14
+# โหมด REPRINT ใช้คอลัมน์แรกเป็นที่วางป้ายตัวแดงตัวใหญ่ จึงต้องกว้างกว่าปกติ — คิดรวมในโมเดลหน้ากระดาษด้วย
+# (ไม่ใช่ไปขยายทีหลัง ไม่งั้นความกว้างจริงไม่ตรงกับที่คำนวณไว้ ใบเสร็จอาจล้นหน้า)
+W_DATE_EFF = 18.0 if reprint else W_DATE
+
+# ── โมเดลหน้ากระดาษ: คำนวณสเกลใหญ่สุดที่ใบเสร็จยังจบใน 1 หน้าจริงๆ ──────────
+# เดิมใช้ค่าคงที่ที่คาลิเบรตกับ A4 แนวนอนอย่างเดียว พอสั่งพิมพ์ A5 (ค่าเริ่มต้นของระบบ) ตัวหนังสือถูก
+# ย่อตามความกว้างอีกชั้น ทำให้คนที่มีหลายวันล้นไปหน้า 2 (บรรทัดลงชื่อ/วันที่หลุดไปอยู่หน้าถัดไป)
+# ตอนนี้คิดจากขนาดกระดาษ + ระยะขอบ + ความกว้างคอลัมน์จริง จึงถูกต้องทั้ง A4/A5 และแนวตั้ง/แนวนอน
+PAPER_PT = {"A4": (595.28, 841.89), "A5": (419.53, 595.28)}  # (กว้าง, สูง) ของกระดาษแนวตั้ง
+MARGIN_LR_PT, MARGIN_TB_PT = 18.0, 28.8  # 0.25" / 0.4" ตรงกับ page_margins ที่ตั้งไว้ท้ายชีต
+MEMBER_MAX_SCALE = 1.45  # เพดานสเกล — สูงกว่านี้ตัวหนังสือเริ่มล้นความกว้างคอลัมน์ (ตัวเลขขึ้น ####)
+
+def col_px(w):  # ความกว้างคอลัมน์ Excel -> พิกเซล (ฟอนต์เริ่มต้น Calibri 11: 1 หน่วย = 7px + ขอบ 5px)
+    return round(w * 7) + 5
 NAVY = "1E3A5F"; GREEN = "0B7A3B"; RED = "B42318"; GREY = "6B7280"; AMBER = "B45309"
 NUM = '#,##0'
 NUM_Z = '#,##0;-#,##0;"-"'
@@ -152,10 +180,11 @@ def color_sort_key(name):
 
 product_order = sorted(distinct_products.keys(), key=color_sort_key)
 
-# ตัดคำว่า "ป้าย"/"เส้น" ออกจากหัวคอลัมน์ — คำเหล่านี้มีทุกชื่อสินค้าอยู่แล้วไม่ช่วยแยกแยะ
+# ตัดคำว่า "ป้าย"/"เส้น"/"สาย" ออกจากหัวคอลัมน์ — คำเหล่านี้มีทุกชื่อสินค้าอยู่แล้วไม่ช่วยแยกแยะ
 # แต่ทำให้ข้อความยาวจนล้นช่องตาราง (ไม่ลดขนาดฟอนต์ ตัดคำแทน)
+# ตัดช่องว่างในชื่อออกด้วย เช่น "สายยาว ชมพูใหม่" -> "ยาวชมพูใหม่" (ชื่อสั้นลง หัวคอลัมน์ไม่ต้องตกบรรทัด)
 def strip_noise_words(s):
-    return s.replace("ป้าย", "").replace("เส้น", "").strip()
+    return re.sub(r"\s+", "", s.replace("ป้าย", "").replace("เส้น", "").replace("สาย", "")).strip()
 
 def base_label(name):
     lbl = strip_noise_words(short_label(name))
@@ -176,14 +205,31 @@ for name in product_order:
 
 n_prod = len(product_order)
 
+# ── พื้นที่พิมพ์จริงของใบเสร็จ 1 หน้า + สเกลย่อตามความกว้าง ──────────────────
+# แนวกระดาษของชีตรายคน: A5 บังคับแนวนอนเสมอ, A4 แนวตั้งถ้าสินค้าไม่เกิน 4 ชนิด (ตรงกับ page_setup ท้ายชีต)
+_member_landscape = paper_size == "A5" or n_prod > 4
+_pw, _ph = PAPER_PT[paper_size]
+if _member_landscape:
+    _pw, _ph = _ph, _pw
+PRINT_W = _pw - 2 * MARGIN_LR_PT
+PRINT_H = _ph - 2 * MARGIN_TB_PT
+CONTENT_W_PT = (col_px(W_DATE_EFF) + n_prod * col_px(W_PROD) + col_px(W_WAGE)) * 0.75
+# fitToWidth=1 ย่อทั้งชีตให้พอดีความกว้าง (Excel ปัดลงเป็นจำนวนเต็ม % และไม่เคยขยายเกิน 100%)
+PRINT_SCALE = min(1.0, int(PRINT_W / CONTENT_W_PT * 100) / 100)
+
+def scale_for_member(n_rows, has_ng=False):
+    # ความสูงเนื้อหาบนกระดาษ = (ผลรวมความสูงแถว × สเกลฟอนต์) × สเกลย่อตามความกว้าง
+    # แก้สมการหาสเกลฟอนต์ใหญ่สุดที่ยังไม่เกินพื้นที่พิมพ์ เหลือเผื่อ 1.5% กันปัดเศษแล้วล้นไปหน้า 2
+    total = H_FIXED + H_DATA * max(0, n_rows) + (H_NG if has_ng else 0)
+    fit = (PRINT_H / PRINT_SCALE) * 0.985 / total
+    return max(0.50, min(MEMBER_MAX_SCALE, fit))
+
 # ── ตารางแบบ pivot (ชีตรายบุคคล): วันที่เบิก + คอลัมน์แต่ละชนิดสายไฟ (จำนวน) + ค่าแรงรวมของวันนั้น ──
 # แถวรวมท้ายตารางใช้สูตร =SUM(...) อ้างอิงแถวข้อมูลจริง ไม่ใช่ตัวเลขคงที่ — แก้ตัวเลขในแถวไหนใน Excel
 # แล้วยอดรวม/ค่าแรงสุทธิท้ายชีตจะคำนวณตามให้อัตโนมัติ
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
-    # วันที่เบิก/ค่าแรง เดิมกว้างเกินความจำเป็นมาก (17 และ 15 หน่วย สำหรับข้อความ 10 และ 8 ตัวอักษร)
-    # หดลงแล้วยกพื้นที่ที่ได้ไปให้คอลัมน์สินค้า + ขยายฟอนต์ทั้งใบ (ดู BASE_FONT_SCALE)
-    widths = [13] + [12] * n_prod + [12]
+    widths = [W_DATE_EFF] + [W_PROD] * n_prod + [W_WAGE]
     for ci, (h, w) in enumerate(zip(headers, widths), start=1):
         col = get_column_letter(ci)
         ws.column_dimensions[col].width = w
@@ -195,9 +241,9 @@ def write_pivot_table(ws, row, rows_list):
         else:
             fill, txt = NAVY, "FFFFFF"
         # wrap_text กันหัวคอลัมน์ยาวล้นออกไปทับคอลัมน์ข้างๆ ตอนคอลัมน์แคบลง (ตัดขึ้นบรรทัดใหม่แทน)
-        # หัวตารางขยายเพิ่มอีก 15% จากตัวหนังสือปกติของรายงาน ให้เด่นชัดกว่าตัวเนื้อหา
-        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(9.5 * 1.15), bold=True, color=txt), fill=fill, align=CW, border=box)
-    ws.row_dimensions[row].height = RH(30)
+        # หัวคอลัมน์เล็กกว่าตัวเลขในตาราง — อ่านครั้งเดียวก็รู้ว่าคอลัมน์อะไร แต่ตัวเลขต้องอ่านทุกบรรทัด
+        cell(ws, f"{col}{row}", h, font=Font(name=FONT, size=FS(F_HEAD), bold=True, color=txt), fill=fill, align=CW, border=box)
+    ws.row_dimensions[row].height = RH(H_HEAD)
     row += 1
 
     # คอลัมน์ซ่อนไว้ทางขวาของตาราง เก็บค่าแรงแยกตามชนิด x วันที่ — เป็นแหล่งอ้างอิงของสูตร SUM แนวตั้ง
@@ -223,13 +269,15 @@ def write_pivot_table(ws, row, rows_list):
     first_data_row = row
     for dt in sorted(date_agg.keys()):
         e = date_agg[dt]
-        vals = [date_th(dt)] + [e["qty"].get(n, 0) for n in product_order] + [e["wage"]]
+        vals = [date_th_short(dt)] + [e["qty"].get(n, 0) for n in product_order] + [e["wage"]]
         for ci, v in enumerate(vals, start=1):
             col = get_column_letter(ci)
             is_prod_col = 2 <= ci <= 1 + n_prod
             is_wage_col = ci == 2 + n_prod
             fmt = NUM_Z if is_prod_col else (MONEY if is_wage_col else None)
-            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5), bold=True, color="111827"),
+            # ตัวเลขจำนวน/ค่าแรง = ตัวใหญ่สุดในตาราง ส่วนวันที่เล็กกว่า (คอลัมน์แคบ + ไม่ใช่ตัวเลขที่ต้องเพ่ง)
+            fsize = FS(F_DATA) if (is_prod_col or is_wage_col) else FS(F_DATE)
+            cell(ws, f"{col}{row}", v, font=Font(name=FONT, size=fsize, bold=True, color="111827"),
                  align=(R if (is_prod_col or is_wage_col) else C), border=box, fmt=fmt)
         # สูตร = จำนวน(อ้างอิงช่องที่มองเห็น) x อัตราค่าแรง/หน่วย — แก้จำนวนในตารางแล้วค่าแรงเปลี่ยนตามจริง
         # ส่วนต่างเล็กน้อยจากงานเสีย/หาย (ซึ่งไม่ได้แสดงแยกในตารางนี้) บวกเพิ่มเป็นค่าคงที่ต่อท้าย เพื่อให้ยอดรวมยังตรงเป๊ะ
@@ -242,7 +290,7 @@ def write_pivot_table(ws, row, rows_list):
             adj = wage - qty * rate
             formula = f"={qcol}{row}*{rate:g}" if abs(adj) < 0.005 else f"={qcol}{row}*{rate:g}+{adj:.2f}"
             cell(ws, f"{hcol}{row}", formula, fmt=MONEY)
-        ws.row_dimensions[row].height = RH(16)
+        ws.row_dimensions[row].height = RH(H_DATA)
         row += 1
     last_data_row = row - 1
 
@@ -250,35 +298,36 @@ def write_pivot_table(ws, row, rows_list):
     # ช่องค่าแรงรวมท้ายแถวนี้ไม่ต้องใส่ตัวเลขซ้ำ (ปล่อยว่างไว้) เพราะแถว "ค่าแรงตัด" ถัดไปมีสรุปยอดเดียวกันอยู่แล้ว
     col_totals = {n: 0 for n in product_order}
     wage_total = 0.0
-    cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box)
+    cell(ws, f"A{row}", "รวม", font=Font(name=FONT, size=FS(F_TOTAL), bold=True), align=R, border=box)
     if last_data_row >= first_data_row:
         for ci, n in enumerate(product_order, start=2):
             col = get_column_letter(ci)
             col_totals[n] = sum(date_agg[dt]["qty"].get(n, 0) for dt in date_agg)
             cell(ws, f"{col}{row}", f"=SUM({col}{first_data_row}:{col}{last_data_row})",
-                 font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box, fmt=NUM_Z)
+                 font=Font(name=FONT, size=FS(F_TOTAL), bold=True), align=R, border=box, fmt=NUM_Z)
         wage_total = sum(e["wage"] for e in date_agg.values())
-    cell(ws, f"{LAST_P_LETTER}{row}", None, font=Font(name=FONT, size=FS(9.5), bold=True), align=R, border=box)
-    ws.row_dimensions[row].height = RH(18)
+    cell(ws, f"{LAST_P_LETTER}{row}", None, font=Font(name=FONT, size=FS(F_TOTAL), bold=True), align=R, border=box)
+    ws.row_dimensions[row].height = RH(H_TOTAL)
     row += 1
 
     # ── แถบสีเขียวอ่อน: ค่าแรงตัด (บาท) แยกตามชนิด — เป็นแหล่งอ้างอิงยอดค่าแรงรวมเพียงจุดเดียว (ไม่ซ้ำกับแถว "รวม" ด้านบน) ──
     # แนวตั้ง: แต่ละช่อง = SUM คอลัมน์ที่ซ่อนไว้ของชนิดนั้น (first_data_row:last_data_row)
     # แนวนอน: ช่องรวมท้ายแถว = SUM ของทุกช่องชนิดในแถวนี้เอง
     LIGHT_GREEN = "DCFCE7"
-    cell(ws, f"A{row}", "ค่าแรงตัด (บาท)", font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box)
+    # ป้ายแถวนี้ต้องสั้นพอใส่คอลัมน์วันที่ที่บีบให้แคบแล้ว (หน่วยเป็นบาทอยู่ในหัวคอลัมน์ขวาสุดแล้ว)
+    cell(ws, f"A{row}", "ค่าแรง", font=Font(name=FONT, size=FS(F_WAGEROW), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box)
     if last_data_row >= first_data_row:
         for ci, n in enumerate(product_order, start=2):
             col = get_column_letter(ci)
             hcol = hidden_cols[n]
             cell(ws, f"{col}{row}", f"=SUM({hcol}{first_data_row}:{hcol}{last_data_row})",
-                 font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY_Z)
+                 font=Font(name=FONT, size=FS(F_WAGEROW), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY_Z)
         cell(ws, f"{LAST_P_LETTER}{row}", f"=SUM(B{row}:{LABEL_END_LETTER}{row})",
-             font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+             font=Font(name=FONT, size=FS(F_WAGEROW), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
     else:
-        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(9.5), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
+        cell(ws, f"{LAST_P_LETTER}{row}", 0, font=Font(name=FONT, size=FS(F_WAGEROW), bold=True, color=GREEN), fill=LIGHT_GREEN, align=R, border=box, fmt=MONEY)
     wage_total_ref = f"{LAST_P_LETTER}{row}"
-    ws.row_dimensions[row].height = RH(18)
+    ws.row_dimensions[row].height = RH(H_WAGEROW)
     row += 1
 
     return row, col_totals, wage_total, wage_total_ref
@@ -368,7 +417,7 @@ CONFIRM_TEXT = "ข้าพเจ้าขอยืนยันว่ารา�
 def write_member_sheet(m, label=None):
     # จำนวนวันที่เบิกจริง (นับวันซ้ำครั้งเดียว) ของคนนี้ — ใช้ตัดสินว่าต้องลด scale ลงไหมเพื่อกันล้นไปอีกหน้า
     n_rows = len({r["issued_at"] for r in m.get("rows", [])})
-    _scale_state["v"] = scale_for_row_count(n_rows)
+    _scale_state["v"] = scale_for_member(n_rows, bool(m.get("ng_deduction")))
 
     sheet_label = f'{m["member_code"]} {m["member_name"]}' + (f' {label}' if label else '')
     ws = wb.create_sheet(safe_sheet_name(sheet_label, used_names))
@@ -382,11 +431,11 @@ def write_member_sheet(m, label=None):
         # ตัวใหญ่เกือบเท่าหัวเรื่องหลักให้เห็นชัดจริงๆ — ขยายความกว้างคอลัมน์ A ทีหลัง (หลัง write_pivot_table
         # ซึ่งจะตั้งความกว้างคอลัมน์ A ทับเป็น 13 อีกที) ไม่งั้นตัวหนังสือใหญ่จะถูกคอลัมน์แคบบังคับให้แสดงไม่เต็ม
         ws.merge_cells(f"B1:{LAST_P_LETTER}1")
-        cell(ws, "A1", "REPRINT", font=Font(name=FONT, size=FS(18), bold=True, color="DC2626"), align=L)
-        cell(ws, "B1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
+        cell(ws, "A1", "REPRINT", font=Font(name=FONT, size=FS(F_REPRINT), bold=True, color="DC2626"), align=L)
+        cell(ws, "B1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(F_TITLE), bold=True, color="111827"), align=C)
     else:
         ws.merge_cells(f"A1:{LAST_P_LETTER}1")
-        cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(19), bold=True, color="111827"), align=C)
+        cell(ws, "A1", "ใบเสร็จรับเงิน", font=Font(name=FONT, size=FS(F_TITLE), bold=True, color="111827"), align=C)
     # ชื่อกลุ่มวิสาหกิจย้ายลงมาบรรทัดที่ 2 ต่อกับรอบจ่าย — ยังต้องมีอยู่ในเอกสาร
     # เพราะเป็นชื่อผู้ออกใบเสร็จ (ถ้าตัดทิ้งใบเสร็จจะใช้อ้างอิงไม่ได้)
     # บอกแค่เดือน ไม่ต้องบอกช่วงวันตัดยอด (เจ้าของขอ — สมาชิกดูแล้วงง)
@@ -394,46 +443,44 @@ def write_member_sheet(m, label=None):
     subtitle = f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}"
     # ข้อความยาว -> shrink_to_fit แทน wrap_text กันตกบรรทัด/ถูกตัดท้าย
     # (wrap_text + auto-height ไม่เสถียรกับชีตที่สร้างจาก openpyxl ล้วนตอนแปลง PDF ผ่าน Excel COM)
-    cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(11), color=GREY),
+    cell(ws, "A2", subtitle, font=Font(name=FONT, size=FS(F_SUB), color=GREY),
          align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
-    ws.row_dimensions[1].height = RH(25)
-    ws.row_dimensions[2].height = RH(16)
+    ws.row_dimensions[1].height = RH(H_TITLE)
+    ws.row_dimensions[2].height = RH(H_SUB)
 
-    # รหัส+ชื่อสมาชิก ขยายเพิ่มอีก 15% เหมือนหัวตาราง
     ws.merge_cells(f"A3:{LAST_P_LETTER}3")
     cell(ws, "A3", f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else ''),
-         font=Font(name=FONT, size=FS(11 * 1.15), bold=True, color="111827"), align=LW)
-    ws.row_dimensions[3].height = RH(17)
+         font=Font(name=FONT, size=FS(F_NAME), bold=True, color="111827"), align=LW)
+    ws.row_dimensions[3].height = RH(H_NAME)
 
     ws.merge_cells(f"A4:{LAST_P_LETTER}4")
     cell(ws, "A4", f'ธนาคาร: {m.get("bank_name") or "-"}   เลขบัญชี: {m.get("bank_account") or "-"}',
-         font=Font(name=FONT, size=FS(9.5), color=GREY), align=L)
-    ws.row_dimensions[4].height = RH(15)
+         font=Font(name=FONT, size=FS(F_BANK), color=GREY), align=L)
+    ws.row_dimensions[4].height = RH(H_BANK)
+    ws.row_dimensions[5].height = RH(H_GAP)  # ช่องไฟก่อนตาราง (ตั้งความสูงไว้ให้โมเดลคำนวณหน้าตรงกับของจริง)
 
     row = 6
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
-    # write_pivot_table ตั้งความกว้างคอลัมน์ A ทับเป็น 13 (สำหรับหัว "วันที่เบิก") — ขยายทีหลังให้ "REPRINT" ตัวใหญ่ไม่ถูกบัง
-    if reprint:
-        ws.column_dimensions["A"].width = 18
 
     net_formula_parts = [wage_total_ref]
     if m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
-             font=Font(name=FONT, size=FS(10), color=RED), align=R, border=box)
+             font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, border=box)
         # แสดงเป็นสูตรคูณตรงๆ (จำนวนเกิน x อัตราค่าปรับ) ให้เห็นที่มาของตัวเลข ไม่ใช่แค่ผลลัพธ์สำเร็จรูป
         ng_ref = f"{LAST_P_LETTER}{row}"
         cell(ws, ng_ref, f'=-({m["ng_excess_qty"]:g}*{d.get("ng_penalty_rate", 20):g})',
-             font=Font(name=FONT, size=FS(10), color=RED), align=R, fmt=MONEY, border=box)
+             font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, fmt=MONEY, border=box)
+        ws.row_dimensions[row].height = RH(H_NG)
         net_formula_parts.append(ng_ref)
         row += 1
 
     ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-    cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=FS(11), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+    cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=FS(F_NET), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
     # ปัดขึ้นเต็มบาทเหมือนสูตรฝั่งระบบ (Math.ceil) — ใช้ ROUNDUP แทน (ค่าแรงเป็นบวกเสมอ ผลเหมือนกัน)
     net_formula = f"=ROUNDUP({'+'.join(net_formula_parts)},0)"
-    cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=FS(11), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
-    ws.row_dimensions[row].height = RH(20)
+    cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=FS(F_NET), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+    ws.row_dimensions[row].height = RH(H_NET)
     row += 1
 
     # ไม่แสดงงานที่คืนหลังวันตัดยอด (ยกไปจ่ายรอบเดือนถัดไป) ในใบเสร็จนี้ — ใบเสร็จแสดงเฉพาะงานของรอบเดือนนั้นๆ
@@ -441,22 +488,26 @@ def write_member_sheet(m, label=None):
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
     ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(10), italic=True, color="111827"), align=RW)
-    ws.row_dimensions[row].height = RH(18)
-    row += 2  # เว้นที่ว่างเพิ่มไว้เซ็นชื่อจริง
+    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(F_CONFIRM), italic=True, color="111827"), align=RW)
+    ws.row_dimensions[row].height = RH(H_CONFIRM)
+    row += 1
+    ws.row_dimensions[row].height = RH(H_SIGNGAP)  # ที่ว่างไว้เซ็นชื่อจริง
+    row += 1
     # เดิม "ลงชื่อ"/"วันที่" ชิดขวาแยกกัน (ตามความยาวข้อความ) ทำให้บรรทัดวันที่ดูเบ้ไปทางขวามากกว่า
     # บรรทัดลงชื่อ — เปลี่ยนมา merge แค่ครึ่งขวาของแถว แล้วจัดกึ่งกลาง "ภายในครึ่งขวา" เดียวกันทั้งสองบรรทัด
     # ผลคือยังอยู่ชิดฝั่งขวาของหน้าเหมือนเดิม แต่สองบรรทัดจะอยู่กึ่งกลางตรงกันพอดี ไม่เบ้
     half_col = get_column_letter(max(2, LAST_P // 2))
     ws.merge_cells(f"{half_col}{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"{half_col}{row}", "ลงชื่อ .......................................................... ผู้รับเงิน",
-         font=Font(name=FONT, size=FS(10.5)), align=C)
+         font=Font(name=FONT, size=FS(F_SIGN)), align=C)
+    ws.row_dimensions[row].height = RH(H_SIGN)
     row += 1
-    ws.row_dimensions[row].height = RH(18)  # เว้นบรรทัดว่างคั่นก่อนถึงวันที่ (นับรวมไว้ใน _H0 แล้ว กันคนที่ข้อมูลพอดี 1 หน้าล้นไปหน้า 2)
+    ws.row_dimensions[row].height = RH(H_SIGSPACE)  # บรรทัดว่างคั่นก่อนถึงวันที่ (นับรวมในโมเดลหน้ากระดาษแล้ว)
     row += 1
     ws.merge_cells(f"{half_col}{row}:{LAST_P_LETTER}{row}")
     cell(ws, f"{half_col}{row}", "วันที่ ............ / ............ / ............",
-         font=Font(name=FONT, size=FS(10.5)), align=C)
+         font=Font(name=FONT, size=FS(F_SIGN)), align=C)
+    ws.row_dimensions[row].height = RH(H_DATEROW)
     row += 1
 
     ws.print_area = f"A1:{LAST_P_LETTER}{row}"
@@ -469,9 +520,12 @@ def write_member_sheet(m, label=None):
     # เสมอ ไม่ว่าคนนั้นจะมีกี่แถว/กี่วัน กันปัญหาคนที่มีข้อมูลน้อย (แถวสั้น) โดน scale ขยายเกินจนล้นขอบขวา
     # (คนที่มีข้อมูลเยอะจะขึ้นหน้าที่ 2 ต่อแทน ด้วยขนาดตัวหนังสือเท่ากันทุกคน ไม่บีบเล็กลงเป็นพิเศษ)
     ws.page_setup.fitToWidth = 1
-    ws.page_setup.fitToHeight = 0
+    # fitToHeight=1 เป็นตัวกันพลาดชั้นสุดท้าย: ขนาดฟอนต์คำนวณมาให้พอดี 1 หน้าอยู่แล้ว (scale_for_member)
+    # ถ้าคลาดไปนิดหน่อย Excel จะย่อให้เองแทนที่จะดันบรรทัดลงชื่อ/วันที่หลุดไปหน้า 2
+    ws.page_setup.fitToHeight = 1
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_options.horizontalCentered = True
+    ws.print_options.verticalCentered = False
     ws.page_margins.left = ws.page_margins.right = 0.25
     ws.page_margins.top = ws.page_margins.bottom = 0.4
 
