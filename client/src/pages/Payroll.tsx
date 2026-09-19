@@ -679,6 +679,9 @@ function WageReconcileTab() {
   const { data, isLoading } = useQuery({ queryKey: ['wage-reconcile', month], queryFn: () => reportApi.wageReconcile(month) });
   const t = data?.totals;
   const money = (n: number) => `฿${fmt(n || 0)}`;
+  // มีเครื่องหมาย + / − นำหน้าเสมอ (0 ไม่ใส่) — ใช้กับยอดส่วนต่าง
+  const signed = (n: number) => `${n > 0.005 ? '+' : n < -0.005 ? '−' : ''}${money(Math.abs(n))}`;
+  const signCls = (n: number) => (n > 0.005 ? 'text-green-700' : n < -0.005 ? 'text-rose-600' : 'text-gray-400');
 
   return (
     <div className="space-y-4">
@@ -689,7 +692,7 @@ function WageReconcileTab() {
         </div>
         <p className="text-xs text-gray-500 pb-2 max-w-md">
           กระทบยอดค่าแรง 2 วิธี — คิดจาก "ยอดส่งออก/วางบิล" เทียบกับ "ยอดคืนงานของสมาชิก" ให้ตรงกันเป๊ะ
-          และคำนวณเงินที่ต้อง<b>กันไว้จ่ายค่าแรงข้ามเดือน</b>
+          และดู<b>ส่วนต่างระหว่างค่าแรงของสายไฟที่ส่งออกโรงงาน กับค่าแรงตัดที่จ่ายสมาชิก</b>
         </p>
       </div>
 
@@ -697,50 +700,46 @@ function WageReconcileTab() {
         <div className="py-12 text-center text-gray-400"><Loader2 size={24} className="animate-spin mx-auto" /></div>
       ) : (
         <>
-          {/* เงินกันข้ามเดือน (Reserve) */}
+          {/* ส่วนต่างค่าแรงเดือนนี้ = ค่าแรงของงานที่ส่งออกโรงงาน − ค่าแรงตัดที่จ่ายสมาชิก (สุทธิ)
+              บวก = ส่งของได้มากกว่าที่จ่ายค่าแรง มีเงินเหลือ · ลบ = จ่ายค่าแรงไปก่อน ของยังไม่ได้ส่งขาย ต้องกันเงินไว้ */}
           {(() => {
-            const diff = t.reserve_close - t.reserve_open;
-            const growing = diff > 0.005;
-            const shrinking = diff < -0.005;
+            const diff = t.wage_billed - t.wage_payroll_net;
+            const surplus = diff > 0.005;
+            const deficit = diff < -0.005;
             return (
-              <div className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5">
+              <div className={`rounded-2xl border-2 p-5 ${surplus ? 'border-green-200 bg-gradient-to-br from-green-50 to-emerald-50'
+                : deficit ? 'border-rose-200 bg-gradient-to-br from-rose-50 to-orange-50' : 'border-slate-200 bg-slate-50'}`}>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="p-2 rounded-xl bg-amber-100 text-amber-600"><PiggyBank size={18} /></span>
-                  <span className="text-sm font-semibold text-amber-800">เงินกันไว้จ่ายค่าแรงเดือนถัดไป (ยกไป)</span>
+                  <span className={`p-2 rounded-xl ${surplus ? 'bg-green-100 text-green-600' : deficit ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}><PiggyBank size={18} /></span>
+                  <span className="text-sm font-semibold text-slate-700">ส่วนต่างค่าแรงเดือนนี้ (ส่งออกโรงงาน − ค่าแรงตัดที่จ่ายสมาชิก)</span>
                 </div>
-                <p className="text-3xl md:text-[34px] font-bold text-amber-700 tabular-nums leading-none">{money(t.reserve_close)}</p>
-                <p className="text-xs text-amber-700/80 mt-2">
-                  = มูลค่าค่าแรงของ<b>งานที่สมาชิกตัดเสร็จคืนมาแล้ว แต่ยังไม่ได้ส่งออก/วางบิล</b> ณ สิ้นเดือน
-                  <br />⚠️ เงินก้อนนี้เป็นของสมาชิก — <b>ห้ามนำไปแบ่งกำไร/จ่ายผู้บริหาร/ลงทุน</b> ต้องถือไว้จ่ายเดือนถัดไป
+                <p className={`text-3xl md:text-[34px] font-bold tabular-nums leading-none ${signCls(diff)}`}>{signed(diff)}</p>
+                <p className="text-xs text-slate-500 mt-2 tabular-nums">
+                  = ค่าแรงของงานที่ส่งออกโรงงาน <b className="text-slate-700">{money(t.wage_billed)}</b>
+                  {' '}− ค่าแรงสุทธิที่จ่ายสมาชิก <b className="text-slate-700">{money(t.wage_payroll_net)}</b>
                 </p>
-                <div className="mt-3 pt-3 border-t border-amber-200/70 flex flex-wrap gap-x-6 gap-y-1 text-xs text-amber-700">
-                  <span>เงินกันยกมา (ต้นเดือน): <b>{money(t.reserve_open)}</b></span>
-                  <span>เปลี่ยนแปลงเดือนนี้: <b className={diff >= 0 ? 'text-rose-600' : 'text-green-700'}>
-                    {diff >= 0 ? '+' : ''}{fmt(diff)}</b></span>
-                </div>
 
-                {/* คำอธิบายกรณี — บอกชัดว่าเดือนนี้ต้อง "กันเงินเพิ่ม" หรือ "ปลดล็อกเงินคืนงบผู้บริหาร" */}
                 <div className={`mt-3 rounded-xl p-3 text-xs leading-relaxed ${
-                  growing ? 'bg-rose-50 border border-rose-200 text-rose-800'
-                  : shrinking ? 'bg-green-50 border border-green-200 text-green-800'
-                  : 'bg-white/70 border border-amber-200 text-amber-700'
+                  surplus ? 'bg-white/70 border border-green-200 text-green-800'
+                  : deficit ? 'bg-white/70 border border-rose-200 text-rose-800'
+                  : 'bg-white/70 border border-slate-200 text-slate-600'
                 }`}>
-                  {growing && (
+                  {surplus && (
                     <>
-                      <b>🔒 กรณีนี้: ต้องกันเงินเพิ่ม {money(diff)}</b><br />
-                      เดือนนี้<b>จ่ายค่าแรงให้สมาชิกไปแล้ว แต่สินค้ายังไม่ได้ส่งให้โรงงาน</b> (ยังไม่ได้เก็บเงินจากโรงงาน)
-                      เงินก้อนนี้ยังไม่ใช่กำไร — ห้ามนำไปจ่ายผู้บริหารหรือปันผลเด็ดขาด ต้องกันสดไว้รอจ่ายค่าแรงเดือนถัดไป
+                      <b>✅ มีเงินเหลือคืนงบผู้บริหาร/กำไรได้ {money(diff)}</b><br />
+                      เดือนนี้<b>ส่งของให้โรงงานได้มากกว่าค่าแรงที่จ่ายสมาชิก</b> — ส่วนเกินคือค่าแรงของงานที่จ่ายล่วงหน้าไปแล้วในเดือนก่อนๆ
+                      ตอนนี้ส่งขายและเก็บเงินได้แล้ว จึงนำกลับมาเป็นกำไร/งบผู้บริหารได้ตามปกติ
                     </>
                   )}
-                  {shrinking && (
+                  {deficit && (
                     <>
-                      <b>✅ กรณีนี้: มีเงินคืนงบผู้บริหาร/กำไรได้ {money(Math.abs(diff))}</b><br />
-                      สินค้าที่<b>จ่ายค่าแรงล่วงหน้าไปแล้วในเดือนก่อนๆ</b> ตอนนี้ส่งให้โรงงานและเก็บเงินได้แล้ว
-                      จึง<b>ปลดล็อกเงินก้อนนี้คืนกลับเป็นกำไร/งบผู้บริหารได้ตามปกติ</b> (ไม่ใช่เงินสำรองแล้ว)
+                      <b>🔒 ต้องกันเงินไว้ {money(Math.abs(diff))}</b><br />
+                      เดือนนี้<b>จ่ายค่าแรงให้สมาชิกมากกว่ามูลค่าของที่ส่งให้โรงงาน</b> (ของตัดเสร็จแล้วยังไม่ได้ส่งขาย)
+                      ส่วนนี้ยังไม่ใช่กำไร — ห้ามนำไปจ่ายผู้บริหารหรือปันผล ต้องกันไว้จนกว่าจะส่งของเก็บเงินได้
                     </>
                   )}
-                  {!growing && !shrinking && (
-                    <>ยอดเงินกันไม่เปลี่ยนจากเดือนก่อน — ยอดคืนงานกับยอดส่งออกสมดุลกันพอดี ไม่ต้องกันเพิ่ม/คืนงบ</>
+                  {!surplus && !deficit && (
+                    <>ค่าแรงของที่ส่งออกกับค่าแรงที่จ่ายสมาชิกเท่ากันพอดี — ไม่ต้องกันเพิ่ม/คืนงบ</>
                   )}
                 </div>
               </div>
@@ -797,54 +796,80 @@ function WageReconcileTab() {
             </div>
           </div>
 
-          {/* ตารางแยกตามสินค้า */}
-          <div className="card p-0 overflow-x-auto">
-            <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
-              <span className="font-semibold text-gray-700 text-sm">แยกตามชนิดสายไฟ — สต๊อกงานดีค้าง & เงินกันข้ามเดือน</span>
-            </div>
-            <table className="w-full text-sm whitespace-nowrap">
-              <thead className="border-b bg-gray-50 text-xs text-gray-500">
-                <tr>
-                  <th className="px-3 py-2.5 text-left font-medium">สายไฟ</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-green-600">คืนงานดี (รอบนี้)</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-amber-700">ส่งออก (เดือนนี้)</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-orange-600 whitespace-normal leading-tight">สต๊อกงานดี<br />ค้าง (ยกไป)</th>
-                  <th className="px-3 py-2.5 text-right font-medium">ค่าแรง/หน่วย</th>
-                  <th className="px-3 py-2.5 text-right font-medium text-amber-700 whitespace-normal leading-tight">เงินกันไว้<br />(ยกไป)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data.products as any[]).filter((p: any) => p.ret_good_cyc || p.ship_good_cal || p.fg_close).map((p: any) => (
-                  <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-3 py-2.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        {p.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
-                        <span className="text-gray-800">{p.name}</span>
-                      </span>
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-green-700">{fmtQty(p.ret_good_cyc)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{fmtQty(p.ship_good_cal)}</td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums font-medium ${p.fg_close < 0 ? 'text-rose-600' : 'text-orange-700'}`}>
-                      {p.fg_close < 0 ? `−${fmtQty(Math.abs(p.fg_close))}` : p.fg_close > 0 ? fmtQty(p.fg_close) : '-'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{p.wage}</td>
-                    <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${p.reserve_close < 0 ? 'text-rose-600' : 'text-amber-700'}`}>
-                      {p.reserve_close < 0 ? `−${money(Math.abs(p.reserve_close))}` : p.reserve_close > 0 ? money(p.reserve_close) : '-'}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-amber-50 border-t font-semibold">
-                  <td className="px-3 py-2.5 text-gray-700" colSpan={5}>รวมเงินกันข้ามเดือน</td>
-                  <td className="px-3 py-2.5 text-right text-amber-800 text-base">{money(t.reserve_close)}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p className="px-4 py-2 text-[11px] text-gray-400 border-t whitespace-normal">
-              {t.reserve_basis === 'ready_stock'
-                ? 'สต๊อกค้าง = ยอดพร้อมส่งจริง ณ วันปิดรอบจ่าย (ชุดเดียวกับหน้าสต็อกสินค้าและหน้าจัดลัง รวมยอดปรับสต็อกแล้ว) — ใช้ตั้งแต่รอบ ก.ย. 2569'
-                : 'รอบก่อน ก.ย. 2569 คิดแบบเดิม (คืนงานดีสะสม − ส่งออกสะสม) — ตัวเลขรายสินค้ายังมีความคลาดเคลื่อนจากข้อมูลช่วงแรกติดมา'}
-            </p>
-          </div>
+          {/* ตารางแยกตามสินค้า — ส่วนต่าง = ค่าแรงของที่ส่งออก (A) − ค่าแรงตัดที่จ่ายสมาชิก (B) รายสายไฟ
+              รวมทุกสายไฟแล้วเท่ากับ "ค่าแรงของงานที่ส่งขาย − ค่าแรงรวมก่อนหัก NG" ในสมการกระทบยอดด้านบนเป๊ะ */}
+          {(() => {
+            const rows = (data.products as any[]).filter((p: any) => p.wage_billed || p.wage_payroll);
+            const sumA = t.wage_billed;
+            const sumB = t.wage_payroll;
+            // ค่าปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาท คิดรายคน แยกรายสายไฟไม่ได้ — แสดงเป็นบรรทัดปรับยอดรวม
+            const adjB = t.wage_payroll_net - t.wage_payroll;
+            return (
+              <div className="card p-0 overflow-x-auto">
+                <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
+                  <span className="font-semibold text-gray-700 text-sm">แยกตามชนิดสายไฟ — ส่วนต่างค่าแรง (ส่งออกโรงงาน − ค่าแรงตัดที่จ่าย)</span>
+                </div>
+                <table className="w-full text-sm whitespace-nowrap">
+                  <thead className="border-b bg-gray-50 text-xs text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left font-medium">สายไฟ</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-amber-700">ส่งออก (เดือนนี้)</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-green-600">คืนงานดี (รอบนี้)</th>
+                      <th className="px-3 py-2.5 text-right font-medium">ค่าแรง/หน่วย</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-amber-700 whitespace-normal leading-tight">ค่าแรงของ<br />ที่ส่งออก (A)</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-green-700 whitespace-normal leading-tight">ค่าแรงตัด<br />ที่จ่ายสมาชิก (B)</th>
+                      <th className="px-3 py-2.5 text-right font-medium text-slate-700 whitespace-normal leading-tight">ส่วนต่าง<br />(A − B)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((p: any) => {
+                      const d = p.wage_billed - p.wage_payroll;
+                      return (
+                        <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                          <td className="px-3 py-2.5">
+                            <span className="inline-flex items-center gap-1.5">
+                              {p.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
+                              <span className="text-gray-800">{p.name}</span>
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{fmtQty(p.ship_good_cal)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-green-700">{fmtQty(p.ret_good_cyc)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-500">{p.wage}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{money(p.wage_billed)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-700">{money(p.wage_payroll)}</td>
+                          <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${signCls(d)}`}>{signed(d)}</td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-gray-50 border-t font-semibold">
+                      <td className="px-3 py-2.5 text-gray-700" colSpan={4}>รวม (ก่อนหักค่าปรับ NG)</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{money(sumA)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">{money(sumB)}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums ${signCls(sumA - sumB)}`}>{signed(sumA - sumB)}</td>
+                    </tr>
+                    {Math.abs(adjB) > 0.005 && (
+                      <tr className="text-xs text-gray-500">
+                        <td className="px-3 py-2" colSpan={5}>ปรับยอดจากค่าปรับ NG เกินเกณฑ์ + ปัดค่าแรงขึ้นเต็มบาทรายคน (คิดรายคน แยกรายสายไฟไม่ได้)</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{adjB > 0 ? '+' : '−'}{money(Math.abs(adjB))}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums ${signCls(-adjB)}`}>{signed(-adjB)}</td>
+                      </tr>
+                    )}
+                    <tr className={`border-t-2 font-bold ${sumA - t.wage_payroll_net < -0.005 ? 'bg-rose-50' : 'bg-green-50'}`}>
+                      <td className="px-3 py-3 text-slate-800" colSpan={4}>ส่วนต่างสุทธิ</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{money(sumA)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">{money(t.wage_payroll_net)}</td>
+                      <td className={`px-3 py-3 text-right tabular-nums text-base ${signCls(sumA - t.wage_payroll_net)}`}>{signed(sumA - t.wage_payroll_net)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="px-4 py-2 text-[11px] text-gray-400 border-t whitespace-normal">
+                  <span className="text-green-700 font-semibold">+ บวก</span> = ส่งของให้โรงงานได้มากกว่าค่าแรงที่จ่าย (มีเงินเหลือ) ·{' '}
+                  <span className="text-rose-600 font-semibold">− ลบ</span> = จ่ายค่าแรงสมาชิกไปก่อน ของยังไม่ได้ส่งขาย (ต้องกันเงินไว้)
+                  · ค่าแรงตัด (B) รวมงานเสียจากโรงงาน/งานหาย และงานเสียจากการตัดตามอัตราที่ตั้งไว้แล้ว
+                </p>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>
