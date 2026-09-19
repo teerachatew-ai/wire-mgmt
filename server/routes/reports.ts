@@ -701,22 +701,28 @@ router.post('/invoice-export', (req, res) => {
    - พร้อมส่ง  = ส่วนที่เหลือ → ทุกส่วนรวมกันเท่ากับของที่อยู่ที่กลุ่มเสมอ
    เดิมพร้อมส่งคิดจาก "คืนแล้วสะสม − ส่งออกสะสม" ซึ่งเพี้ยน เพราะช่วงแรกส่งออกโดยไม่ได้บันทึกเบิก/คืนครบ
    (เช่นป้ายขาวเคยขึ้นพร้อมส่ง 2,794 ทั้งที่ของเหลืออยู่ที่กลุ่มแค่ 1,260) */
-function computeStockStatus() {
+// asOf = "YYYY-MM-DD" (ไม่รวมวันนั้น) — ยอด ณ สิ้นวันก่อนหน้า ใช้คิดเงินกันข้ามเดือน ณ วันเริ่ม/วันปิดรอบจ่าย
+// ไม่ใส่ = ณ ตอนนี้ · ยอดปรับสต็อกด้วยมือนับเต็มเสมอไม่สนวันที่ เพราะเป็นการแก้ยอดสะสมที่ผิดมาตั้งแต่ช่วงแรก
+// (ถ้าตัดตามวันที่ ยอดผีที่เพิ่งมาปรับกลางเดือนจะไปโผล่เป็น "เงินคืนงบ" ของเดือนนั้นแทน)
+function computeStockStatus(asOf?: string) {
+  const d = asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : '';
+  const before = (col: string) => (d ? ` AND ${col} < '${d}'` : '');
   const sumBy = (sql: string, ...params: any[]) =>
     new Map((prepare(sql).all(...params) as any[]).map(r => [r.pid, Number(r.v) || 0]));
-  const received = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives GROUP BY product_id`);
+  const received = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives WHERE 1=1${before('received_at')} GROUP BY product_id`);
   const shipped = sumBy(`SELECT si.product_id pid, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) v
-    FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id GROUP BY si.product_id`);
-  const recvCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives WHERE received_at >= ? GROUP BY product_id`, STOCK_CUTOFF);
-  const issCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM issues WHERE issued_at >= ? GROUP BY product_id`, STOCK_CUTOFF);
-  const waste = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.waste_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id`);
-  const lost = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.lost_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id GROUP BY i.product_id`);
+    FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE 1=1${before('s.shipped_at')} GROUP BY si.product_id`);
+  const recvCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM receives WHERE received_at >= ?${before('received_at')} GROUP BY product_id`, STOCK_CUTOFF);
+  const issCut = sumBy(`SELECT product_id pid, SUM(quantity) v FROM issues WHERE issued_at >= ?${before('issued_at')} GROUP BY product_id`, STOCK_CUTOFF);
+  const waste = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.waste_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id WHERE 1=1${before('r.returned_at')} GROUP BY i.product_id`);
+  const lost = sumBy(`SELECT i.product_id pid, SUM(COALESCE(r.lost_qty, 0)) v FROM returns r JOIN issues i ON r.issue_id = i.id WHERE 1=1${before('r.returned_at')} GROUP BY i.product_id`);
   const withMembers = sumBy(`
     SELECT i.product_id pid, SUM(MAX(0, i.quantity - COALESCE(rt.t, 0))) v
     FROM issues i LEFT JOIN (
       SELECT issue_id, SUM(COALESCE(good_qty, 0) + COALESCE(defect_qty, 0) + COALESCE(waste_qty, 0) + COALESCE(lost_qty, 0)) t
-      FROM returns GROUP BY issue_id
+      FROM returns WHERE 1=1${before('returned_at')} GROUP BY issue_id
     ) rt ON rt.issue_id = i.id
+    WHERE 1=1${before('i.issued_at')}
     GROUP BY i.product_id`);
   // ยอดปรับสต็อกด้วยมือ (ดูหน้า "ปรับยอดสต็อก") — แก้ยอดสะสมที่คลาดเคลื่อนจากการบันทึกช่วงแรกๆ
   const adjustments = sumBy(`SELECT product_id pid, SUM(quantity) v FROM stock_adjustments GROUP BY product_id`);
@@ -1119,6 +1125,9 @@ router.post('/payroll-detail-export', (req, res) => {
 
 // ── Cross-Check ค่าแรง & เงินกันข้ามเดือน ─────────────────────────────────
 // กระทบยอดค่าแรง 2 วิธี (วางบิล/ส่งออก  vs  ใบเบิก/รับคืน) ให้ตรงกันเป๊ะ + คำนวณเงินกันข้ามเดือน
+// รอบจ่ายแรกที่เงินกันข้ามเดือนคิดจากยอดพร้อมส่งจริง (ดู buildWageReconcile) — รอบก่อนหน้านี้คงสูตรเดิมตามที่ขอ
+const RESERVE_READY_STOCK_FROM = '2026-09';
+
 function buildWageReconcile(m: string) {
   const settingsRows = prepare(`SELECT key, value FROM settings`).all() as any[];
   const cfg = Object.fromEntries(settingsRows.map((s: any) => [s.key, s.value]));
@@ -1152,10 +1161,20 @@ function buildWageReconcile(m: string) {
     FROM products p WHERE p.active=1
   `).all(m, m, m, m, monthStart, nextStart, mk, cycle.start, cycle.start, cycleEndExclusive, cycleEndExclusive) as any[];
 
+  /* เงินกันข้ามเดือน = สต็อกที่สมาชิกคืนแล้วรอส่งโรงงาน × ค่าแรง/หน่วย
+     • ตั้งแต่รอบ ก.ย. 2569: ใช้ "ยอดพร้อมส่งจริง" ณ วันเริ่ม/วันปิดรอบจ่าย (ชุดเดียวกับหน้าสต็อกสินค้า/จัดลัง)
+       ไม่มีติดลบ และรวมยอดปรับสต็อกด้วยมือแล้ว
+     • รอบก่อนหน้า: คงสูตรเดิม (คืนงานดีสะสม − ส่งออกสะสม) ไม่แตะของอดีต
+       สูตรเดิมพาความคลาดเคลื่อนของข้อมูลช่วงแรกติดมาด้วย เช่นป้ายชมพูติดลบ −2,868 ป้ายขาว 2,794 ทั้งที่ของจริงเป็น 0
+       และรอบ ก.ย. ออกมาติดลบ −5,804 บาท */
+  const readyBasis = m >= RESERVE_READY_STOCK_FROM;
+  const openStock = readyBasis ? computeStockStatus(cycle.start) : null;
+  const closeStock = readyBasis ? computeStockStatus(cycleEndExclusive) : null;
+
   const products = rows.map((p: any) => {
     const wage = p.wage || 0;
-    const fg_open = p.ret_good_bef - p.ship_good_bef;         // สต๊อกงานดี ต้นรอบจ่าย (คืน−ส่ง สะสม ณ เส้นตัดยอด)
-    const fg_close = p.ret_good_upto - p.ship_good_upto;      // สต๊อกงานดี ปลายรอบจ่าย
+    const fg_open = openStock ? openStock(p.id).ready : p.ret_good_bef - p.ship_good_bef;    // สต๊อกงานดี ต้นรอบจ่าย
+    const fg_close = closeStock ? closeStock(p.id).ready : p.ret_good_upto - p.ship_good_upto; // สต๊อกงานดี ปลายรอบจ่าย
     const dFG = (p.ret_good_cal - p.ship_good_cal);            // ใช้ตัวเลขปฏิทินล้วนๆ ให้สมการกระทบยอดตรงกับยอดวางบิลเป๊ะ (ไม่ผูกกับเส้นตัดยอด)
     const wage_billed = p.ship_good_cal * wage;               // A
     const wage_dFG = dFG * wage;                               // ΔFG
@@ -1192,6 +1211,7 @@ function buildWageReconcile(m: string) {
       wage_payroll_net,                       // ค่าแรงสุทธิที่ต้องจ่ายสมาชิกรอบนี้ — ตรงกับหน้า "สรุปรายเดือน" เป๊ะ
       reserve_open: sum('reserve_open'),      // เงินกันยกมา
       reserve_close: sum('reserve_close'),    // เงินกันยกไป (ต้องถือข้ามเดือน)
+      reserve_basis: readyBasis ? 'ready_stock' : 'legacy',   // ให้หน้าเว็บบอกได้ว่ารอบนี้คิดเงินกันจากอะไร
       outstanding_wage: outstandingWageValue(),  // ค่าแรงประมาณการ ถ้างานที่เบิกไปสมาชิกแล้วคืนครบทั้งหมด
     },
   };
