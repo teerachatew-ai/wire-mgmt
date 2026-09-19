@@ -138,7 +138,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto pb-24 md:pb-0">
+        {/* id นี้ใช้ล็อกการเลื่อนตอนเปิดกล่อง pop-up (ดู utils/useScrollLock) — ตัวที่เลื่อนหน้าคือ main ไม่ใช่ window */}
+        <main id="app-scroll" className="flex-1 overflow-y-auto pb-24 md:pb-0">
           {children}
         </main>
 

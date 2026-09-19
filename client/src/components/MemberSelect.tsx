@@ -33,6 +33,13 @@ export default function MemberSelect({ members, value, onChange, placeholder = '
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // โฟกัสช่องค้นหาตอนเปิด แบบไม่เลื่อนหน้า (preventScroll) — autoFocus ปกติทำให้ Safari เลื่อนหน้าข้างหลัง
+  // ไปหาช่องนี้เอง (เจอตอนกด "บันทึก & คนต่อไป" แล้วหน้าเด้ง)
+  useEffect(() => {
+    if (open) inputRef.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // เปิด dropdown เองเมื่อ autoOpenKey เปลี่ยน (ข้ามรอบแรกตอน mount)
   const firstOpenKey = useRef(autoOpenKey);
@@ -119,7 +126,7 @@ export default function MemberSelect({ members, value, onChange, placeholder = '
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
-                autoFocus
+                ref={inputRef}
                 className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder={placeholder}
                 value={query}

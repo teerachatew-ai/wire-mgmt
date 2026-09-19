@@ -14,6 +14,7 @@ import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 import { useDebounced } from '../utils/useDebounced';
 import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
+import { useScrollLock } from '../utils/useScrollLock';
 
 function openPrint(url: string) {
   window.open(url, '_blank', 'width=900,height=700,scrollbars=yes');
@@ -47,9 +48,13 @@ const statusLabel: Record<string, string> = { pending: 'ค้างส่ง', 
 const statusClass: Record<string, string> = { pending: 'badge-pending', partial: 'badge-partial', closed: 'badge-closed' };
 
 function Modal({ title, onClose, children, wide }: any) {
+  // ล็อกหน้าข้างหลังไม่ให้เลื่อนระหว่างเปิดกล่อง + คืนตำแหน่งเดิมตอนปิด (เดิมปิดแล้วชอบเด้งไปล่างสุด โดยเฉพาะบน Mac)
+  useScrollLock();
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto`}>
+      {/* overscrollBehavior: contain — เลื่อนในกล่องจนสุดแล้ว ไม่ให้แรงเหวี่ยงไหลต่อไปเลื่อนหน้าข้างหลัง */}
+      <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto`}
+        style={{ overscrollBehavior: 'contain' }}>
         <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-2xl">
           <h3 className="font-semibold text-gray-800 text-base">{title}</h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X size={20} className="text-gray-400" /></button>
@@ -920,7 +925,8 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
     .filter((i: any) => remainOf(i) > 0.0001)
     .sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th')), [row.items]);
 
-  const [returnedAt, setReturnedAt] = useState(row.date);
+  // วันที่คืน = วันที่ทำรายการรับคืน (วันนี้ตามเวลาเครื่อง) ไม่ใช่วันที่เบิก — แก้เองได้ถ้ารับคืนย้อนหลัง
+  const [returnedAt, setReturnedAt] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));
   const [lines, setLines] = useState<Record<number, any>>(() => Object.fromEntries(
     outstanding.map((i: any) => [i.id, { good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }])
   ));
@@ -1053,6 +1059,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
 
 /* ── Delete Issue Dialog ── */
 function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
+  useScrollLock();
   const [step, setStep] = useState<'confirm' | 'loading' | 'error' | 'siblings'>('confirm');
   const [msg, setMsg] = useState('');
   const [needForce, setNeedForce] = useState(false);
