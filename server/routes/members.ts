@@ -76,9 +76,19 @@ router.delete('/:id', (req, res) => {
 
   const { force } = req.query;
   if (force === '1') {
-    // Hard delete (มีประวัติในระบบแต่ยืนยันลบ)
+    /* Hard delete (มีประวัติในระบบแต่ยืนยันลบ) — ต้องลบใบเบิก/รับคืน/คำขอของคนนั้นไปด้วย
+       เดิมลบแค่แถวสมาชิก ใบเบิกเลยกลายเป็น "ใบผี" ที่ไม่โผล่ในตารางไหนเลย (ทุกหน้า JOIN members)
+       แต่ยังถูกนับในยอดสต็อกทุกที่ (คิวรีสต็อกอ่านตาราง issues ตรงๆ ไม่ JOIN) ทำให้ยอดเพี้ยนแบบหาสาเหตุไม่เจอ */
+    const ids = (prepare(`SELECT id FROM issues WHERE member_id = ?`).all(req.params.id) as any[]).map(r => r.id);
+    if (ids.length > 0) {
+      const list = ids.join(',');
+      prepare(`DELETE FROM return_requests WHERE issue_id IN (${list})`).run();
+      prepare(`DELETE FROM returns WHERE issue_id IN (${list})`).run();
+      prepare(`DELETE FROM issues WHERE id IN (${list})`).run();
+    }
+    prepare(`DELETE FROM issue_requests WHERE member_id = ?`).run(req.params.id);
     prepare(`DELETE FROM members WHERE id = ?`).run(req.params.id);
-    res.json({ deleted: true, name: member.name });
+    res.json({ deleted: true, name: member.name, deleted_issues: ids.length });
   } else {
     // ตรวจว่ามีประวัติงานเลยไหม
     const hasHistory = prepare(`SELECT COUNT(*) as cnt FROM issues WHERE member_id = ?`).get(req.params.id) as any;

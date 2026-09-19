@@ -39,16 +39,35 @@ router.get('/', (req, res) => {
   `).all() as any[];
   const varOf = new Map(varRows.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
 
+  /* กันยอดรับจริง "ต่ำกว่าที่แจกออกไปจริง" — เป็นไปไม่ได้ทางกายภาพ
+     เคสจริงที่เจอ: ล็อต 15 ก.ย. ป้ายขาวสั้น ใบส่ง 6,000 · นับตอนแจกได้ 5,990 · วรรณาเจอเพิ่ม 3 ·
+     ชนาภาเจอเศษอีก 2 → ของจริงในลัง 5,995 แต่สูตรได้ 5,990 เพราะตอนบันทึกเศษ 2 เส้นเผลอพิมพ์ 5 ก่อน
+     แล้วแก้เป็น 2 ระบบเลยนับ −3 เป็น "ของขาด" ทั้งที่เป็นแค่แก้คำผิด
+     ใช้ยอดที่แจกออกจากล็อตนั้นจริงเป็นขั้นต่ำ ตัวเลขพิมพ์ผิดแบบนี้จึงถูกกลบไปเอง
+     (ล็อตที่ยังแจกไม่หมด ยอดแจก < ยอดรับ อยู่แล้ว ค่าเดิมไม่เปลี่ยน) */
+  const issuedRows = prepare(`
+    SELECT product_id, lot_date, SUM(quantity) as v
+    FROM issues WHERE lot_date IS NOT NULL GROUP BY product_id, lot_date
+  `).all() as any[];
+  const issuedOf = new Map(issuedRows.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
+
   // ล็อตหนึ่ง (สินค้า+วันที่) อาจมีใบรับหลายใบ เช่นรอบที่ 1 / รอบที่ 2 ของวันเดียวกัน
   // ลงส่วนต่างของทั้งล็อตไว้ที่ใบล่าสุดใบเดียว เวลารวมทั้งคอลัมน์จะได้ไม่นับซ้ำ
   const lastIdOf = new Map<string, number>();
+  const nominalOf = new Map<string, number>();
   for (const r of rows) {
     const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
     if (!lastIdOf.has(k) || r.id > lastIdOf.get(k)!) lastIdOf.set(k, r.id);
+    nominalOf.set(k, (nominalOf.get(k) || 0) + (Number(r.quantity) || 0));
   }
   res.json(rows.map(r => {
     const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
-    const variance_qty = lastIdOf.get(k) === r.id ? (varOf.get(k) || 0) : 0;
+    let variance_qty = 0;
+    if (lastIdOf.get(k) === r.id) {
+      const nominal = nominalOf.get(k) || 0;
+      const actualLot = Math.max(nominal + (varOf.get(k) || 0), issuedOf.get(k) || 0);
+      variance_qty = actualLot - nominal;
+    }
     return { ...r, variance_qty, actual_qty: (Number(r.quantity) || 0) + variance_qty };
   }));
 });
