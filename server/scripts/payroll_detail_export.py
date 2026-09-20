@@ -547,7 +547,9 @@ def write_member_sheet(m, label=None):
     # งานพวกนั้นจะไปโผล่ในใบเสร็จของเดือนถัดไปเองอยู่แล้ว
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
-    ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
+    # ข้อความยืนยันชิดขวา แต่หยุดก่อนคอลัมน์สุดท้าย 1 ช่อง — เลื่อนทั้งบรรทัดมาทางซ้าย
+    # ให้คำว่า "ข้าพเจ้า" เริ่มราวๆ กึ่งกลางหน้ากระดาษ (เดิมเริ่มเลยกึ่งกลางไปทางขวา)
+    ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
     cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(F_CONFIRM), italic=True, color="111827"), align=RW)
     ws.row_dimensions[row].height = RH(H_CONFIRM)
     row += 1
