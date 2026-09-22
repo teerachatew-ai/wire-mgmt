@@ -4,7 +4,7 @@ import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api
 import { projectLabel, parseProductLabel } from '../projectLabel';
 import { sortByColorGroup, colorPriority } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
-import { ClipboardList, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck, Wrench } from 'lucide-react';
+import { ClipboardList, ClipboardCheck, Check, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck, Wrench } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 /* บัตรสต็อกสินค้า — ไล่วันที่ลงมา เห็นของเข้า ของออก และยอดคงเหลือในตารางเดียว
@@ -46,69 +46,86 @@ const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n
    ตัวเลขมาจาก server (computeStockStatus) ชุดเดียวกับหน้าจัดลังส่งงาน · รวมทุกแถว = รับเข้าทั้งหมด − ส่งออกทั้งหมด */
 const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: string; optional?: boolean }[] = [
   { key: 'with_members', label: 'รอรับกลับจากสมาชิก', zh: '代加工完', hint: 'เบิกไปแล้ว ยังคืนไม่ครบ', cls: 'text-amber-700' },
-  { key: 'in_warehouse', label: 'รอแจกจ่ายสมาชิก', zh: '待领料', hint: `รับเข้าแล้ว ยังไม่ได้เบิก (นับตั้งแต่ ${dateTH(STOCK_CUTOFF)})`, cls: 'text-violet-700' },
+  { key: 'in_warehouse', label: 'รอแจกจ่ายสมาชิก', zh: '待领料', hint: `รับเข้าแล้ว ยังไม่ได้เบิก (นับตั้งแต่ ${dateTH(STOCK_CUTOFF)}) · แก้ได้ด้วยปุ่ม "นับของหน้างาน"`, cls: 'text-violet-700' },
   { key: 'ret_waste', label: 'เศษ', zh: '零数', hint: 'บันทึกตอนรับคืน', cls: 'text-gray-600' },
   { key: 'ret_lost', label: 'หาย', zh: '', hint: 'บันทึกตอนรับคืน', cls: 'text-rose-600', optional: true },
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 
-/* ช่อง "รอแจกจ่ายสมาชิก" ที่กดนับของได้ — คลิกตัวเลข พิมพ์ยอดที่นับได้จริงหน้างาน แล้ว Enter
-   ระบบจะไปแก้ "ยอดรับจริง" ของล็อตให้เอง (ล็อตเก่าที่ปิดไม่ลงก่อน) แล้วทุกหน้าจะตรงกันทันที
-   — ไม่ต้องไปไล่หาเองว่าล็อตไหนขาดเท่าไหร่ และไม่ต้องใช้หน้าปรับยอดสต็อก */
-function WaitingCell({ product, value, children }: { product: any; value: number; children: React.ReactNode }) {
-  const qc = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState('');
-  const mut = useMutation({
-    mutationFn: (qty: number) => receiveApi.countWaiting(product.id, qty),
-    onSuccess: (res: any) => {
-      for (const k of ['receives', 'stock-flow', 'reports', 'issues', 'dashboard']) qc.invalidateQueries({ queryKey: [k] });
-      const lines = (res.changed || []).map((c: any) =>
-        `• ล็อต ${c.lot_date}: ${fmt(c.from)} → ${fmt(c.to)} (${c.delta > 0 ? '+' : ''}${fmt(c.delta)})`).join('\n');
-      alert(`รอแจกจ่าย ${fmt(res.before)} → ${fmt(res.after)}\n${lines || 'ตรงกับยอดที่นับได้อยู่แล้ว ไม่มีอะไรต้องแก้'}`);
-    },
-    onError: (e: any) => alert(e?.response?.data?.error || 'บันทึกยอดที่นับได้ไม่สำเร็จ'),
-  });
-  if (editing) {
-    return (
-      <input autoFocus type="number" inputMode="numeric" value={val} placeholder={String(value)}
-        className="input w-24 text-right py-0.5 px-1.5 text-sm"
-        onChange={e => setVal(e.target.value)}
-        onBlur={() => setEditing(false)}
-        onKeyDown={e => {
-          if (e.key === 'Escape') { setEditing(false); return; }
-          if (e.key !== 'Enter') return;
-          const q = Number(val.trim());
-          if (val.trim() !== '' && isFinite(q) && q >= 0 && q !== value) mut.mutate(q);
-          setEditing(false);
-        }} />
-    );
-  }
-  return (
-    <button type="button" disabled={mut.isPending} onClick={() => { setVal(''); setEditing(true); }}
-      className="hover:bg-violet-50 rounded px-1 -mx-1"
-      title={`คลิกเพื่อกรอกยอดที่นับได้จริงหน้างาน — ระบบจะปรับยอดรับจริงของล็อตให้ตรงกันเอง (ตอนนี้ระบบคิดว่ามี ${fmt(value)})`}>
-      {children}
-    </button>
-  );
-}
-
 /* กล่อง "สถานะงาน ณ วันนี้" ใต้ตารางของแต่ละกลุ่ม — ตอบคำถาม "ของที่ยังไม่ได้ส่งโรงงาน ตอนนี้อยู่ตรงไหนบ้าง"
    ไม่ขึ้นกับช่วงวันที่ที่เลือกด้านบน (เป็นยอด ณ วันนี้เสมอ) */
 function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, any> }) {
+  const qc = useQueryClient();
+  // โหมดนับของ: กดปุ่มทีเดียว ช่อง "รอแจกจ่ายสมาชิก" ของทุกชนิดในกลุ่มนี้กลายเป็นช่องกรอก
+  // กรอกเฉพาะตัวที่นับแล้วไม่ตรง แล้วกดบันทึกครั้งเดียวจบ (ระบบไปไล่แก้ยอดรับจริงของล็อตให้เอง)
+  const [counting, setCounting] = useState(false);
+  const [draft, setDraft] = useState<Record<number, string>>({});
+  const saveMut = useMutation({
+    mutationFn: async (entries: { id: number; qty: number }[]) => {
+      const out: any[] = [];
+      for (const e of entries) out.push({ id: e.id, res: await receiveApi.countWaiting(e.id, e.qty) });
+      return out;
+    },
+    onSuccess: (list: any[]) => {
+      for (const k of ['receives', 'stock-flow', 'reports', 'issues', 'dashboard']) qc.invalidateQueries({ queryKey: [k] });
+      setCounting(false); setDraft({});
+      const lines = list.map(({ id, res }) => {
+        const name = String(items.find(p => p.id === id)?.name || id);
+        const lots = (res.changed || []).map((c: any) => `ล็อต ${c.lot_date} ${c.delta > 0 ? '+' : ''}${fmt(c.delta)}`).join(', ');
+        return `• ${parseProductLabel(name).num}: ${fmt(res.before)} -> ${fmt(res.after)}${lots ? ` (${lots})` : ''}`;
+      }).join('\n');
+      alert(`ปรับยอดรอแจกจ่ายให้ตรงกับที่นับได้แล้ว\n${lines}`);
+    },
+    onError: (e: any) => alert(e?.response?.data?.error || 'บันทึกยอดที่นับได้ไม่สำเร็จ'),
+  });
+
   if (!items.some(p => statusOf.has(p.id))) return null;
   const val = (p: any, key: string) => Number(statusOf.get(p.id)?.[key]) || 0;
   const rows = STATUS_ROWS.filter(r => !r.optional || items.some(p => val(p, r.key) > 0));
+
+  const saveCount = () => {
+    const entries = items
+      .filter(p => statusOf.has(p.id))
+      .map(p => ({ id: p.id, raw: (draft[p.id] ?? '').trim(), current: val(p, 'in_warehouse') }))
+      .filter(e => e.raw !== '' && isFinite(Number(e.raw)) && Number(e.raw) >= 0 && Number(e.raw) !== e.current)
+      .map(e => ({ id: e.id, qty: Number(e.raw) }));
+    if (entries.length === 0) { setCounting(false); setDraft({}); return; }
+    saveMut.mutate(entries);
+  };
+
   return (
     <div className="border-t-4 border-double border-gray-200 bg-slate-50/60">
-      <div className="px-4 pt-2.5 pb-1 flex flex-wrap items-baseline gap-x-2">
+      <div className="px-4 pt-2.5 pb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-sm font-semibold text-slate-800">สถานะงาน ณ วันนี้</span>
         <span className="text-xs text-gray-400">{dateTH(isoOf(new Date()))} · นับรวมทุกวัน ไม่ขึ้นกับช่วงวันที่ด้านบน</span>
-        <Link to="/stock-adjustments" className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
-          title="ยอดในระบบไม่ตรงกับของจริงหน้างาน? ปรับยอดได้ที่นี่">
-          <Wrench size={12} /> ปรับยอดสต็อก
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          {counting ? (
+            <>
+              <button type="button" className="btn-primary btn-sm flex items-center gap-1" disabled={saveMut.isPending} onClick={saveCount}>
+                <Check size={13} /> {saveMut.isPending ? 'กำลังบันทึก...' : 'บันทึกยอดที่นับได้'}
+              </button>
+              <button type="button" className="text-xs text-gray-500 hover:underline"
+                onClick={() => { setCounting(false); setDraft({}); }}>ยกเลิก</button>
+            </>
+          ) : (
+            <button type="button" className="btn-secondary btn-sm flex items-center gap-1"
+              title="นับของที่ยังไม่ได้แจกหน้างาน แล้วกรอกยอดที่นับได้ — ระบบจะไปแก้ยอดรับจริงของล็อตให้ตรงกันเอง ทุกหน้าอัปเดตตาม"
+              onClick={() => { setCounting(true); setDraft({}); }}>
+              <ClipboardCheck size={13} /> นับของหน้างาน
+            </button>
+          )}
+          <Link to="/stock-adjustments" className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+            title="ยอดในระบบไม่ตรงกับของจริงหน้างาน? ปรับยอดได้ที่นี่">
+            <Wrench size={12} /> ปรับยอดสต็อก
+          </Link>
+        </div>
       </div>
+      {counting && (
+        <div className="px-4 pb-1.5 text-xs text-violet-700">
+          กรอกยอดที่ <b>นับได้จริงหน้างาน</b> ในแถว "รอแจกจ่ายสมาชิก" เฉพาะชนิดที่ไม่ตรง แล้วกด "บันทึกยอดที่นับได้"
+          — ระบบจะไล่แก้ยอดรับจริงของล็อต (ตัดล็อตเก่าที่ปิดไม่ลงก่อน) ให้ทุกหน้าตรงกันเอง
+        </div>
+      )}
       <div className="overflow-x-auto">
         {/* ไม่ยืดเต็มกว้าง — ให้ตัวเลขอยู่ชิดชื่อแถว อ่านแนวนอนได้ทันทีแบบแถวสรุปในไฟล์ Excel */}
         <table className="text-sm tabular-nums">
@@ -144,11 +161,11 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                   return (
                     <td key={p.id} className="px-3 py-1.5 text-right align-top"
                       title={raw < 0 ? `คำนวณได้ ${fmt(raw)} — ${r.key === 'in_warehouse' ? 'บันทึกเบิกเกินกว่ารับเข้า' : 'ยอดบันทึกไม่สมดุล'} แสดงเป็น 0` : undefined}>
-                      {r.key === 'in_warehouse'
-                        ? <WaitingCell product={p} value={v}>
-                            {v ? <span className={`font-semibold ${r.cls} underline decoration-dotted decoration-violet-300 underline-offset-2`}>{fmt(v)}</span>
-                               : <span className="text-gray-300 underline decoration-dotted underline-offset-2">–</span>}
-                          </WaitingCell>
+                      {r.key === 'in_warehouse' && counting
+                        ? <input type="number" inputMode="numeric" className="input w-24 text-right py-0.5 px-1.5 text-sm"
+                            placeholder={String(v)} value={draft[p.id] ?? ''}
+                            onChange={e => setDraft(d => ({ ...d, [p.id]: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCount(); }} />
                         : (v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
                       {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
                       {r.key === 'stock_ready' && v > 0 && upb > 0 && (
