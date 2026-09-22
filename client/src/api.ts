@@ -34,6 +34,9 @@ export const receiveApi = {
   // ยอดที่นับได้จริงตอนของลงจากรถ (null = ล้างค่า กลับไปใช้ยอดที่คำนวณจากที่สมาชิกแจ้ง)
   setCounted: (id: number, counted_qty: number | null, note?: string) =>
     api.patch(`/receives/${id}/counted`, { counted_qty, note }).then(r => r.data),
+  // นับของที่ยังไม่ได้แจกหน้างานแล้วกรอกยอดที่นับได้ — ระบบไล่แก้ยอดรับจริงของล็อตให้เอง
+  countWaiting: (product_id: number, counted_qty: number, note?: string) =>
+    api.post('/receives/count-waiting', { product_id, counted_qty, note }).then(r => r.data),
   // ล็อตรับเข้าของสินค้าหนึ่ง แยกตามวันที่ พร้อมยอดคงเหลือที่ยังไม่ได้แจก (ใช้ตอนเลือกล็อตในหน้าเบิกงาน)
   lots: (productId?: number) => api.get('/receives/lots', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
 };

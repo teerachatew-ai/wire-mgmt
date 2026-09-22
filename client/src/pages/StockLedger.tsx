@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api';
 import { projectLabel, parseProductLabel } from '../projectLabel';
 import { sortByColorGroup, colorPriority } from '../productOrder';
@@ -52,6 +52,47 @@ const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: 
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 
+/* ช่อง "รอแจกจ่ายสมาชิก" ที่กดนับของได้ — คลิกตัวเลข พิมพ์ยอดที่นับได้จริงหน้างาน แล้ว Enter
+   ระบบจะไปแก้ "ยอดรับจริง" ของล็อตให้เอง (ล็อตเก่าที่ปิดไม่ลงก่อน) แล้วทุกหน้าจะตรงกันทันที
+   — ไม่ต้องไปไล่หาเองว่าล็อตไหนขาดเท่าไหร่ และไม่ต้องใช้หน้าปรับยอดสต็อก */
+function WaitingCell({ product, value, children }: { product: any; value: number; children: React.ReactNode }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  const mut = useMutation({
+    mutationFn: (qty: number) => receiveApi.countWaiting(product.id, qty),
+    onSuccess: (res: any) => {
+      for (const k of ['receives', 'stock-flow', 'reports', 'issues', 'dashboard']) qc.invalidateQueries({ queryKey: [k] });
+      const lines = (res.changed || []).map((c: any) =>
+        `• ล็อต ${c.lot_date}: ${fmt(c.from)} → ${fmt(c.to)} (${c.delta > 0 ? '+' : ''}${fmt(c.delta)})`).join('\n');
+      alert(`รอแจกจ่าย ${fmt(res.before)} → ${fmt(res.after)}\n${lines || 'ตรงกับยอดที่นับได้อยู่แล้ว ไม่มีอะไรต้องแก้'}`);
+    },
+    onError: (e: any) => alert(e?.response?.data?.error || 'บันทึกยอดที่นับได้ไม่สำเร็จ'),
+  });
+  if (editing) {
+    return (
+      <input autoFocus type="number" inputMode="numeric" value={val} placeholder={String(value)}
+        className="input w-24 text-right py-0.5 px-1.5 text-sm"
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setEditing(false); return; }
+          if (e.key !== 'Enter') return;
+          const q = Number(val.trim());
+          if (val.trim() !== '' && isFinite(q) && q >= 0 && q !== value) mut.mutate(q);
+          setEditing(false);
+        }} />
+    );
+  }
+  return (
+    <button type="button" disabled={mut.isPending} onClick={() => { setVal(''); setEditing(true); }}
+      className="hover:bg-violet-50 rounded px-1 -mx-1"
+      title={`คลิกเพื่อกรอกยอดที่นับได้จริงหน้างาน — ระบบจะปรับยอดรับจริงของล็อตให้ตรงกันเอง (ตอนนี้ระบบคิดว่ามี ${fmt(value)})`}>
+      {children}
+    </button>
+  );
+}
+
 /* กล่อง "สถานะงาน ณ วันนี้" ใต้ตารางของแต่ละกลุ่ม — ตอบคำถาม "ของที่ยังไม่ได้ส่งโรงงาน ตอนนี้อยู่ตรงไหนบ้าง"
    ไม่ขึ้นกับช่วงวันที่ที่เลือกด้านบน (เป็นยอด ณ วันนี้เสมอ) */
 function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, any> }) {
@@ -103,7 +144,12 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                   return (
                     <td key={p.id} className="px-3 py-1.5 text-right align-top"
                       title={raw < 0 ? `คำนวณได้ ${fmt(raw)} — ${r.key === 'in_warehouse' ? 'บันทึกเบิกเกินกว่ารับเข้า' : 'ยอดบันทึกไม่สมดุล'} แสดงเป็น 0` : undefined}>
-                      {v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>}
+                      {r.key === 'in_warehouse'
+                        ? <WaitingCell product={p} value={v}>
+                            {v ? <span className={`font-semibold ${r.cls} underline decoration-dotted decoration-violet-300 underline-offset-2`}>{fmt(v)}</span>
+                               : <span className="text-gray-300 underline decoration-dotted underline-offset-2">–</span>}
+                          </WaitingCell>
+                        : (v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
                       {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
                       {r.key === 'stock_ready' && v > 0 && upb > 0 && (
                         <div className="text-[10px] text-gray-400 whitespace-nowrap">

@@ -18,8 +18,10 @@ process.on('SIGINT', shutdown);
 app.use(cors());
 // เก็บ raw body ไว้ใน req.rawBody ด้วย (นอกจาก req.body ที่ parse แล้ว) — ต้องใช้ตรวจลายเซ็น
 // webhook ของ LINE (x-line-signature คำนวณจาก raw bytes ก่อนแปลงเป็น JSON เท่านั้น)
-app.use(express.json({ verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
-app.use(express.urlencoded({ extended: true }));
+// limit 30mb — ปุ่ม "Export Excel" ส่งข้อมูลทั้งตารางบนจอมาให้ server สร้างไฟล์ (ตารางใบเบิกมีหลายพันแถว)
+// ค่า default ของ express คือ 100kb ซึ่งไม่พอ จะเด้ง 413 ตั้งแต่ยังไม่ถึง route
+app.use(express.json({ limit: '30mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
+app.use(express.urlencoded({ limit: '30mb', extended: true }));
 
 // ── endpoint สำหรับ "ปลุกเครื่องไม่ให้หลับ" ────────────────────────────────
 // Render แพลนฟรีจะหลับเมื่อไม่มีคนเข้า 15 นาที แล้วครั้งถัดไปที่เปิดเว็บต้องรอตื่น 30-50 วินาที
@@ -80,6 +82,7 @@ function bootDb(attempt = 1): void {
   const issueRequestsRouter = require('./routes/issueRequests').default;
   const lineRouter = require('./routes/line').default;
   const stockAdjustmentsRouter = require('./routes/stockAdjustments').default;
+  const exportRouter = require('./routes/export').default;
 
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
@@ -98,6 +101,7 @@ function bootDb(attempt = 1): void {
   app.use('/api/issue-requests', issueRequestsRouter);
   app.use('/api/line', lineRouter);
   app.use('/api/stock-adjustments', stockAdjustmentsRouter);
+  app.use('/api/export', exportRouter);
 
   const clientDist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(clientDist)) {
