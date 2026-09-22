@@ -31,6 +31,9 @@ export const receiveApi = {
   create: (data: any) => api.post('/receives', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/receives/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/receives/${id}`).then(r => r.data),
+  // ยอดที่นับได้จริงตอนของลงจากรถ (null = ล้างค่า กลับไปใช้ยอดที่คำนวณจากที่สมาชิกแจ้ง)
+  setCounted: (id: number, counted_qty: number | null, note?: string) =>
+    api.patch(`/receives/${id}/counted`, { counted_qty, note }).then(r => r.data),
   // ล็อตรับเข้าของสินค้าหนึ่ง แยกตามวันที่ พร้อมยอดคงเหลือที่ยังไม่ได้แจก (ใช้ตอนเลือกล็อตในหน้าเบิกงาน)
   lots: (productId?: number) => api.get('/receives/lots', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
 };

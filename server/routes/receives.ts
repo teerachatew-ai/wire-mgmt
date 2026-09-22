@@ -3,6 +3,7 @@ import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
 import { deliveryCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
+import { lotVariances, lotKey } from '../receivedActual';
 
 const router = Router();
 
@@ -29,46 +30,31 @@ router.get('/', (req, res) => {
   sql += ` ORDER BY r.received_at DESC, r.id DESC`;
   const rows = prepare(sql).all(...params) as any[];
 
-  /* จำนวนรับจริง = ยอดตามใบส่งของ + ส่วนต่างที่พบตอนแจกงาน
-     ส่วนต่างมาเองจากการแก้ยอดใบเบิก (สมาชิกนับของในมัดแล้วมาแจ้งว่าขาด/เกิน เจ้าหน้าที่แก้ยอดเบิก)
-     — เทียบ quantity ปัจจุบันกับ orig_quantity ที่บันทึกไว้ตอนแจกครั้งแรก แล้วผูกกลับมาที่ล็อตผ่าน lot_date
-     ไม่ต้องกรอกยอดรับจริงเองเลย */
-  const varRows = prepare(`
-    SELECT product_id, lot_date, SUM(quantity - COALESCE(orig_quantity, quantity)) as v
-    FROM issues WHERE lot_date IS NOT NULL GROUP BY product_id, lot_date
-  `).all() as any[];
-  const varOf = new Map(varRows.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
-
-  /* กันยอดรับจริง "ต่ำกว่าที่แจกออกไปจริง" — เป็นไปไม่ได้ทางกายภาพ
-     เคสจริงที่เจอ: ล็อต 15 ก.ย. ป้ายขาวสั้น ใบส่ง 6,000 · นับตอนแจกได้ 5,990 · วรรณาเจอเพิ่ม 3 ·
-     ชนาภาเจอเศษอีก 2 → ของจริงในลัง 5,995 แต่สูตรได้ 5,990 เพราะตอนบันทึกเศษ 2 เส้นเผลอพิมพ์ 5 ก่อน
-     แล้วแก้เป็น 2 ระบบเลยนับ −3 เป็น "ของขาด" ทั้งที่เป็นแค่แก้คำผิด
-     ใช้ยอดที่แจกออกจากล็อตนั้นจริงเป็นขั้นต่ำ ตัวเลขพิมพ์ผิดแบบนี้จึงถูกกลบไปเอง
-     (ล็อตที่ยังแจกไม่หมด ยอดแจก < ยอดรับ อยู่แล้ว ค่าเดิมไม่เปลี่ยน) */
-  const issuedRows = prepare(`
-    SELECT product_id, lot_date, SUM(quantity) as v
-    FROM issues WHERE lot_date IS NOT NULL GROUP BY product_id, lot_date
-  `).all() as any[];
-  const issuedOf = new Map(issuedRows.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
-
-  // ล็อตหนึ่ง (สินค้า+วันที่) อาจมีใบรับหลายใบ เช่นรอบที่ 1 / รอบที่ 2 ของวันเดียวกัน
-  // ลงส่วนต่างของทั้งล็อตไว้ที่ใบล่าสุดใบเดียว เวลารวมทั้งคอลัมน์จะได้ไม่นับซ้ำ
+  /* จำนวนรับจริง — ดูคำอธิบายเต็มที่ server/receivedActual.ts
+     ล็อตหนึ่ง (สินค้า + วันที่รับ) อาจมีใบรับหลายใบ เช่นรอบเช้า/รอบบ่ายของวันเดียวกัน
+     ส่วนต่างที่มาจาก "สมาชิกแจ้งทีหลัง" เป็นของทั้งล็อต ลงไว้ที่ใบล่าสุดใบเดียว เวลารวมคอลัมน์จะได้ไม่นับซ้ำ
+     ส่วนยอดที่นับเองตอนรับของ (actual_qty) ผูกกับใบนั้นๆ ตรงๆ อยู่แล้ว */
+  const variances = lotVariances();
   const lastIdOf = new Map<string, number>();
-  const nominalOf = new Map<string, number>();
+  const countedOf = new Map<string, number>();   // ผลรวมส่วนต่างที่มาจากการนับเองของทุกใบในล็อต
   for (const r of rows) {
-    const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
+    const k = lotKey(r.product_id, r.received_at);
     if (!lastIdOf.has(k) || r.id > lastIdOf.get(k)!) lastIdOf.set(k, r.id);
-    nominalOf.set(k, (nominalOf.get(k) || 0) + (Number(r.quantity) || 0));
+    if (r.actual_qty !== null && r.actual_qty !== undefined) {
+      countedOf.set(k, (countedOf.get(k) || 0) + (Number(r.actual_qty) - (Number(r.quantity) || 0)));
+    }
   }
   res.json(rows.map(r => {
-    const k = `${r.product_id}|${String(r.received_at).slice(0, 10)}`;
-    let variance_qty = 0;
-    if (lastIdOf.get(k) === r.id) {
-      const nominal = nominalOf.get(k) || 0;
-      const actualLot = Math.max(nominal + (varOf.get(k) || 0), issuedOf.get(k) || 0);
-      variance_qty = actualLot - nominal;
-    }
-    return { ...r, variance_qty, actual_qty: (Number(r.quantity) || 0) + variance_qty };
+    const k = lotKey(r.product_id, r.received_at);
+    const counted = r.actual_qty !== null && r.actual_qty !== undefined
+      ? Number(r.actual_qty) - (Number(r.quantity) || 0) : 0;
+    // ส่วนต่างของทั้งล็อต หักส่วนที่นับเองไว้แล้ว = ส่วนที่สมาชิกแจ้งทีหลัง (ลงที่ใบล่าสุดใบเดียว)
+    const reported = lastIdOf.get(k) === r.id
+      ? (variances.get(k) || 0) - (countedOf.get(k) || 0) : 0;
+    const variance_qty = counted + reported;
+    // counted_qty = ยอดที่นับเองตอนรับของ (null = ยังไม่ได้นับ)  ·  actual_qty = ยอดรับจริงที่ใช้คิดสต็อก
+    return { ...r, counted_qty: r.actual_qty ?? null, variance_qty,
+             actual_qty: (Number(r.quantity) || 0) + variance_qty };
   }));
 });
 
@@ -143,6 +129,30 @@ router.put('/:id', (req, res) => {
   prepare(`UPDATE receives SET received_at=?, product_id=?, quantity=?, factory_ref=?, notes=? WHERE id=?`)
     .run(received_at, product_id, quantity, factory_ref || null, notes || null, req.params.id);
   res.json(prepare(`SELECT r.*, p.name as product_name, p.unit FROM receives r JOIN products p ON r.product_id = p.id WHERE r.id = ?`).get(req.params.id));
+});
+
+/* กรอก "ยอดที่นับได้จริง" ของใบรับใบนี้ — ใช้ตอนนับของลงจากรถแล้วไม่ตรงใบส่งของ
+   ไม่แก้ยอดตามใบส่งของ (quantity) เก็บไว้เป็นหลักฐานคู่กับโรงงานเสมอ
+   counted_qty = null → ล้างค่าที่นับเอง กลับไปใช้ยอดที่คำนวณจากที่สมาชิกแจ้งขาด/เกินแทน */
+router.patch('/:id/counted', (req, res) => {
+  const rec = prepare(`SELECT * FROM receives WHERE id = ?`).get(req.params.id) as any;
+  if (!rec) return res.status(404).json({ error: 'ไม่พบรายการรับของ' });
+  const raw = req.body?.counted_qty;
+  const clear = raw === null || raw === undefined || raw === '';
+  const qty = clear ? null : Number(raw);
+  if (!clear && (!isFinite(qty as number) || (qty as number) < 0)) {
+    return res.status(400).json({ error: 'จำนวนที่นับได้ต้องเป็นตัวเลขไม่ติดลบ' });
+  }
+  const issuedFromLot = (prepare(`SELECT COALESCE(SUM(quantity), 0) v FROM issues WHERE product_id = ? AND lot_date = ?`)
+    .get(rec.product_id, String(rec.received_at).slice(0, 10)) as any).v || 0;
+  // เตือนไว้เฉยๆ ไม่บล็อก — ยอดรับจริงมีพื้นล่างเป็นยอดที่แจกออกไปแล้วอยู่แล้ว (ดู receivedActual.ts)
+  const warn = !clear && (qty as number) < issuedFromLot
+    ? `ยอดที่นับได้ (${qty}) น้อยกว่าที่แจกออกจากล็อตนี้ไปแล้ว (${issuedFromLot}) — ระบบจะใช้ยอดที่แจกออกเป็นขั้นต่ำ`
+    : null;
+  prepare(`UPDATE receives SET actual_qty = ?, actual_note = ?, actual_by = ?, actual_at = datetime('now') WHERE id = ?`)
+    .run(qty, clear ? null : (req.body?.note ? String(req.body.note).trim() : null), clear ? null : userOf(req), req.params.id);
+  const row = prepare(`SELECT r.*, p.name as product_name, p.unit FROM receives r JOIN products p ON r.product_id = p.id WHERE r.id = ?`).get(req.params.id);
+  res.json({ ...(row as any), warn });
 });
 
 router.delete('/:id', (req, res) => {

@@ -343,6 +343,20 @@ CREATE TABLE IF NOT EXISTS managers (
     db.exec(`ALTER TABLE shipment_items ADD COLUMN received_qty REAL`);
   }
 
+  {
+    // ยอดที่ "นับได้จริง" ตอนของลงจากรถ (NULL = ยังไม่ได้นับเอง ให้ระบบคิดจากที่สมาชิกแจ้งขาด/เกินแทน)
+    // โรงงานนับไม่ละเอียด ของในลังจึงไม่ตรงใบส่งของบ่อยๆ — เก็บสองยอดแยกกัน
+    //   quantity   = ยอดตามใบส่งของ (หลักฐานคู่กับโรงงาน ห้ามทับ)
+    //   actual_qty = ยอดที่นับได้จริง (ใช้คิดสต็อก/ยอดรอเบิกทุกหน้า)
+    const recvCols = db.exec(`PRAGMA table_info(receives)`)[0]?.values.map(r => r[1]) ?? [];
+    if (!recvCols.includes('actual_qty')) {
+      db.exec(`ALTER TABLE receives ADD COLUMN actual_qty REAL`);
+      db.exec(`ALTER TABLE receives ADD COLUMN actual_note TEXT`);
+      db.exec(`ALTER TABLE receives ADD COLUMN actual_by TEXT`);
+      db.exec(`ALTER TABLE receives ADD COLUMN actual_at TEXT`);
+    }
+  }
+
   // บันทึกว่าผู้ใช้ (admin) คนไหนเป็นคนกรอกแต่ละรายการ
   for (const t of ['receives', 'issues', 'returns', 'shipments']) {
     const cols = db.exec(`PRAGMA table_info(${t})`)[0]?.values.map(r => r[1]) ?? [];

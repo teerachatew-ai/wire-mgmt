@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
+import { varianceByProduct, lotVariances, lotKey } from '../receivedActual';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -726,10 +727,13 @@ function computeStockStatus(asOf?: string) {
     GROUP BY i.product_id`);
   // ยอดปรับสต็อกด้วยมือ (ดูหน้า "ปรับยอดสต็อก") — แก้ยอดสะสมที่คลาดเคลื่อนจากการบันทึกช่วงแรกๆ
   const adjustments = sumBy(`SELECT product_id pid, SUM(quantity) v FROM stock_adjustments GROUP BY product_id`);
+  // ของที่เข้ามาจริงอาจไม่ตรงใบส่งของ (โรงงานนับไม่ละเอียด) — บวกส่วนต่างที่นับได้/สมาชิกแจ้งเข้าไปด้วย
+  const recvVar = varianceByProduct({ before: d || undefined });
+  const recvCutVar = varianceByProduct({ from: STOCK_CUTOFF, before: d || undefined });
 
   return (pid: number) => {
-    const at_site = (received.get(pid) || 0) + (adjustments.get(pid) || 0) - (shipped.get(pid) || 0);
-    const wait_raw = (recvCut.get(pid) || 0) - (issCut.get(pid) || 0);
+    const at_site = (received.get(pid) || 0) + (recvVar.get(pid) || 0) + (adjustments.get(pid) || 0) - (shipped.get(pid) || 0);
+    const wait_raw = (recvCut.get(pid) || 0) + (recvCutVar.get(pid) || 0) - (issCut.get(pid) || 0);
     const wait_distribute = Math.max(0, wait_raw);   // ติดลบเล็กน้อย = บันทึกเบิกเกินรับเข้า ไม่ใช่ของที่มีจริง
     const with_members = withMembers.get(pid) || 0;
     const w = waste.get(pid) || 0, l = lost.get(pid) || 0;
@@ -773,7 +777,14 @@ function computeStockFlow(m: string) {
   `).all() as any[];
 
   const status = m ? null : computeStockStatus();
-  const rows = products.map(p => {
+  // ส่วนต่าง "รับจริง − ใบส่งของ" ของช่วงที่กำลังดู และของยอดยกมา (ก่อนเริ่มเดือน)
+  const flowVar = m ? varianceByProduct({ from: mRange.start, to: mRange.end }) : varianceByProduct();
+  const carryVar = m ? varianceByProduct({ before: monthStart }) : new Map<number, number>();
+  const rows = products.map(p0 => {
+    const p = { ...p0,
+      received: (p0.received || 0) + (flowVar.get(p0.id) || 0),
+      carry_recv: p0.carry_recv === undefined ? undefined : (p0.carry_recv || 0) + (carryVar.get(p0.id) || 0),
+      received_note: p0.received || 0 };
     if (m) {
       // โหมดเดือน: ยอดเคลื่อนไหว + งานคงค้างในระบบ (ยกมา/ยกไป)
       // ยอดคงเหลือ = รับเข้าสะสม − ส่งออกสะสม (เศษ/งานเสียเป็น byproduct ไม่หักจากยอดเส้น)
@@ -1740,7 +1751,10 @@ function buildStockLedger(productId: number, filters: { date?: string; from?: st
   const product = prepare(`SELECT id, name, color, unit FROM products WHERE id = ?`).get(productId) as any;
   if (!product) return null;
 
-  const recvDaily = prepare(`SELECT received_at as d, SUM(quantity) as q FROM receives WHERE product_id=? GROUP BY received_at ORDER BY received_at`).all(productId) as any[];
+  // รับเข้ารายวันใช้ "ยอดรับจริง" (ใบส่งของ + ส่วนต่างที่นับได้/สมาชิกแจ้ง) ยอดคงเหลือสะสมจะได้ตรงกับหน้าสต็อก
+  const lotVar = lotVariances();
+  const recvDaily = (prepare(`SELECT received_at as d, SUM(quantity) as q FROM receives WHERE product_id=? GROUP BY received_at ORDER BY received_at`).all(productId) as any[])
+    .map(r => ({ ...r, q: (Number(r.q) || 0) + (lotVar.get(lotKey(productId, r.d)) || 0) }));
   const issDaily = prepare(`SELECT issued_at as d, SUM(quantity) as q FROM issues WHERE product_id=? GROUP BY issued_at ORDER BY issued_at`).all(productId) as any[];
   const recvMap = Object.fromEntries(recvDaily.map((r: any) => [r.d, r.q]));
   const issMap = Object.fromEntries(issDaily.map((r: any) => [r.d, r.q]));

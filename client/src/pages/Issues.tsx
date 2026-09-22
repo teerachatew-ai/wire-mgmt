@@ -1312,7 +1312,8 @@ export default function Issues() {
     queryFn: () => receiveApi.list({ date: todayStr }),
   });
   const receiveGroups = useMemo(() => Object.values((receivesOfDay as any[]).reduce((a: any, r: any) => {
-    const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
+    // ใช้ยอด "รับจริง" (ใบส่งของ ± ของที่นับได้จริง/สมาชิกแจ้งขาด-เกิน) ให้คงเหลือรอเบิกตรงกับของจริงหน้างาน
+    const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.actual_qty ?? r.quantity) || 0; return a;
   }, {})) as any[], [receivesOfDay]);
 
   // ของที่รับเข้าจากโรงงานในช่วงที่กำลังกรองดูอยู่ (ใช้ตัวกรองเดียวกับตารางใบเบิก) — แยกจากแบนเนอร์ "วันนี้" ด้านบน
@@ -1322,7 +1323,8 @@ export default function Issues() {
     queryFn: () => receiveApi.list(dateFilter),
   });
   const receiveSummaryOfPeriod = useMemo(() => Object.values((receivesOfPeriod as any[]).reduce((a: any, r: any) => {
-    const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.quantity) || 0; return a;
+    // ใช้ยอด "รับจริง" (ใบส่งของ ± ของที่นับได้จริง/สมาชิกแจ้งขาด-เกิน) ให้คงเหลือรอเบิกตรงกับของจริงหน้างาน
+    const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.actual_qty ?? r.quantity) || 0; return a;
   }, {})) as any[], [receivesOfPeriod]);
 
   // บัตรคุมสต็อก (stock ledger) — cross check รับเข้า vs เบิก รายวันทีละสินค้า พร้อมยอดคงเหลือสะสม

@@ -12,6 +12,54 @@ import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 import { Plus, X, ArrowDownToLine, Trash2, Edit2, ScanLine, Upload, FileText, Loader2, CheckCircle, AlertTriangle } from 'lucide-react';
 
+/* ช่อง "รับจริง" ที่แก้ได้ในตาราง — คลิกตัวเลขแล้วพิมพ์ยอดที่นับได้เลย (กด Enter บันทึก / Esc ยกเลิก)
+   ถ้ายังไม่เคยนับเอง ช่องนี้จะโชว์ยอดที่ระบบคิดให้จากที่สมาชิกแจ้งขาด/เกินตอนตัดงาน
+   เคลียร์ช่องว่างแล้ว Enter = กลับไปใช้ยอดที่ระบบคิดให้เหมือนเดิม */
+function CountedCell({ row, onSave, saving }: { row: any; onSave: (qty: number | null) => void; saving: boolean }) {
+  const effective = Number(row.actual_qty ?? row.quantity) || 0;
+  const manual = row.counted_qty !== null && row.counted_qty !== undefined;
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState('');
+  if (editing) {
+    return (
+      <input
+        autoFocus type="number" inputMode="numeric" value={val}
+        className="input w-28 text-right py-1 px-2"
+        placeholder={String(effective)}
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => setEditing(false)}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setEditing(false); return; }
+          if (e.key !== 'Enter') return;
+          const t = val.trim();
+          const qty = t === '' ? null : Number(t);
+          if (t !== '' && !isFinite(qty as number)) return;
+          if ((qty ?? null) !== (manual ? Number(row.counted_qty) : null)) onSave(qty);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+  const v = Number(row.variance_qty) || 0;
+  return (
+    <button type="button" disabled={saving}
+      className="text-right leading-tight hover:bg-amber-50 rounded px-1.5 -mx-1.5 py-0.5"
+      title={manual ? `นับเองไว้ ${Number(row.counted_qty).toLocaleString()} — คลิกเพื่อแก้ (ลบให้ว่างแล้ว Enter = กลับไปใช้ยอดที่ระบบคิดให้)`
+                    : 'คลิกเพื่อกรอกยอดที่นับได้จริงตอนของลงจากรถ (โรงงานนับไม่ละเอียด ของอาจไม่ตรงใบส่งของ)'}
+      onClick={() => { setVal(manual ? String(Number(row.counted_qty)) : ''); setEditing(true); }}>
+      <span className={`font-semibold ${v ? (v < 0 ? 'text-rose-600' : 'text-emerald-600') : 'text-gray-800'}`}>
+        {effective.toLocaleString()}
+      </span>
+      {!!v && (
+        <div className="text-[11px] text-gray-400">
+          {v < 0 ? 'ขาด' : 'เกิน'} {Math.abs(v).toLocaleString()} · {manual ? 'นับเอง' : 'สมาชิกแจ้ง'}
+        </div>
+      )}
+      {!v && <div className="text-[11px] text-gray-300">คลิกเพื่อกรอกยอดนับจริง</div>}
+    </button>
+  );
+}
+
 function Modal({ title, onClose, children }: any) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -376,6 +424,16 @@ export default function Receives() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['receives'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); }
   });
 
+  // กรอกยอดที่นับได้จริงตอนของลงจากรถ — ทุกหน้าที่คิดสต็อก/ยอดรอเบิกจะใช้ยอดนี้แทนยอดใบส่งของทันที
+  const countedMut = useMutation({
+    mutationFn: ({ id, qty }: { id: number; qty: number | null }) => receiveApi.setCounted(id, qty),
+    onSuccess: (res: any) => {
+      if (res?.warn) alert(res.warn);
+      for (const k of ['receives', 'dashboard', 'stock-flow', 'reports', 'issues']) qc.invalidateQueries({ queryKey: [k] });
+    },
+    onError: (e: any) => alert(e?.response?.data?.error || 'บันทึกยอดที่นับได้ไม่สำเร็จ'),
+  });
+
   const { selected, toggle, toggleAll, clear } = useBulkSelect();
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const handleBulkDelete = async () => {
@@ -475,16 +533,9 @@ export default function Receives() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right text-gray-500">{r.quantity.toLocaleString()} {r.unit}</td>
-                {/* รับจริง — ระบบคิดให้เอง ไม่ต้องกรอก · เท่ากับใบส่งของถ้ายังไม่มีใครแจ้งว่าขาด/เกิน */}
+                {/* รับจริง — คลิกกรอกยอดที่นับได้เองตอนของลงจากรถ ถ้าไม่กรอก ระบบคิดให้จากที่สมาชิกแจ้งขาด/เกิน */}
                 <td className="px-4 py-3 text-right">
-                  <span className={`font-semibold ${r.variance_qty ? (r.variance_qty < 0 ? 'text-rose-600' : 'text-emerald-600') : 'text-gray-800'}`}>
-                    {Number(r.actual_qty ?? r.quantity).toLocaleString()}
-                  </span>
-                  {!!r.variance_qty && (
-                    <div className="text-[11px] text-gray-400" title="ส่วนต่างจากยอดที่แก้ในใบเบิกของล็อตวันนี้ (สมาชิกนับแล้วแจ้งว่าของขาด/เกิน)">
-                      {r.variance_qty < 0 ? 'ขาด' : 'เกิน'} {Math.abs(r.variance_qty).toLocaleString()}
-                    </div>
-                  )}
+                  <CountedCell row={r} onSave={(qty) => countedMut.mutate({ id: r.id, qty })} saving={countedMut.isPending} />
                 </td>
                 <td className="px-4 py-3 text-gray-500">{r.factory_ref || '-'}</td>
                 <td className="px-4 py-3 text-gray-400 text-xs">{r.notes || '-'}</td>
