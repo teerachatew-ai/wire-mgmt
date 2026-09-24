@@ -1265,6 +1265,7 @@ function PendingIssueRequestsPanel() {
     qc.invalidateQueries({ queryKey: ['issue-requests'] });
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['receive-lots'] });
   };
   const handleRowChange = (id: number, data: any) => { valuesRef.current[id] = data; };
 
@@ -1332,6 +1333,26 @@ export default function Issues() {
   });
   const { data: members = [] } = useQuery({ queryKey: ['members'], queryFn: () => memberApi.list() });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: productApi.list });
+
+  // คงเหลือรอเบิก "ณ ตอนนี้" ต่อชนิดงาน (รวมทุกล็อต + แยกล็อต) — ใช้คอลัมน์สุดท้ายของตารางเทียบรับเข้า-เบิกออก
+  // ไม่ขึ้นกับตัวกรองวันที่ · เลขเดียวกับหน้าสต็อก "รอแจกจ่ายสมาชิก" และช่องเลือกล็อตตอนสร้างใบเบิก
+  // key ขึ้นต้นด้วย 'receive-lots' — การเบิก/แก้ยอด/ลบใบเบิกที่ invalidate 'receive-lots' อยู่แล้วจะรีเฟรชให้เอง
+  const { data: allLots } = useQuery({ queryKey: ['receive-lots', 'all'], queryFn: () => receiveApi.lots() });
+  const waitingByName = useMemo(() => {
+    if (!allLots) return undefined;
+    const byId = new Map((products as any[]).map((p: any) => [p.id, p]));
+    const out: Record<string, { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string }> = {};
+    for (const l of allLots as any[]) {
+      const q = Number(l.remaining_qty) || 0;
+      if (q <= 0) continue;
+      const p: any = byId.get(l.product_id);
+      if (!p) continue;
+      const w = (out[p.name] ??= { qty: 0, lots: [], color: p.color, unit: p.unit });
+      w.qty += q;
+      w.lots.push({ date: l.lot_date, qty: q });
+    }
+    return out;
+  }, [allLots, products]);
   const { data: stockData } = useQuery({ queryKey: ['stock-flow', 'all'], queryFn: () => reportApi.stockFlow() });
   const stockMap: Record<number, number> = Object.fromEntries(((stockData?.products || []) as any[]).map((p: any) => [p.id, p.in_warehouse]));
   const { data: detail } = useQuery({
@@ -1414,6 +1435,7 @@ export default function Issues() {
     clear();
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+    qc.invalidateQueries({ queryKey: ['receive-lots'] });
     alert(bulkDeleteSummary(result));
   };
 
@@ -1516,7 +1538,7 @@ export default function Issues() {
       )}
 
       {/* เทียบรับเข้า vs เบิกออก ในตารางเดียว — อ่านทีละแถวได้เลย ไม่ต้องกวาดสายตาขึ้นลงระหว่าง 2 การ์ด */}
-      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
+      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} waiting={waitingByName} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
 
       <div className="card overflow-x-auto">
         <button type="button" className="w-full flex items-center justify-between flex-wrap gap-2 mb-0 text-left" onClick={() => setLedgerOpen(o => !o)}>
