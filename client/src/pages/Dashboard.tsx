@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { reportApi, expenseApi, memberApi, managerApi } from '../api';
 import {
   Factory, Wallet, Sparkles, Truck, ShieldCheck, Clock,
-  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText
+  AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText, Landmark
 } from 'lucide-react';
 import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 import BulkActionBar from '../components/BulkActionBar';
@@ -126,6 +126,7 @@ function HeroCard({ icon: Icon, label, value, sub, sub2, theme }: any) {
   const t: any = {
     mint:   { bg: 'from-emerald-50 to-teal-50', ring: 'ring-emerald-100', chip: 'bg-emerald-100 text-emerald-600', num: 'text-emerald-700' },
     peach:  { bg: 'from-amber-50 to-orange-50', ring: 'ring-amber-100',   chip: 'bg-amber-100 text-amber-600',     num: 'text-amber-700' },
+    sky:    { bg: 'from-sky-50 to-cyan-50',     ring: 'ring-sky-100',     chip: 'bg-sky-100 text-sky-600',         num: 'text-sky-700' },
     violet: { bg: 'from-violet-50 to-indigo-50', ring: 'ring-violet-100', chip: 'bg-violet-100 text-violet-600',   num: 'text-violet-700' },
   }[theme as string];
   return (
@@ -225,6 +226,9 @@ export default function Dashboard() {
   const margin  = revenue > 0 ? (finalNet / revenue) * 100 : 0;
   const grossMargin = revenue > 0 ? (profit / revenue) * 100 : 0;   // อัตรากำไรขั้นต้น (ก่อนหักผู้บริหาร/บริหารจัดการ)
   const taxPct  = data.withholding_tax_pct ?? 3;
+  const tax = isM ? data.tax_month : data.tax_all;
+  const grossAfterTax = profit - tax;   // กำไรขั้นต้นหลังหักภาษี ณ ที่จ่าย (ก่อนหักผู้บริหาร/ค่าใช้จ่ายบริหาร)
+  const grossAfterTaxMargin = revenue > 0 ? (grossAfterTax / revenue) * 100 : 0;
   const products = (data.products as any[]).filter(p => p.revenue_all > 0 || p.revenue_month > 0);
 
   const onSelectMonth = (m: string) => { setSelectedMonth(m); setPeriod('month'); };
@@ -273,12 +277,14 @@ export default function Dashboard() {
       </div>
 
       {/* Hero financial cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <HeroCard theme="mint"   icon={Factory} label="รายรับจาก Amphenol" value={thb2(revenue)}
           sub={isM ? `สะสม ฿${thb2(data.revenue_all)}` : `เดือนนี้ ฿${thb2(data.revenue_month)}`} />
         <HeroCard theme="peach"  icon={Wallet} label="ค่าแรงจ่ายสมาชิก" value={thb2(wage)}
           sub={isM ? `สะสม ฿${thb2(data.wage_all)}` : `เดือนนี้ ฿${thb2(data.wage_month)}`}
           sub2={data.outstanding_wage > 0 ? `(ถ้าคืนครบทั้งหมด ฿${thb2(wage + data.outstanding_wage)})` : undefined} />
+        <HeroCard theme="sky"    icon={Landmark} label="กำไรขั้นต้น (หลังหักภาษี ณ ที่จ่าย)" value={thb2(grossAfterTax)}
+          sub={`ก่อนหักผู้บริหาร/บริหารจัดการ · อัตรากำไร ${grossAfterTaxMargin.toFixed(0)}%`} />
         <HeroCard theme="violet" icon={Sparkles} label="กำไรสุทธิ" value={thb2(finalNet)}
           sub={`หลังหักทุกรายการ · อัตรากำไร ${margin.toFixed(0)}%`} />
       </div>
