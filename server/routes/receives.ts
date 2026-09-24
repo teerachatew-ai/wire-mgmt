@@ -3,7 +3,7 @@ import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
 import { deliveryCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
-import { lotVariances, lotKey } from '../receivedActual';
+import { lotVariances, lotKey, computeLots } from '../receivedActual';
 
 const router = Router();
 
@@ -35,6 +35,7 @@ router.get('/', (req, res) => {
      ส่วนต่างที่มาจาก "สมาชิกแจ้งทีหลัง" เป็นของทั้งล็อต ลงไว้ที่ใบล่าสุดใบเดียว เวลารวมคอลัมน์จะได้ไม่นับซ้ำ
      ส่วนยอดที่นับเองตอนรับของ (actual_qty) ผูกกับใบนั้นๆ ตรงๆ อยู่แล้ว */
   const variances = lotVariances();
+  const autoOf = new Map(computeLots().filter(l => l.auto).map(l => [lotKey(l.product_id, l.lot_date), l.auto]));
   const lastIdOf = new Map<string, number>();
   const countedOf = new Map<string, number>();   // ผลรวมส่วนต่างที่มาจากการนับเองของทุกใบในล็อต
   for (const r of rows) {
@@ -53,61 +54,23 @@ router.get('/', (req, res) => {
       ? (variances.get(k) || 0) - (countedOf.get(k) || 0) : 0;
     const variance_qty = counted + reported;
     // counted_qty = ยอดที่นับเองตอนรับของ (null = ยังไม่ได้นับ)  ·  actual_qty = ยอดรับจริงที่ใช้คิดสต็อก
-    return { ...r, counted_qty: r.actual_qty ?? null, variance_qty,
+    const variance_auto = lastIdOf.get(k) === r.id ? (autoOf.get(k) || 0) : 0;
+    return { ...r, counted_qty: r.actual_qty ?? null, variance_qty, variance_auto,
              actual_qty: (Number(r.quantity) || 0) + variance_qty };
   }));
 });
 
-/* ยอดคงเหลือรายล็อต (ใช้ตอนเลือกล็อตในใบเบิกด้วย — ใบเบิกที่ระบุล็อตแล้วหักจากล็อตนั้นตรงๆ
-   ส่วนใบเบิกเก่าที่ไม่ได้ระบุล็อต หักแบบ FIFO จากล็อตเก่าสุดไล่มา ไม่งั้นล็อตเก่าจะค้างเต็มจำนวนตลอด)
-   ยอดคงเหลือรายล็อต (สินค้า + วันที่รับ) ตั้งแต่ STOCK_CUTOFF — เรียงเก่า -> ใหม่ (FIFO)
+/* ยอดคงเหลือรายล็อต (สินค้า + วันที่รับ) ตั้งแต่ STOCK_CUTOFF เรียงเก่า -> ใหม่
    ใช้ทั้งตอนเลือกล็อตในใบเบิก และตอน "นับของหน้างาน" (ดู POST /count-waiting)
-   ผลรวม remaining_qty ของทุกล็อต = ยอด "รอแจกจ่าย" ในหน้าสต็อกพอดี */
+   ผลรวม remaining_qty ของทุกล็อต = ยอด "รอแจกจ่าย" ในหน้าสต็อกพอดี — กติกาเต็มอยู่ที่ computeLots */
 function lotsOf(productId?: number) {
-  const where = productId ? ` AND product_id = ${productId}` : '';
-  const recv = prepare(`
-    SELECT product_id, substr(received_at,1,10) as lot_date, SUM(quantity) as received_qty
-    FROM receives WHERE received_at >= ?${where} GROUP BY product_id, lot_date
-  `).all(STOCK_CUTOFF) as any[];
-  const tagged = prepare(`
-    SELECT product_id, lot_date, SUM(quantity) as v
-    FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} GROUP BY product_id, lot_date
-  `).all(STOCK_CUTOFF) as any[];
-  const untagged = prepare(`
-    SELECT product_id, SUM(quantity) as v
-    FROM issues WHERE lot_date IS NULL AND issued_at >= ?${where} GROUP BY product_id
-  `).all(STOCK_CUTOFF) as any[];
-
-  const variances = lotVariances();
-  const taggedOf = new Map(tagged.map(r => [`${r.product_id}|${r.lot_date}`, Number(r.v) || 0]));
-  const untaggedLeft = new Map(untagged.map(r => [r.product_id, Number(r.v) || 0]));
-
-  const byProduct = new Map<number, any[]>();
-  for (const r of recv) {
-    if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
-    byProduct.get(r.product_id)!.push(r);
-  }
-
-  const out: any[] = [];
-  for (const [pid, rows] of byProduct) {
-    rows.sort((a, b) => String(a.lot_date).localeCompare(String(b.lot_date)));   // เก่าสุดก่อน (FIFO)
-    for (const r of rows) {
-      // ใช้ "ยอดรับจริง" ของล็อต (ใบส่งของ + ที่นับได้เอง/สมาชิกแจ้ง) ให้ตรงกับยอดรอแจกจ่ายในหน้าสต็อก
-      const received_qty = (Number(r.received_qty) || 0) + (variances.get(lotKey(pid, r.lot_date)) || 0);
-      const issued_tagged = taggedOf.get(`${pid}|${r.lot_date}`) || 0;
-      const capacity = Math.max(0, received_qty - issued_tagged);
-      const pool = untaggedLeft.get(pid) || 0;
-      const issued_untagged = Math.min(capacity, pool);        // เบิกเก่าที่ไม่ได้ระบุล็อต กินจากล็อตเก่าก่อน
-      untaggedLeft.set(pid, pool - issued_untagged);
-      out.push({
-        product_id: pid, lot_date: r.lot_date, received_qty,
-        received_note_qty: Number(r.received_qty) || 0,
-        issued_qty: issued_tagged + issued_untagged,
-        remaining_qty: capacity - issued_untagged,
-      });
-    }
-  }
-  return out;
+  // ใช้ computeLots (server/receivedActual.ts) เป็นแหล่งเดียว — ตัวเลขรายล็อตตรงกับหน้าสต็อก/ตารางเทียบรับเข้า-เบิกออก
+  return computeLots(productId).map(l => ({
+    product_id: l.product_id, lot_date: l.lot_date,
+    received_qty: l.actual, received_note_qty: l.note,
+    issued_qty: l.tagged + l.untagged, remaining_qty: l.remaining,
+    auto_qty: l.auto,
+  }));
 }
 
 router.get('/lots', (req, res) => {
@@ -135,12 +98,15 @@ router.post('/count-waiting', (req, res) => {
   let delta = counted - current;
   const changed: any[] = [];
 
-  const applyToLot = (lotDate: string, amount: number) => {
+  const applyToLot = (lot: any, amount: number) => {
+    const lotDate = lot.lot_date;
     const rows = prepare(`SELECT * FROM receives WHERE product_id = ? AND substr(received_at,1,10) = ? ORDER BY id DESC`)
       .all(productId, lotDate) as any[];
     if (rows.length === 0) return;
     const target = rows[0];   // ล็อตหนึ่งอาจมีหลายใบ — ลงส่วนต่างไว้ที่ใบล่าสุดใบเดียว
-    const before = Number(target.actual_qty ?? target.quantity) || 0;
+    // ยอดที่นับเองจะแทนที่การปรับอัตโนมัติของล็อตนั้น — จึงต้องตั้งต้นจากยอดรวมที่ระบบปรับไว้แล้ว
+    // ไม่งั้นส่วนที่ระบบปรับอัตโนมัติไว้จะหายไปแล้วยอดคลาดเท่านั้นพอดี
+    const before = (Number(target.actual_qty ?? target.quantity) || 0) + (Number(lot.auto_qty) || 0);
     const after = before + amount;
     prepare(`UPDATE receives SET actual_qty = ?, actual_note = ?, actual_by = ?, actual_at = datetime('now') WHERE id = ?`)
       .run(after, note, userOf(req), target.id);
@@ -152,11 +118,11 @@ router.post('/count-waiting', (req, res) => {
     for (const lot of lots) {
       if (left <= 0) break;
       const take = Math.min(lot.remaining_qty, left);
-      if (take > 0) { applyToLot(lot.lot_date, -take); left -= take; }
+      if (take > 0) { applyToLot(lot, -take); left -= take; }
     }
     delta = -(-delta - left);   // ตัดได้จริงเท่าไหร่ (ปกติได้ครบ เพราะผลรวมล็อต = ยอดรอแจกจ่าย)
   } else if (delta > 0) {
-    applyToLot(lots[lots.length - 1].lot_date, delta);
+    applyToLot(lots[lots.length - 1], delta);
   }
 
   const after = lotsOf(productId).reduce((s, l) => s + l.remaining_qty, 0);

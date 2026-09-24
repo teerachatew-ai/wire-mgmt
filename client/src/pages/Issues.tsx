@@ -1341,15 +1341,21 @@ export default function Issues() {
   const waitingByName = useMemo(() => {
     if (!allLots) return undefined;
     const byId = new Map((products as any[]).map((p: any) => [p.id, p]));
-    const out: Record<string, { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string }> = {};
+    const out: Record<string, { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string; suspect?: boolean }> = {};
+    // วันที่ล็อตล่าสุดที่เริ่มมีการเบิกแล้ว ต่อสินค้า — ใช้จับกรณีล็อตเก่ายังค้างทั้งที่แจกล็อตใหม่ไปแล้ว
+    const newestStarted = new Map<number, string>();
+    for (const l of allLots as any[]) {
+      if ((Number(l.issued_qty) || 0) > 0 && l.lot_date > (newestStarted.get(l.product_id) || '')) newestStarted.set(l.product_id, l.lot_date);
+    }
     for (const l of allLots as any[]) {
       const q = Number(l.remaining_qty) || 0;
       if (q <= 0) continue;
       const p: any = byId.get(l.product_id);
       if (!p) continue;
-      const w = (out[p.name] ??= { qty: 0, lots: [], color: p.color, unit: p.unit });
+      const w = (out[p.name] ??= { qty: 0, lots: [], color: p.color, unit: p.unit, suspect: false });
       w.qty += q;
       w.lots.push({ date: l.lot_date, qty: q });
+      if (l.lot_date < (newestStarted.get(l.product_id) || '')) w.suspect = true;
     }
     return out;
   }, [allLots, products]);

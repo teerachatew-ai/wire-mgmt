@@ -6,10 +6,9 @@ const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 
 const lotTH = (iso: string) => { const [, m, d] = String(iso).split('-').map(Number); return `${d} ${TH_M[m - 1]}`; };
 
 /** ยอดที่ยังไม่ได้แจกให้สมาชิก ณ ตอนนี้ ของสินค้าหนึ่ง (รวมทุกล็อต) — มาจาก /api/receives/lots */
-export type Waiting = { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string };
-
-// ล็อตเก่าที่เหลือค้างนิดเดียว มักเป็นยอดผีจากการนับไม่ตรง (โรงงานส่งขาด/เกินไม่กี่เส้น) ไม่ใช่ของจริง
-const TINY_LEFTOVER = 10;
+// suspect = ล็อตเก่ายังเหลือค้าง ทั้งที่สมาชิกเริ่มเบิกล็อตใหม่กว่าไปแล้ว (ปกติต้องแจกล็อตเก่าให้หมดก่อน)
+// ยอดคลาดเล็กน้อย server ปิดให้อัตโนมัติแล้ว (server/receivedActual.ts) ที่ยังเหลือให้เห็นคือคลาดเกินเกณฑ์
+export type Waiting = { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string; suspect?: boolean };
 
 /* ตารางเทียบ "รับเข้าจากโรงงาน vs เบิกออกให้สมาชิก" แถวละชนิดงาน
 
@@ -20,8 +19,8 @@ const TINY_LEFTOVER = 10;
    ตามช่วงที่เลือก (เลือกวันเดียว ป้ายชมพูได้ 750 · เลือกทั้งเดือนได้ 749/751 · งาน 3 สายติดลบ −1,000
    เพราะวันนั้นแจกของล็อตเก่า) ทำให้เจ้าของงงว่าตกลงเหลือเท่าไหร่กันแน่
 
-   ใต้ยอดคงเหลือแตกให้เห็นว่ามาจากล็อตไหนบ้าง (เมื่อมีมากกว่า 1 ล็อต) — ถ้ามีล็อตเก่าเหลือค้างนิดเดียว
-   จะเป็นสีส้ม เตือนว่าน่าจะเป็นยอดผี แก้ได้ด้วยปุ่ม "นับของหน้างาน" ที่หน้าสต็อก */
+   ใต้ยอดคงเหลือแตกให้เห็นว่ามาจากล็อตไหนบ้าง (เมื่อมีมากกว่า 1 ล็อต) — ถ้าล็อตเก่ายังค้างทั้งที่เริ่มแจก
+   ล็อตใหม่แล้ว จะเป็นสีส้ม เตือนให้ตรวจ แก้ได้ด้วยปุ่ม "นับของหน้างาน" ที่หน้าสต็อก */
 export default function InOutCompare({
   received, issued, waiting, note, memberCount,
 }: { received: SumGroup[]; issued: SumGroup[]; waiting?: Record<string, Waiting>; note?: string; memberCount?: number }) {
@@ -77,7 +76,7 @@ export default function InOutCompare({
           {rows.map(r => {
             const w = waiting?.[r.name];
             const lots = (w?.lots || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-            const hasGhost = lots.length > 1 && lots.slice(0, -1).some(l => l.qty > 0 && l.qty < TINY_LEFTOVER);
+            const hasGhost = !!w?.suspect;
             return (
               <tr key={r.name} className="border-b border-gray-50 align-top">
                 <td className="px-2 py-1.5">
@@ -96,7 +95,7 @@ export default function InOutCompare({
                       : <span className="text-gray-300">0</span>}
                   {lots.length > 1 && (
                     <div className={`text-[10px] leading-tight mt-0.5 ${hasGhost ? 'text-amber-600' : 'text-gray-400'}`}
-                      title={hasGhost ? 'มีล็อตเก่าเหลือค้างนิดเดียว — ถ้าของจริงไม่มีแล้ว ไปที่หน้าสต็อก กด "นับของหน้างาน" เพื่อปรับให้ตรง' : undefined}>
+                      title={hasGhost ? 'ล็อตเก่ายังเหลือค้าง ทั้งที่เริ่มแจกล็อตใหม่แล้ว — ถ้าของจริงไม่มีแล้ว ไปที่หน้าสต็อก กด "นับของหน้างาน"' : undefined}>
                       {lots.map(l => `${lotTH(l.date)} ${fmt(l.qty)}`).join(' · ')}
                       {hasGhost && ' ⚠'}
                     </div>
@@ -119,7 +118,8 @@ export default function InOutCompare({
       <p className="text-xs text-gray-400 mt-2 leading-relaxed">
         <b className="text-gray-500">รับเข้า / เบิกออก</b> = ยอดในช่วงวันที่ที่เลือกด้านบน ·{' '}
         <b className="text-violet-600">คงเหลือรอเบิก</b> = ของที่ยังไม่ได้แจก ณ ตอนนี้ (ไม่ขึ้นกับช่วงวันที่ · ตรงกับหน้าสต็อก)
-        {' '}· ตัวเลขเล็กใต้ยอด = แยกตามล็อตวันที่รับของ <span className="text-amber-600">สีส้ม ⚠</span> = ล็อตเก่าค้างนิดเดียว น่าจะเป็นยอดที่นับไม่ตรง
+        {' '}· ตัวเลขเล็กใต้ยอด = แยกตามล็อตวันที่รับของ · ล็อตเก่าที่คลาดไม่กี่เส้น (โรงงานนับไม่ละเอียด) ระบบปิดให้เองอัตโนมัติ
+        {' '}<span className="text-amber-600">สีส้ม ⚠</span> = ล็อตเก่ายังค้างทั้งที่เริ่มแจกล็อตใหม่แล้ว ควรตรวจของจริง
       </p>
     </div>
   );

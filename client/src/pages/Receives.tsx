@@ -52,7 +52,9 @@ function CountedCell({ row, onSave, saving }: { row: any; onSave: (qty: number |
       </span>
       {!!v && (
         <div className="text-[11px] text-gray-400">
-          {v < 0 ? 'ขาด' : 'เกิน'} {Math.abs(v).toLocaleString()} · {manual ? 'นับเอง' : 'สมาชิกแจ้ง'}
+          {v < 0 ? 'ขาด' : 'เกิน'} {Math.abs(v).toLocaleString()} · {manual ? 'นับเอง'
+            : Number(row.variance_auto) === v ? 'ปรับอัตโนมัติ (ปิดล็อต)'
+            : Number(row.variance_auto) ? 'สมาชิกแจ้ง + ปรับอัตโนมัติ' : 'สมาชิกแจ้ง'}
         </div>
       )}
       {!v && <div className="text-[11px] text-gray-300">คลิกเพื่อกรอกยอดนับจริง</div>}
