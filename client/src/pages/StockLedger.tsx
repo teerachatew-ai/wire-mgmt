@@ -47,8 +47,9 @@ const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n
 const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: string; optional?: boolean }[] = [
   { key: 'with_members', label: 'รอรับกลับจากสมาชิก', zh: '代加工完', hint: 'เบิกไปแล้ว ยังคืนไม่ครบ', cls: 'text-amber-700' },
   { key: 'in_warehouse', label: 'รอแจกจ่ายสมาชิก', zh: '待领料', hint: `รับเข้าแล้ว ยังไม่ได้เบิก (นับตั้งแต่ ${dateTH(STOCK_CUTOFF)}) · แก้ได้ด้วยปุ่ม "นับของหน้างาน"`, cls: 'text-violet-700' },
-  { key: 'ret_waste', label: 'เศษ', zh: '零数', hint: 'บันทึกตอนรับคืน', cls: 'text-gray-600' },
-  { key: 'ret_lost', label: 'หาย', zh: '', hint: 'บันทึกตอนรับคืน', cls: 'text-rose-600', optional: true },
+  // เศษ/หาย เลิกใช้แล้ว (ไม่มีช่องให้กรอกในหน้ารับคืนงานแล้ว) — แสดงเฉพาะถ้ามีรายการเก่าค้างอยู่
+  { key: 'ret_waste', label: 'เศษ', zh: '零数', hint: 'รายการเก่า (เลิกใช้แล้ว)', cls: 'text-gray-600', optional: true },
+  { key: 'ret_lost', label: 'หาย', zh: '', hint: 'รายการเก่า (เลิกใช้แล้ว)', cls: 'text-rose-600', optional: true },
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 

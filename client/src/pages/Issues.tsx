@@ -85,7 +85,6 @@ function DetailModal({ issue, onClose }: any) {
           <div className="grid grid-cols-4 gap-2 text-center">
             <div><p className="text-xs text-gray-400">คืนงานดี</p><p className="font-bold text-green-600">{issue.returned_good}</p></div>
             <div><p className="text-xs text-gray-400">คืนงานเสีย</p><p className="font-bold text-red-500">{issue.returned_defect}</p></div>
-            <div><p className="text-xs text-gray-400">เศษคืน</p><p className="font-bold text-gray-500">{issue.returned_waste}</p></div>
             <div><p className="text-xs text-gray-400">คงเหลือ</p><p className={`font-bold ${remaining > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remaining}</p></div>
           </div>
         </div>
@@ -98,7 +97,6 @@ function DetailModal({ issue, onClose }: any) {
                   <th className="px-3 py-2 text-left">วันที่</th>
                   <th className="px-3 py-2 text-right">งานดี</th>
                   <th className="px-3 py-2 text-right">งานเสีย</th>
-                  <th className="px-3 py-2 text-right">เศษ</th>
                   <th className="px-3 py-2 text-left">ผู้ตรวจ</th>
                 </tr>
               </thead>
@@ -108,7 +106,6 @@ function DetailModal({ issue, onClose }: any) {
                     <td className="px-3 py-2">{r.returned_at}</td>
                     <td className="px-3 py-2 text-right text-green-600">{r.good_qty}</td>
                     <td className="px-3 py-2 text-right text-red-500">{r.defect_qty}</td>
-                    <td className="px-3 py-2 text-right text-gray-500">{r.waste_qty}</td>
                     <td className="px-3 py-2 text-gray-500">{r.inspector || '-'}</td>
                   </tr>
                 ))}
@@ -927,18 +924,23 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
 
   // วันที่คืน = วันที่ทำรายการรับคืน (วันนี้ตามเวลาเครื่อง) ไม่ใช่วันที่เบิก — แก้เองได้ถ้ารับคืนย้อนหลัง
   const [returnedAt, setReturnedAt] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));
+  // on = ติ๊กเลือกคืนรายการนี้ (ค่าเริ่มต้นเลือกทุกรายการ) · good_qty แก้ได้ตรงๆ เผื่อคืนไม่ครบ
   const [lines, setLines] = useState<Record<number, any>>(() => Object.fromEntries(
-    outstanding.map((i: any) => [i.id, { good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }])
+    outstanding.map((i: any) => [i.id, { on: true, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }])
   ));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
   // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ/หาย=0) — เหมือนหน้ารับคืนงานหลักเป๊ะ
-  const toggleDefect = (i: any, on: boolean) => setLines(l => ({
+  const toggleDefect = (i: any, hasDefect: boolean) => setLines(l => ({
     ...l,
-    [i.id]: on ? { ...l[i.id], hasDefect: true } : { good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false },
+    [i.id]: hasDefect
+      ? { ...l[i.id], hasDefect: true }
+      : { ...l[i.id], good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false },
   }));
+  const toggleOn = (id: number, on: boolean) => setLines(l => ({ ...l, [id]: { ...l[id], on } }));
+  const setAllOn = (on: boolean) => setLines(l => Object.fromEntries(Object.entries(l).map(([k, v]: any) => [k, { ...v, on }])));
   const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
 
   const save = async () => {
@@ -946,7 +948,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
     try {
       const res = await returnApi.createBatch({
         returned_at: returnedAt,
-        lines: outstanding.map((i: any) => {
+        lines: picked.map((i: any) => {
           const l = lines[i.id];
           return { issue_id: i.id, good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0 };
         }),
@@ -989,36 +991,65 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
     );
   }
 
-  const grandTotal = outstanding.reduce((s: number, i: any) => s + lineTotal(lines[i.id]), 0);
+  const picked = outstanding.filter((i: any) => lines[i.id]?.on && lineTotal(lines[i.id]) > 0.0001);
+  const grandTotal = picked.reduce((s: number, i: any) => s + lineTotal(lines[i.id]), 0);
+  // คืนมากกว่ายอดค้างของใบนั้นไม่ได้ — กันไว้ตั้งแต่หน้าจอ ไม่ต้องรอ error จาก server
+  const overLines = picked.filter((i: any) => lineTotal(lines[i.id]) > remainOf(i) + 0.0001);
 
   return (
     <Modal title="รับคืนงาน" onClose={onClose} wide>
       <div className="space-y-4">
         {header}
 
+        {outstanding.length > 1 && (
+          <div className="flex items-center gap-3 text-xs text-gray-500 px-1 -mb-1">
+            <span>เลือกรายการที่จะคืน</span>
+            <button type="button" className="text-blue-600 hover:underline" onClick={() => setAllOn(true)}>เลือกทั้งหมด</button>
+            <button type="button" className="text-gray-500 hover:underline" onClick={() => setAllOn(false)}>ไม่เลือกเลย</button>
+          </div>
+        )}
+
         <div className="border rounded-xl divide-y max-h-[55vh] overflow-y-auto">
           {outstanding.map((i: any) => {
             const l = lines[i.id];
             const rem = remainOf(i);
             return (
-              <div key={i.id} className="px-3 py-2.5 space-y-2">
+              <div key={i.id} className={`px-3 py-2.5 space-y-2 ${l.on ? '' : 'bg-gray-50/70'}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-gray-800">
-                    {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
-                    {i.product_name}
-                    <span className="text-[11px] font-mono text-blue-600 font-normal">{i.code}</span>
-                  </span>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" className="w-4 h-4 shrink-0" checked={!!l.on} onChange={e => toggleOn(i.id, e.target.checked)} />
+                    <span className={`flex items-center gap-1.5 text-sm font-medium ${l.on ? 'text-gray-800' : 'text-gray-400'}`}>
+                      {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                      {i.product_name}
+                      <span className="text-[11px] font-mono text-blue-600 font-normal">{i.code}</span>
+                    </span>
+                  </label>
                   <span className="text-xs text-gray-400">ค้าง {rem.toLocaleString('th-TH')} {i.unit}</span>
                 </div>
-                {!l.hasDefect ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm text-green-700">✅ คืนครบ <b>{rem.toLocaleString('th-TH')}</b> {i.unit} (ไม่มีงานเสีย)</span>
-                    <button type="button" onClick={() => toggleDefect(i, true)} className="text-xs text-amber-600 hover:underline shrink-0">+ มีงานเสีย/เศษ</button>
+                {!l.on ? (
+                  <div className="text-xs text-gray-400 pl-6">ไม่คืนรายการนี้ (ยังค้างไว้เหมือนเดิม)</div>
+                ) : !l.hasDefect ? (
+                  <div className="flex items-center gap-2 flex-wrap pl-6">
+                    <span className="text-sm text-gray-600">คืน</span>
+                    <input type="number" step="0.01" min="0" max={rem} className="input !min-h-[34px] !py-1 !px-2 text-sm w-28 text-right font-semibold"
+                      value={l.good_qty} onChange={e => updateLine(i.id, 'good_qty', e.target.value)} />
+                    <span className="text-sm text-gray-500">{i.unit}</span>
+                    {(parseFloat(l.good_qty) || 0) !== rem && (
+                      <button type="button" onClick={() => updateLine(i.id, 'good_qty', rem)}
+                        className="text-[11px] text-blue-600 hover:underline">คืนครบ {rem.toLocaleString('th-TH')}</button>
+                    )}
+                    {(parseFloat(l.good_qty) || 0) < rem - 0.0001 && (
+                      <span className="text-[11px] text-amber-600">ค้างต่ออีก {(rem - (parseFloat(l.good_qty) || 0)).toLocaleString('th-TH')}</span>
+                    )}
+                    {(parseFloat(l.good_qty) || 0) > rem + 0.0001 && (
+                      <span className="text-[11px] text-rose-600">เกินยอดค้าง</span>
+                    )}
+                    <button type="button" onClick={() => toggleDefect(i, true)} className="text-xs text-amber-600 hover:underline shrink-0 ml-auto">+ มีงานเสีย</button>
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {([['good_qty', 'งานดี'], ['ng_cut', 'เสีย-ตัด'], ['ng_factory', 'เสีย-รง.'], ['waste_qty', 'เศษ'], ['lost_qty', 'หาย']] as const).map(([f, label]) => (
+                  <div className="space-y-1.5 pl-6">
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([['good_qty', 'งานดี'], ['ng_cut', 'เสีย-ตัด'], ['ng_factory', 'เสีย-รง.']] as const).map(([f, label]) => (
                         <div key={f}>
                           <label className="block text-[10px] text-gray-400">{label}</label>
                           <input type="number" step="0.01" min="0" className="input !min-h-[34px] !py-1 !px-1.5 text-sm"
@@ -1040,16 +1071,20 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
         </div>
 
         <div className="flex justify-between text-sm px-1">
-          <span className="text-gray-500">รวมรับคืนทั้งหมด</span>
+          <span className="text-gray-500">รวมรับคืน {picked.length} รายการ</span>
           <b className="text-blue-700 tabular-nums">{grandTotal.toLocaleString('th-TH')}</b>
         </div>
+        {overLines.length > 0 && (
+          <div className="text-xs text-rose-600 px-1">มีรายการที่กรอกเกินยอดค้าง — แก้ให้ไม่เกินก่อนบันทึก</div>
+        )}
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
 
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
-          <button type="button" className="btn-primary flex items-center gap-1.5" disabled={saving} onClick={save}>
-            {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</> : <><RotateCcw size={14} /> รับคืน {outstanding.length} รายการ</>}
+          <button type="button" className="btn-primary flex items-center gap-1.5"
+            disabled={saving || picked.length === 0 || overLines.length > 0} onClick={save}>
+            {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</> : <><RotateCcw size={14} /> รับคืน {picked.length} รายการ</>}
           </button>
         </div>
       </div>
@@ -1440,7 +1475,7 @@ export default function Issues() {
             'เลขใบเบิก': i.code, 'วันที่เบิก': i.issued_at, 'กำหนดคืน': i.due_date || '',
             'รหัสสมาชิก': i.member_code, 'ชื่อสมาชิก': i.member_name, 'ชื่อเล่น': i.member_nickname || '',
             'สินค้า': i.product_name, 'จำนวนเบิก': i.quantity, 'หน่วย': i.unit,
-            'คืนดี': i.returned_good, 'คืนเสีย': i.returned_defect, 'เศษคืน': i.returned_waste,
+            'คืนดี': i.returned_good, 'คืนเสีย': i.returned_defect,
             'คงเหลือ': i.quantity - (i.returned_good + i.returned_defect + i.returned_waste),
             'สถานะ': statusLabel[i.status] || i.status, 'ผู้บันทึก': i.created_by || '',
           }))} />

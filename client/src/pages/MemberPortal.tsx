@@ -286,7 +286,7 @@ function ReturnListScreen({ token, openIssues, onDone, onCancel }: { token: stri
                       </div>
                       {!hasProblem[i.id] ? (
                         <button type="button" onClick={() => setHasProblem(h => ({ ...h, [i.id]: true }))} className="w-full text-center text-gray-500 text-sm py-1 underline">
-                          มีของเสีย / ของหายไหม?
+                          มีของเสียไหม?
                         </button>
                       ) : (
                         <div className="space-y-2 pt-1">
@@ -297,10 +297,6 @@ function ReturnListScreen({ token, openIssues, onDone, onCancel }: { token: stri
                           <div>
                             <label className="text-xs text-gray-500">งานเสียจากโรงงาน</label>
                             <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngFactory[i.id] || ''} onChange={e => setNgFactory(q => ({ ...q, [i.id]: e.target.value }))} />
-                          </div>
-                          <div>
-                            <label className="text-xs text-gray-500">งานหาย</label>
-                            <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={lost[i.id] || ''} onChange={e => setLost(q => ({ ...q, [i.id]: e.target.value }))} />
                           </div>
                         </div>
                       )}

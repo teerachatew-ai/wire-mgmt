@@ -49,7 +49,8 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
   const onSubmit = async (data: any) => {
     setLoading(true); setError('');
     try {
-      const result = await returnApi.update(ret.id, data);
+      // เศษ/หาย ไม่มีช่องให้กรอกแล้ว — ส่งค่าเดิมกลับไปด้วย กันรายการเก่าถูกล้างเป็น 0 ตอนแก้ไขเรื่องอื่น
+      const result = await returnApi.update(ret.id, { ...data, waste_qty: ret.waste_qty ?? 0, lost_qty: ret.lost_qty ?? 0 });
       if (result.siblings?.length > 0) {
         setSiblings(result.siblings);
         setPendingGoodQty(data.good_qty);
@@ -132,20 +133,12 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
             <input type="number" step="0.01" min="0" className="input" {...register('good_qty', { required: true })} />
           </div>
           <div>
-            <label className="label">เศษคืน</label>
-            <input type="number" step="0.01" min="0" className="input" {...register('waste_qty')} />
-          </div>
-          <div>
             <label className="label text-rose-600">งานเสีย — จากการตัด (หักเงิน)</label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_cut')} />
           </div>
           <div>
             <label className="label text-amber-600">งานเสีย — จากโรงงาน (จ่ายปกติ)</label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
-          </div>
-          <div>
-            <label className="label text-violet-600">หาย (จ่ายปกติ · บันทึกไว้)</label>
-            <input type="number" step="0.01" min="0" className="input" {...register('lost_qty')} />
           </div>
         </div>
         <div>
@@ -308,8 +301,6 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
         {numField('งานดี', good, setGood, 'font-semibold text-green-700')}
         {numField('เสีย-ตัด', ngCut, setNgCut)}
         {numField('เสีย-รง.', ngFactory, setNgFactory)}
-        {numField('เศษ', waste, setWaste)}
-        {numField('หาย', lost, setLost)}
         <div className="w-36 shrink-0">
           <label className="block text-[10px] text-gray-400">วันที่คืน</label>
           <input type="date" className="input !py-1.5 !min-h-0 text-sm" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
@@ -542,7 +533,7 @@ export default function Returns() {
             'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
             'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
             'งานดี': r.good_qty, 'เสีย-ตัด': r.ng_cut ?? r.defect_qty, 'เสีย-โรงงาน': r.ng_factory ?? 0,
-            'เศษ': r.waste_qty, 'หาย': r.lost_qty ?? 0, 'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
+            'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
             <Plus size={16} /> บันทึกรับคืน
@@ -576,19 +567,17 @@ export default function Returns() {
               <th className="px-4 py-3 font-medium text-right">งานดี</th>
               <th className="px-4 py-3 font-medium text-right text-rose-500">เสีย-ตัด</th>
               <th className="px-4 py-3 font-medium text-right text-amber-600">เสีย-โรงงาน</th>
-              <th className="px-4 py-3 font-medium text-right">เศษ</th>
-              <th className="px-4 py-3 font-medium text-right text-violet-500">หาย</th>
               <th className="px-4 py-3 font-medium">ผู้ตรวจ</th>
               <th className="px-4 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={14} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={12} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {(returns_ as any[]).map((r: any) => (
               <ReturnRow key={r.id} r={r} checked={selected.has(r.id)}
                 onToggle={toggle} onEdit={setEditingReturn} onDelete={setDeletingReturn} />
             ))}
-            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={14} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
+            {!isLoading && (returns_ as any[]).length === 0 && <tr><td colSpan={12} className="py-8 text-center text-gray-400">ยังไม่มีรายการ</td></tr>}
           </tbody>
         </table>
       </div>
@@ -683,7 +672,7 @@ export default function Returns() {
                         <span className="text-sm text-green-700">✅ คืนครบ <strong>{rem}</strong> {l.issue.unit} (ไม่มีงานเสีย)</span>
                         <button type="button" onClick={() => toggleDefect(l.issue, true)}
                           className="shrink-0 text-xs font-medium text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg">
-                          + มีงานเสีย/เศษ
+                          + มีงานเสีย
                         </button>
                       </div>
                     ) : (
@@ -697,20 +686,12 @@ export default function Returns() {
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.good_qty} onChange={e => updateLine(l.issue.id, 'good_qty', e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-xs text-gray-500">เศษคืน</label>
-                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.waste_qty} onChange={e => updateLine(l.issue.id, 'waste_qty', e.target.value)} />
-                          </div>
-                          <div>
                             <label className="text-xs text-rose-600">เสีย — จากการตัด (หักเงิน)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
                           </div>
                           <div>
                             <label className="text-xs text-amber-600">เสีย — จากโรงงาน (จ่ายปกติ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
-                          </div>
-                          <div>
-                            <label className="text-xs text-violet-600">หาย (จ่ายปกติ · บันทึกไว้)</label>
-                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.lost_qty} onChange={e => updateLine(l.issue.id, 'lost_qty', e.target.value)} />
                           </div>
                         </div>
                         <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
@@ -785,8 +766,6 @@ const ReturnRow = memo(function ReturnRow({ r, checked, onToggle, onEdit, onDele
       <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
       <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
       <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
-      <td className="px-4 py-3 text-right text-gray-500">{r.waste_qty}</td>
-      <td className="px-4 py-3 text-right text-violet-600">{r.lost_qty > 0 ? r.lost_qty : '-'}</td>
       <td className="px-4 py-3 text-gray-500 text-xs">{r.inspector || '-'}</td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">

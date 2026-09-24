@@ -35,7 +35,6 @@ export default function OCR() {
       if (ex.quantity) setValue('quantity', ex.quantity);
       if (ex.good_qty) setValue('good_qty', ex.good_qty);
       if (ex.defect_qty) setValue('defect_qty', ex.defect_qty);
-      if (ex.waste_qty) setValue('waste_qty', ex.waste_qty);
       if (ex.notes) setValue('notes', ex.notes);
       // try to match member
       if (ex.member_code) {
@@ -193,7 +192,6 @@ export default function OCR() {
                   <div className="grid grid-cols-3 gap-2">
                     <div><label className="label">งานดี</label><input type="number" step="0.01" className="input" {...register('good_qty')} /></div>
                     <div><label className="label">งานเสีย</label><input type="number" step="0.01" className="input" {...register('defect_qty')} /></div>
-                    <div><label className="label">เศษคืน</label><input type="number" step="0.01" className="input" {...register('waste_qty')} /></div>
                   </div>
                   <div>
                     <label className="label">ผู้ตรวจ</label>
