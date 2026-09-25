@@ -5,7 +5,7 @@ import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2 } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
 import IssueMatrix, { shortLot, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
@@ -1092,6 +1092,169 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   );
 }
 
+/* ── ลบใบเบิกทั้งบรรทัด (ทุกชนิดงานของคนนี้ที่เบิกวันนี้) ──
+   กดถังขยะหน้าชื่อในตารางสรุปรายวัน → เห็นรายการที่จะลบทั้งหมดก่อนยืนยันครั้งเดียว
+   ใบที่มีรายการรับคืนผูกอยู่ จะลบรายการรับคืนนั้นไปด้วย (บอกไว้ชัดๆ ในกล่องก่อนกด) */
+function DeleteRowDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () => void; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const items = [...row.items].sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th'));
+  const returnedOf = (i: any) => (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
+  const withReturns = items.filter((i: any) => returnedOf(i) > 0);
+  const total = items.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+
+  const doDelete = async () => {
+    setBusy(true); setError('');
+    const failed: string[] = [];
+    for (const i of items) {
+      try { await issueApi.delete(i.id, true); }
+      catch (e: any) { failed.push(`${i.code}: ${e?.response?.data?.error || 'ลบไม่สำเร็จ'}`); }
+    }
+    setBusy(false);
+    onDone();
+    if (failed.length) setError(failed.join('\n'));
+    else onClose();
+  };
+
+  return (
+    <Modal title="ลบใบเบิกทั้งบรรทัด" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5">
+          <span className="font-mono text-xs text-gray-400 mr-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b>
+          <span className="text-gray-400 text-xs ml-2">เบิกวันที่ {row.date}</span>
+        </div>
+        <div className="border rounded-xl divide-y">
+          {items.map((i: any) => (
+            <div key={i.id} className="flex items-center justify-between px-3 py-2 text-sm">
+              <span className="flex items-center gap-1.5">
+                {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: i.color }} />}
+                {i.product_name}
+                <span className="text-[11px] font-mono text-blue-600">{i.code}</span>
+              </span>
+              <span className="tabular-nums text-gray-700">
+                {Number(i.quantity).toLocaleString('th-TH')} {i.unit}
+                {returnedOf(i) > 0 && <span className="text-[11px] text-rose-600 ml-1.5">(คืนแล้ว {returnedOf(i).toLocaleString('th-TH')})</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-gray-600">ลบทั้งหมด <b>{items.length}</b> ใบ รวม <b>{total.toLocaleString('th-TH')}</b> เส้น</p>
+        {withReturns.length > 0 && (
+          <div className="text-sm bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-3 py-2">
+            ⚠ มี {withReturns.length} ใบที่รับคืนไปแล้ว — รายการรับคืนของใบเหล่านั้นจะถูกลบไปด้วย (ค่าแรงของงานที่คืนแล้วจะหายไป)
+          </div>
+        )}
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-danger flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl px-4 py-2 font-medium disabled:opacity-60"
+            disabled={busy} onClick={doDelete}>
+            {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังลบ...</> : <><Trash2 size={14} /> ลบ {items.length} ใบ</>}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Undo การรับคืน ของคนนี้ที่เบิกวันนี้ ──
+   ดึงรายการรับคืนทุกรายการของใบเบิกในบรรทัดนี้มาให้เห็นก่อน ติ๊กเลือกได้ว่าจะยกเลิกอันไหน
+   (ค่าเริ่มต้นเลือกทั้งหมด = กลับไปเป็นค้างส่งเหมือนตอนยังไม่ได้รับคืน)
+   รายการที่อยู่ในรอบค่าแรงเดือนก่อน (อาจจ่ายเงินไปแล้ว) จะเตือนไว้ ไม่บล็อก */
+function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () => void; onDone: () => void }) {
+  const [rets, setRets] = useState<any[] | null>(null);
+  const [picked, setPicked] = useState<Record<number, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const thisMonth = new Intl.DateTimeFormat('en-CA').format(new Date()).slice(0, 7);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const details = await Promise.all(row.items.map((i: any) => issueApi.get(i.id)));
+        const list = details.flatMap((d: any) => (d.returns || []).map((r: any) => ({ ...r, product_name: d.product_name, unit: d.unit, issue_code: d.code })));
+        list.sort((a: any, b: any) => String(b.returned_at).localeCompare(String(a.returned_at)) || b.id - a.id);
+        if (!alive) return;
+        setRets(list);
+        setPicked(Object.fromEntries(list.map((r: any) => [r.id, true])));
+      } catch (e: any) {
+        if (alive) { setRets([]); setError(e?.response?.data?.error || 'โหลดรายการรับคืนไม่สำเร็จ'); }
+      }
+    })();
+    return () => { alive = false; };
+  }, [row]);
+
+  const chosen = (rets || []).filter((r: any) => picked[r.id]);
+  const qtyOf = (r: any) => (Number(r.good_qty) || 0) + (Number(r.defect_qty) || 0) + (Number(r.waste_qty) || 0) + (Number(r.lost_qty) || 0);
+  const oldCycle = chosen.filter((r: any) => r.pay_cycle && r.pay_cycle < thisMonth);
+
+  const doUndo = async () => {
+    setBusy(true); setError('');
+    const failed: string[] = [];
+    for (const r of chosen) {
+      try { await returnApi.delete(r.id); }
+      catch (e: any) { failed.push(`${r.code}: ${e?.response?.data?.error || 'ยกเลิกไม่สำเร็จ'}`); }
+    }
+    setBusy(false);
+    onDone();
+    if (failed.length) setError(failed.join('\n'));
+    else onClose();
+  };
+
+  return (
+    <Modal title="Undo — ยกเลิกการรับคืน" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5">
+          <span className="font-mono text-xs text-gray-400 mr-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b>
+          <span className="text-gray-400 text-xs ml-2">เบิกวันที่ {row.date}</span>
+        </div>
+        {rets === null ? (
+          <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> กำลังโหลดรายการรับคืน...</p>
+        ) : rets.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-3">ไม่มีรายการรับคืนให้ยกเลิก</p>
+        ) : (
+          <>
+            <p className="text-xs text-gray-500">เลือกรายการรับคืนที่จะยกเลิก — งานส่วนนั้นจะกลับไปเป็น "ค้างส่ง" เหมือนเดิม</p>
+            <div className="border rounded-xl divide-y max-h-[45vh] overflow-y-auto">
+              {rets.map((r: any) => (
+                <label key={r.id} className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer ${picked[r.id] ? '' : 'bg-gray-50/70 text-gray-400'}`}>
+                  <input type="checkbox" className="w-4 h-4" checked={!!picked[r.id]}
+                    onChange={e => setPicked(p => ({ ...p, [r.id]: e.target.checked }))} />
+                  <span className="flex-1 min-w-0">
+                    <span className="font-medium">{r.product_name}</span>
+                    <span className="text-[11px] font-mono text-blue-600 ml-1.5">{r.code}</span>
+                    <span className="block text-[11px] text-gray-400">
+                      คืนวันที่ {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
+                      {Number(r.ng_cut) > 0 && ` · เสีย-ตัด ${r.ng_cut}`}{Number(r.ng_factory) > 0 && ` · เสีย-รง. ${r.ng_factory}`}
+                    </span>
+                  </span>
+                  <span className="tabular-nums font-semibold">{qtyOf(r).toLocaleString('th-TH')} {r.unit}</span>
+                </label>
+              ))}
+            </div>
+            {oldCycle.length > 0 && (
+              <div className="text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2">
+                ⚠ มี {oldCycle.length} รายการอยู่ในรอบค่าแรงเดือนก่อน ({[...new Set(oldCycle.map((r: any) => r.pay_cycle))].join(', ')})
+                ซึ่งอาจจ่ายเงินไปแล้ว — ยกเลิกแล้วยอดค่าแรงของรอบนั้นจะลดลง
+              </div>
+            )}
+          </>
+        )}
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ปิด</button>
+          {rets && rets.length > 0 && (
+            <button type="button" className="btn-primary flex items-center gap-1.5" disabled={busy || chosen.length === 0} onClick={doUndo}>
+              {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังยกเลิก...</> : <><Undo2 size={14} /> ยกเลิกการรับคืน {chosen.length} รายการ</>}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── Delete Issue Dialog ── */
 function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
   useScrollLock();
@@ -1423,6 +1586,11 @@ export default function Issues() {
   // คลิกที่ยอดค้างส่ง (สีส้ม) -> รับคืนงานทุกชนิดที่ค้างของคนนั้นวันนั้นทีเดียว
   const [returnRow, setReturnRow] = useState<MatrixRow | null>(null);
   const openReturnRow = useCallback((row: MatrixRow) => setReturnRow(row), []);
+  // ถังขยะหน้าชื่อ -> ลบใบเบิกทั้งบรรทัด · ปุ่ม Undo ขวาสุด -> ยกเลิกการรับคืนกลับไปเป็นค้างส่ง
+  const [deleteRow, setDeleteRow] = useState<MatrixRow | null>(null);
+  const openDeleteRow = useCallback((row: MatrixRow) => setDeleteRow(row), []);
+  const [undoRow, setUndoRow] = useState<MatrixRow | null>(null);
+  const openUndoRow = useCallback((row: MatrixRow) => setUndoRow(row), []);
   const handleQtySaved = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -1654,7 +1822,8 @@ export default function Issues() {
               )}
             </div>
           )}
-          <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow} />
+          <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow}
+            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} />
         </>
       )}
 
@@ -1783,6 +1952,12 @@ export default function Issues() {
         <QuickRowEditor row={rowCell} onClose={() => setRowCell(null)} onSaved={handleQtySaved} onOpenDetail={openDetail} />
       )}
 
+      {deleteRow && (
+        <DeleteRowDialog row={deleteRow} onClose={() => setDeleteRow(null)} onDone={handleQtySaved} />
+      )}
+      {undoRow && (
+        <UndoReturnDialog row={undoRow} onClose={() => setUndoRow(null)} onDone={handleQtySaved} />
+      )}
       {returnRow && (
         <QuickReturnModal row={returnRow} onClose={() => setReturnRow(null)} onSaved={handleQtySaved} />
       )}

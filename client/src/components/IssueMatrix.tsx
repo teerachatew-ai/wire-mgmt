@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Eye, Pencil, RotateCcw } from 'lucide-react';
+import { Eye, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
@@ -24,9 +24,11 @@ export interface MatrixCell { date: string; memberCode: string; memberName: stri
 // แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
 export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow }: {
   issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
   onReturnRow?: (row: MatrixRow) => void;
+  onDeleteRow?: (row: MatrixRow) => void;       // ลบใบเบิกทุกชนิดของคนนี้วันนี้ (ทั้งบรรทัด)
+  onUndoReturnRow?: (row: MatrixRow) => void;   // ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่งเหมือนเดิม
 }) {
   if (issues.length === 0) return null;
 
@@ -147,6 +149,16 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
                     return (
                       <tr key={m.key} className="group">
                         <td className={`sticky left-0 z-10 border-b border-r px-3 py-2 ${idx % 2 ? 'bg-gray-50/60' : 'bg-white'} group-hover:bg-blue-50`}>
+                          <span className="flex items-start gap-1.5">
+                          {onDeleteRow && (
+                            <button type="button"
+                              onClick={() => onDeleteRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                              title="ลบใบเบิกทุกชนิดของคนนี้ในวันนี้ (ทั้งบรรทัด)"
+                              className="mt-0.5 p-0.5 rounded text-gray-300 hover:text-red-600 hover:bg-red-50 shrink-0">
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                          <span className="min-w-0">
                           {onEditRow ? (
                             // คลิกที่ชื่อ -> แก้จำนวน/วันที่ของงานทุกชนิดที่คนนี้เบิกวันนี้ได้ทีเดียว (ทุกใบในแถว)
                             <button type="button"
@@ -164,6 +176,8 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
                               {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}
                             </>
                           )}
+                          </span>
+                          </span>
                         </td>
                         {products.map(p => {
                           const v = m.qty[p.name] || 0;
@@ -231,6 +245,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
                               {m.lastReturnedAt && <span className="block text-[10px] text-gray-400 font-normal leading-tight">{shortLot(m.lastReturnedAt)}</span>}
                             </span>
                           )}
+                          {onUndoReturnRow && m.returned > 0 && (
+                            <button type="button"
+                              onClick={() => onUndoReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                              title="ยกเลิกการรับคืน — ให้กลับไปเป็นค้างส่งเหมือนเดิม"
+                              className="ml-2 inline-flex items-center gap-0.5 align-top text-[11px] text-slate-500 border border-slate-200 rounded px-1.5 py-0.5 hover:bg-slate-100 hover:text-slate-800">
+                              <Undo2 size={11} /> Undo
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -272,6 +294,8 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow }: {
                 {onEdit && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</span>}
                 {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
                 {onReturnRow && <span className="flex items-center gap-1.5"><RotateCcw size={12} /> คลิกที่ยอดค้างส่ง (สีส้ม) เพื่อรับคืนงานทุกชนิดที่ค้างของคนนั้นทีเดียว</span>}
+                {onUndoReturnRow && <span className="flex items-center gap-1.5"><Undo2 size={12} /> Undo = ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง</span>}
+                {onDeleteRow && <span className="flex items-center gap-1.5"><Trash2 size={12} /> ถังขยะหน้าชื่อ = ลบใบเบิกทั้งบรรทัดของคนนั้น</span>}
                 {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
                 <span className="flex items-center gap-1.5 flex-wrap">
                   <span className="inline-block bg-gray-50 border border-gray-200 text-gray-400 rounded px-1 py-px text-[9px] font-medium">ล็อต 12 ก.ย.</span>
