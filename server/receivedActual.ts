@@ -53,8 +53,8 @@ export type LotRow = {
       ถ้าคลาดเกินเกณฑ์ ระบบไม่แตะ ปล่อยให้เห็นเป็นยอดค้าง (สีส้มในตารางเทียบรับเข้า-เบิกออก) ให้คนตรวจ
    3) แตกยอดคงเหลือรายล็อตไว้แสดงผล: เบิกระบุล็อต → หักล็อตนั้น · เบิกไม่ระบุล็อต → หักล็อตเก่าสุดที่
       "มาถึงแล้ว ณ วันที่เบิก" ก่อน (ใบเบิกวันที่ 20 ดึงของล็อตวันที่ 24 ไม่ได้) เกินจากนั้นค่อยไหลไปล็อตถัดไป
-   ล็อตที่นับเองไว้แล้ว (manual) ไม่ปรับอัตโนมัติทับ — ยอดที่คนนับถือเป็นที่สุด
-   ล็อตล่าสุดไม่ถูกปิดอัตโนมัติ (เป็นล็อตที่ยังแจกอยู่จริง) */
+   ล็อตล่าสุดปิดด้วยกติกาเดียวกัน แต่เฉพาะเมื่อเริ่มแจกล็อตนั้นไปแล้ว (ดู 2b)
+   ล็อตที่นับเองไว้แล้ว (manual) ไม่ปรับอัตโนมัติทับ — ยอดที่คนนับถือเป็นที่สุด */
 export function computeLots(productId?: number): LotRow[] {
   const where = productId ? ` AND product_id = ${Number(productId)}` : '';
   const recv = prepare(`
@@ -105,6 +105,24 @@ export function computeLots(productId?: number): LotRow[] {
       const residue = recvGroup - issuedGroup;
       const last = lots[i];
       if (residue !== 0 && !last.manual && Math.abs(residue) <= autoCloseTolerance(last.actual)) {
+        last.auto -= residue; last.actual -= residue;
+      }
+    }
+
+    // 2b) ล็อตล่าสุด — เมื่อเริ่มแจกไปแล้ว และเหลือ/เกินแค่เศษเล็กน้อยหลังนับเบิกทุกใบ ถือว่าแจกหมดล็อตแล้ว
+    //     (ยอดที่เหลือเล็กกว่าเศษมัด = ส่วนที่ใบส่งของคลาดจากของจริง ไม่ใช่ของที่ยังวางอยู่หน้างาน)
+    //     เช่น สายยาวชมพูใหม่ล็อต 18 ก.ย. ใบส่งของ 6,000 แต่แจกครั้งแรกได้ 5,999 แล้วสมาชิกแจ้งเกินอีก 10
+    //     ของจริง = 6,009 แจกหมดแล้ว แต่ระบบคิด 6,000 + 10 = 6,010 เลยค้างผี 1 เส้น
+    //     ถ้ามีของเหลือจริงแล้วมาเบิกเพิ่มทีหลัง ใบเบิกจะผูกล็อตนี้ (ช่องเลือกล็อตตั้งเป็นล็อตล่าสุดเมื่อทุกล็อตหมด)
+    //     ยอดเบิกที่เพิ่มขึ้นทำให้คิดใหม่แล้วถูกเอง ไม่ต้องย้อนแก้อะไร
+    if (lots.length > 0) {
+      const last = lots[lots.length - 1];
+      const started = last.tagged > 0 || unt.some(u => u.d >= last.lot_date);
+      let recvAll = 0, issuedAll = 0;
+      for (const l of lots) { recvAll += l.actual; issuedAll += l.tagged; }
+      for (const u of unt) issuedAll += u.q;
+      const residue = recvAll - issuedAll;
+      if (started && residue !== 0 && !last.manual && Math.abs(residue) <= autoCloseTolerance(last.actual)) {
         last.auto -= residue; last.actual -= residue;
       }
     }
