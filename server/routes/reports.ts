@@ -800,9 +800,11 @@ function computeStockFlow(m: string) {
     const in_warehouse = st.wait_distribute;   // รับเข้าแล้ว รอเบิกให้สมาชิก
     const with_members = st.with_members;      // เบิกไปแล้ว ยังคืนไม่ครบ
     const stock_ready  = st.ready;             // คืนแล้ว รอส่งโรงงาน
-    // ยอดคงเหลือพร้อมส่ง = รับเข้าสะสม ± ยอดปรับสต็อก − ส่งออกสะสม (ยกมา+รับเข้า−ส่งออก) — ไม่หักเศษ
+    // ของที่ยังอยู่ที่กลุ่มจริง = รับเข้าสะสม ± ยอดปรับสต็อก − ส่งออกสะสม − ของที่เศษ/หายไปแล้ว
+    // (เศษ/หายเลิกใช้แล้ว เหลือแต่รายการเก่า — ถือว่าออกจากกลุ่มไปแล้วเหมือนส่งออก ไม่ต้องโชว์เป็นแถวแยก
+    //  ผลรวม รอรับกลับ + รอแจกจ่าย + พร้อมส่ง จึงเท่ากับยอดนี้พอดี)
     const adj = p.adj_total || 0;
-    const available = p.received + adj - p.shipped;
+    const available = p.received + adj - p.shipped - (p.ret_waste || 0) - (p.ret_lost || 0);
     const balance = p.received + adj - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
     return { ...p, in_warehouse, with_members, stock_ready, available, balance,
       wait_raw: st.wait_raw, ready_raw: st.ready_raw, ok: st.ready_raw >= 0 };

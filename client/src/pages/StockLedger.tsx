@@ -47,9 +47,7 @@ const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n
 const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: string; optional?: boolean }[] = [
   { key: 'with_members', label: 'รอรับกลับจากสมาชิก', zh: '代加工完', hint: 'เบิกไปแล้ว ยังคืนไม่ครบ', cls: 'text-amber-700' },
   { key: 'in_warehouse', label: 'รอแจกจ่ายสมาชิก', zh: '待领料', hint: `รับเข้าแล้ว ยังไม่ได้เบิก (นับตั้งแต่ ${dateTH(STOCK_CUTOFF)}) · แก้ได้ด้วยปุ่ม "นับของหน้างาน"`, cls: 'text-violet-700' },
-  // เศษ/หาย เลิกใช้แล้ว (ไม่มีช่องให้กรอกในหน้ารับคืนงานแล้ว) — แสดงเฉพาะถ้ามีรายการเก่าค้างอยู่
-  { key: 'ret_waste', label: 'เศษ', zh: '零数', hint: 'รายการเก่า (เลิกใช้แล้ว)', cls: 'text-gray-600', optional: true },
-  { key: 'ret_lost', label: 'หาย', zh: '', hint: 'รายการเก่า (เลิกใช้แล้ว)', cls: 'text-rose-600', optional: true },
+  // เศษ/หาย เลิกใช้แล้ว ไม่โชว์เป็นแถว — รายการเก่าที่เหลือถือว่าออกจากกลุ่มไปแล้ว (หักออกจาก "รวมของที่อยู่ที่กลุ่ม" ที่ server)
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 
@@ -184,7 +182,7 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
             <tr className="border-t-2 border-gray-300">
               <td className="px-4 py-2 leading-tight whitespace-nowrap">
                 <span className="font-semibold text-slate-800">รวมของที่อยู่ที่กลุ่ม</span>
-                <div className="text-[10px] text-gray-400">รับเข้าทั้งหมด − ส่งออกทั้งหมด</div>
+                <div className="text-[10px] text-gray-400">ของที่ยังอยู่ที่กลุ่มจริงตอนนี้ = ผลรวม 3 แถวด้านบน</div>
               </td>
               {items.map(p => (
                 <td key={p.id} className="px-3 py-2 text-right">
