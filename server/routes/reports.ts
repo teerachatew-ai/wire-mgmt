@@ -881,6 +881,7 @@ router.get('/stock-status-breakdown', (req, res) => {
     let left = total;
     const rows = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
+        substr(i.issued_at, 1, 10) issued_d, i.code icode,
         COALESCE(r.good_qty,0) g, COALESCE(r.defect_qty,0) df
       FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
       WHERE i.product_id = ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
@@ -891,7 +892,8 @@ router.get('/stock-status-breakdown', (req, res) => {
       const take = Math.min(full, left);
       const m = member(r);
       m.qty += take; left -= take;
-      m.items.push({ date: r.d, code: r.rcode, returned: full, qty: take, partial: take < full });
+      // date = วันที่รับคืน · issued_date = วันที่เบิกงานนั้น (หน้าเว็บโชว์วันเบิกเป็นหลัก แล้วตามด้วยวันคืน)
+      m.items.push({ date: r.d, issued_date: r.issued_d, issue_code: r.icode, code: r.rcode, returned: full, qty: take, partial: take < full });
     }
     unassigned = Math.max(0, left);
   }

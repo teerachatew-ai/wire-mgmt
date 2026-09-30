@@ -51,6 +51,18 @@ const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: 
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 
+/* จัดกลุ่มรายการของสมาชิกหนึ่งคนตามวันที่เบิก (เรียงเก่า→ใหม่) · ภายในกลุ่มเรียงตามวันที่คืน */
+function groupByIssueDate(items: any[], isReady: boolean): { date: string; qty: number; items: any[] }[] {
+  const map = new Map<string, { date: string; qty: number; items: any[] }>();
+  for (const it of items) {
+    const d = String(isReady ? it.issued_date : it.date);
+    const g = map.get(d) || { date: d, qty: 0, items: [] };
+    g.qty += Number(it.qty) || 0; g.items.push(it); map.set(d, g);
+  }
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date))
+    .map(g => ({ ...g, items: [...g.items].sort((x, y) => String(x.date).localeCompare(String(y.date)) || String(x.code).localeCompare(String(y.code))) }));
+}
+
 /* ── แตกยอด "รอรับกลับจากสมาชิก" / "พร้อมส่งโรงงาน" เป็นรายสมาชิก ──
    เปิดจากการคลิกตัวเลขในกล่องสถานะงาน · ข้อมูลจาก /reports/stock-status-breakdown (สูตรเดียวกับยอดในบัตร)
    คลิกชื่อสมาชิกเพื่อดูรายใบ: รอรับกลับ = ใบเบิกไหนค้างกี่เส้น · พร้อมส่ง = คืนวันไหนกี่เส้น */
@@ -116,17 +128,34 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
                     </div>
                   </button>
                   {open[m.member_id] && (
-                    <div className="px-5 pb-3 pl-[42px] space-y-1 bg-gray-50/60">
-                      {m.items.map((it: any, k: number) => (
-                        <div key={k} className="flex items-center gap-2 text-xs text-gray-600 pt-1">
-                          <span className="w-14 shrink-0 text-gray-500">{shortDate(it.date)}</span>
-                          <span className="font-mono text-[11px] text-blue-600 shrink-0">{it.code}</span>
-                          <span className="text-gray-400 truncate">
-                            {isReady
-                              ? (it.partial ? `คืน ${fmt(it.returned)} (ส่วนที่ยังอยู่)` : 'คืน')
-                              : `เบิก ${fmt(it.issued)}${it.returned > 0 ? ` · คืนแล้ว ${fmt(it.returned)}` : ''}`}
-                          </span>
-                          <span className="ml-auto font-semibold tabular-nums text-gray-700">{fmt(it.qty)}</span>
+                    <div className="pb-2.5 pl-[42px] pr-5 bg-gray-50/60 divide-y divide-gray-100">
+                      {/* จัดกลุ่มตาม "วันที่เบิก" — งานที่เบิกวันเดียวกันอยู่ติดกัน เรียงวันเบิกเก่า→ใหม่ แล้วไล่วันที่คืนในกลุ่ม */}
+                      {groupByIssueDate(m.items, isReady).map(g => (
+                        <div key={g.date} className="py-1.5">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="font-semibold text-gray-700">เบิก {shortDate(g.date)}</span>
+                            {g.items.length > 1 && <span className="text-[11px] text-gray-400">{g.items.length} รายการ</span>}
+                            <span className="ml-auto font-semibold tabular-nums text-gray-800">{fmt(g.qty)}</span>
+                          </div>
+                          <div className="mt-0.5 space-y-0.5">
+                            {g.items.map((it: any, k: number) => (
+                              <div key={k} className="flex items-center gap-2 text-[11px] text-gray-500 pl-3">
+                                {isReady ? (
+                                  <>
+                                    <span className="shrink-0 text-emerald-700">คืน {shortDate(it.date)}</span>
+                                    <span className="font-mono text-blue-600 shrink-0">{it.code}</span>
+                                    {it.partial && <span className="text-gray-400 truncate">จากที่คืน {fmt(it.returned)}</span>}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="font-mono text-blue-600 shrink-0">{it.code}</span>
+                                    <span className="text-gray-400 truncate">เบิก {fmt(it.issued)}{it.returned > 0 ? ` · คืนแล้ว ${fmt(it.returned)}` : ''}</span>
+                                  </>
+                                )}
+                                <span className="ml-auto tabular-nums text-gray-600">{fmt(it.qty)}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       ))}
                     </div>
