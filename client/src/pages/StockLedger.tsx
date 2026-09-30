@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api';
 import { projectLabel, parseProductLabel } from '../projectLabel';
 import { sortByColorGroup, colorPriority } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
-import { ClipboardList, ClipboardCheck, Check, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck, Wrench } from 'lucide-react';
+import { ClipboardList, ClipboardCheck, Check, ArrowDownToLine, ArrowUpFromLine, Boxes, ArrowDownUp, Loader2, Truck, Wrench, X, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 /* บัตรสต็อกสินค้า — ไล่วันที่ลงมา เห็นของเข้า ของออก และยอดคงเหลือในตารางเดียว
@@ -51,6 +51,104 @@ const STATUS_ROWS: { key: string; label: string; zh: string; hint: string; cls: 
   { key: 'stock_ready', label: 'พร้อมส่งโรงงาน', zh: '待出货', hint: 'คืนแล้ว รอส่ง', cls: 'text-emerald-700' },
 ];
 
+/* ── แตกยอด "รอรับกลับจากสมาชิก" / "พร้อมส่งโรงงาน" เป็นรายสมาชิก ──
+   เปิดจากการคลิกตัวเลขในกล่องสถานะงาน · ข้อมูลจาก /reports/stock-status-breakdown (สูตรเดียวกับยอดในบัตร)
+   คลิกชื่อสมาชิกเพื่อดูรายใบ: รอรับกลับ = ใบเบิกไหนค้างกี่เส้น · พร้อมส่ง = คืนวันไหนกี่เส้น */
+function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 'with_members' | 'ready'; onClose: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['stock-status-breakdown', product.id, kind],
+    queryFn: () => reportApi.stockStatusBreakdown(product.id, kind),
+  });
+  const [open, setOpen] = useState<Record<number, boolean>>({});
+  useEffect(() => {   // Esc = ปิด
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+  const isReady = kind === 'ready';
+  const tone = isReady ? { head: 'bg-emerald-50 border-emerald-200', title: 'text-emerald-800', bar: 'bg-emerald-400', num: 'text-emerald-700' }
+    : { head: 'bg-amber-50 border-amber-200', title: 'text-amber-800', bar: 'bg-amber-400', num: 'text-amber-700' };
+  const { num, label } = parseProductLabel(product.name);
+  const members: any[] = data?.members || [];
+  const max = Math.max(1, ...members.map(m => m.qty));
+  const unit = product.unit || 'เส้น';
+  const shortDate = (d: string) => { const [y, m, dd] = String(d).split('-').map(Number); return `${dd} ${TH_M[m - 1]}`; };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div role="dialog" aria-labelledby="sb-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className={`flex items-start gap-3 px-5 py-4 border-b ${tone.head}`}>
+          <div className="flex-1 min-w-0">
+            <h3 id="sb-title" className={`font-bold text-lg leading-tight ${tone.title}`}>
+              {isReady ? 'พร้อมส่งโรงงาน' : 'รอรับกลับจากสมาชิก'}
+              <span className="ml-2 text-sm font-semibold text-gray-600">{num} {label}</span>
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {isReady ? 'ของที่สมาชิกคืนแล้ว รอส่งโรงงาน — แยกตามคนที่คืน' : 'ใบเบิกที่สมาชิกยังคืนไม่ครบ — แยกตามคนที่ถือ'}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <div className={`text-2xl font-bold tabular-nums leading-none ${tone.num}`}>{isLoading ? '…' : fmt(data?.total || 0)}</div>
+            <div className="text-[11px] text-gray-500 mt-1">{unit}{!isLoading && members.length > 0 && <> · {members.length} คน</>}</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="text-gray-400 hover:text-gray-700 -mr-1"><X size={18} /></button>
+        </div>
+
+        <div className="overflow-y-auto">
+          {isLoading ? (
+            <div className="py-12 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" size={22} /></div>
+          ) : isError ? (
+            <div className="py-10 text-center text-sm text-rose-600">โหลดข้อมูลไม่สำเร็จ</div>
+          ) : members.length === 0 && !(data?.unassigned > 0) ? (
+            <div className="py-10 text-center text-sm text-gray-400">ไม่มีรายการ</div>
+          ) : (
+            <ul className="divide-y">
+              {members.map(m => (
+                <li key={m.member_id}>
+                  <button type="button" className="w-full text-left px-5 py-2.5 hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-none"
+                    aria-expanded={!!open[m.member_id]} onClick={() => setOpen(o => ({ ...o, [m.member_id]: !o[m.member_id] }))}>
+                    <div className="flex items-center gap-2 text-sm">
+                      <ChevronRight size={14} className={`shrink-0 text-gray-400 transition-transform ${open[m.member_id] ? 'rotate-90' : ''}`} />
+                      <span className="font-mono text-[11px] text-gray-400 shrink-0">{m.code}</span>
+                      <span className="font-medium text-gray-800 truncate">{m.name}{m.nickname && <span className="text-gray-400 font-normal text-xs"> ({m.nickname})</span>}</span>
+                      <span className={`ml-auto font-bold tabular-nums ${tone.num}`}>{fmt(m.qty)}</span>
+                    </div>
+                    <div className="mt-1.5 ml-[22px] h-1.5 rounded-full bg-gray-100 overflow-hidden" aria-hidden>
+                      <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(3, (m.qty / max) * 100)}%` }} />
+                    </div>
+                  </button>
+                  {open[m.member_id] && (
+                    <div className="px-5 pb-3 pl-[42px] space-y-1 bg-gray-50/60">
+                      {m.items.map((it: any, k: number) => (
+                        <div key={k} className="flex items-center gap-2 text-xs text-gray-600 pt-1">
+                          <span className="w-14 shrink-0 text-gray-500">{shortDate(it.date)}</span>
+                          <span className="font-mono text-[11px] text-blue-600 shrink-0">{it.code}</span>
+                          <span className="text-gray-400 truncate">
+                            {isReady
+                              ? (it.partial ? `คืน ${fmt(it.returned)} (ส่วนที่ยังอยู่)` : 'คืน')
+                              : `เบิก ${fmt(it.issued)}${it.returned > 0 ? ` · คืนแล้ว ${fmt(it.returned)}` : ''}`}
+                          </span>
+                          <span className="ml-auto font-semibold tabular-nums text-gray-700">{fmt(it.qty)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
+              {data?.unassigned > 0 && (
+                <li className="px-5 py-2.5 flex items-center gap-2 text-sm bg-gray-50">
+                  <span className="text-gray-600">ไม่ระบุสมาชิก</span>
+                  <span className="text-[11px] text-gray-400">ยอดยกมา / ปรับยอดสต็อก</span>
+                  <span className="ml-auto font-bold tabular-nums text-gray-700">{fmt(data.unassigned)}</span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+        {data?.note && <div className="px-5 py-2 text-[11px] text-gray-500 border-t bg-gray-50">{data.note}</div>}
+      </div>
+    </div>
+  );
+}
+
 /* กล่อง "สถานะงาน ณ วันนี้" ใต้ตารางของแต่ละกลุ่ม — ตอบคำถาม "ของที่ยังไม่ได้ส่งโรงงาน ตอนนี้อยู่ตรงไหนบ้าง"
    ไม่ขึ้นกับช่วงวันที่ที่เลือกด้านบน (เป็นยอด ณ วันนี้เสมอ) */
 function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, any> }) {
@@ -59,6 +157,7 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
   // กรอกเฉพาะตัวที่นับแล้วไม่ตรง แล้วกดบันทึกครั้งเดียวจบ (ระบบไปไล่แก้ยอดรับจริงของล็อตให้เอง)
   const [counting, setCounting] = useState(false);
   const [draft, setDraft] = useState<Record<number, string>>({});
+  const [detail, setDetail] = useState<{ product: any; kind: 'with_members' | 'ready' } | null>(null);   // คลิกตัวเลข -> ดูรายสมาชิก
   const saveMut = useMutation({
     mutationFn: async (entries: { id: number; qty: number }[]) => {
       const out: any[] = [];
@@ -165,7 +264,14 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                             placeholder={String(v)} value={draft[p.id] ?? ''}
                             onChange={e => setDraft(d => ({ ...d, [p.id]: e.target.value }))}
                             onKeyDown={e => { if (e.key === 'Enter') saveCount(); }} />
-                        : (v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
+                        : (v && (r.key === 'with_members' || r.key === 'stock_ready')
+                            // คลิกตัวเลข -> เปิดรายชื่อสมาชิกที่ประกอบเป็นยอดนี้
+                            ? <button type="button" onClick={() => setDetail({ product: p, kind: r.key === 'stock_ready' ? 'ready' : 'with_members' })}
+                                title="คลิกเพื่อดูว่าเป็นงานของสมาชิกคนไหนบ้าง"
+                                className={`font-semibold underline decoration-dotted underline-offset-4 decoration-current/50 rounded px-1 -mx-1 hover:bg-white hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 cursor-pointer ${r.cls}`}>
+                                {fmt(v)}
+                              </button>
+                            : v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
                       {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
                       {r.key === 'stock_ready' && v > 0 && upb > 0 && (
                         <div className="text-[10px] text-gray-400 whitespace-nowrap">
@@ -195,6 +301,7 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
           </tbody>
         </table>
       </div>
+      {detail && <StatusBreakdownModal product={detail.product} kind={detail.kind} onClose={() => setDetail(null)} />}
     </div>
   );
 }

@@ -90,6 +90,8 @@ export const reportApi = {
   payrollMonthly: (month: string) => api.get('/reports/payroll-monthly', { params: { month } }).then(r => r.data),
   payrollCumulative: () => api.get('/reports/payroll-cumulative').then(r => r.data),
   setManagerMonth: (data: any) => api.put('/reports/manager-month', data).then(r => r.data),
+  // แตกยอดสถานะงานเป็นรายสมาชิก (kind: with_members | ready)
+  stockStatusBreakdown: (productId: number, kind: 'with_members' | 'ready') => api.get('/reports/stock-status-breakdown', { params: { product_id: productId, kind } }).then(r => r.data),
   stockFlow: (month?: string) => api.get('/reports/stock-flow', { params: month ? { month } : {} }).then(r => r.data),
   stockFlowExport: (month?: string) => api.post('/reports/stock-flow-export', month ? { month } : {}, { responseType: 'blob', timeout: 60000 }).then(r => r.data),
   billing: (month?: string) => api.get('/reports/billing', { params: month ? { month } : {} }).then(r => r.data),

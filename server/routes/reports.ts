@@ -842,6 +842,66 @@ router.get('/stock-flow', (req, res) => {
   res.json(computeStockFlow(m));
 });
 
+/* ── แตกยอด "สถานะงาน ณ วันนี้" เป็นรายสมาชิก (คลิกตัวเลขในบัตรสต็อก) ──────────────
+   kind=with_members : รอรับกลับจากสมาชิก = ใบเบิกที่ยังคืนไม่ครบ แยกรายสมาชิก/รายใบ (สูตรเดียวกับ computeStockStatus → รวมเท่ายอดในบัตร)
+   kind=ready        : พร้อมส่งโรงงาน = ของที่สมาชิกคืนแล้วรอส่ง — ยอดคืนสะสมไม่ได้ผูกกับสมาชิกตอนส่งออก จึงสมมติว่า
+                       ส่งของเก่าก่อน (FIFO) ที่เหลืออยู่จึงเป็นของที่คืนล่าสุด ไล่จากล่าสุดย้อนหลังจนครบยอดพร้อมส่ง
+                       ส่วนที่ยอดคืนไม่ครอบคลุม (ยอดยกมา/ปรับยอดสต็อก) แสดงแยกเป็น "ไม่ระบุสมาชิก" */
+router.get('/stock-status-breakdown', (req, res) => {
+  const pid = Number(req.query.product_id);
+  const kind = req.query.kind === 'ready' ? 'ready' : 'with_members';
+  const product = prepare(`SELECT id, code, name, unit, color FROM products WHERE id = ?`).get(pid) as any;
+  if (!product) return res.status(404).json({ error: 'ไม่พบสินค้า' });
+  const st = computeStockStatus()(pid);
+  const byMember = new Map<number, any>();
+  const member = (r: any) => {
+    if (!byMember.has(r.mid)) byMember.set(r.mid, { member_id: r.mid, code: r.mcode, name: r.mname, nickname: r.mnick, qty: 0, items: [] as any[] });
+    return byMember.get(r.mid);
+  };
+
+  let total = 0, unassigned = 0;
+  if (kind === 'with_members') {
+    const rows = prepare(`
+      SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, i.id iid, i.code icode, substr(i.issued_at, 1, 10) d,
+        i.quantity q, COALESCE(rt.t, 0) ret
+      FROM issues i JOIN members m ON i.member_id = m.id
+      LEFT JOIN (SELECT issue_id, SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) t
+                 FROM returns GROUP BY issue_id) rt ON rt.issue_id = i.id
+      WHERE i.product_id = ? AND i.quantity > COALESCE(rt.t, 0)
+      ORDER BY i.issued_at, i.id`).all(pid) as any[];
+    for (const r of rows) {
+      const left = Number(r.q) - Number(r.ret);
+      const m = member(r);
+      m.qty += left; total += left;
+      m.items.push({ date: r.d, code: r.icode, issued: Number(r.q), returned: Number(r.ret), qty: left });
+    }
+    total = st.with_members;   // ตรงกับบัตรเสมอ (ผลรวมแถวด้านบนคำนวณด้วยสูตรเดียวกัน)
+  } else {
+    total = st.ready;
+    let left = total;
+    const rows = prepare(`
+      SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
+        COALESCE(r.good_qty,0) g, COALESCE(r.defect_qty,0) df
+      FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
+      WHERE i.product_id = ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
+      ORDER BY r.returned_at DESC, r.id DESC`).all(pid) as any[];
+    for (const r of rows) {
+      if (left <= 0) break;
+      const full = Number(r.g) + Number(r.df);
+      const take = Math.min(full, left);
+      const m = member(r);
+      m.qty += take; left -= take;
+      m.items.push({ date: r.d, code: r.rcode, returned: full, qty: take, partial: take < full });
+    }
+    unassigned = Math.max(0, left);
+  }
+  const members = [...byMember.values()].sort((a, b) => b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
+  res.json({ product, kind, total, members, unassigned,
+    note: kind === 'ready'
+      ? 'ประมาณจากการคืนล่าสุดย้อนหลัง (สมมติว่าส่งของที่คืนก่อนออกไปก่อน) — ระบบไม่ได้ผูกล็อตที่ส่งออกกับสมาชิก'
+      : null });
+});
+
 // Export ตารางตรวจสอบสต็อค (Check & Balance) เป็นไฟล์ Excel
 router.post('/stock-flow-export', (req, res) => {
   const body = req.body || {};
