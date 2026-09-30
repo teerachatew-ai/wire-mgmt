@@ -227,40 +227,44 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                           {fmt(m.total)}
                         </td>
                         <td className={`border-b px-3 py-2 text-right ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
-                          {pending > 0 ? (
-                            onReturnRow ? (
-                              // คลิกยอดค้างส่ง -> เปิดกล่องรับคืนงานทุกใบของคนนี้วันนี้ทีเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
-                              <button type="button"
-                                onClick={() => onReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
-                                title="คลิกเพื่อรับคืนงานของคนนี้"
-                                className="inline-flex items-center gap-1 font-semibold text-amber-600 rounded px-1.5 -mx-1.5 hover:bg-amber-100 hover:text-amber-800 cursor-pointer">
-                                {fmt(pending)} <RotateCcw size={11} className="opacity-60" />
-                              </button>
+                          {/* บรรทัดบน = สถานะหลัก (ยอดค้างส่ง/ส่งครบ) · บรรทัดล่าง = ข้อมูลรอง (คืนบางส่วน/วันที่คืน) + ปุ่ม Undo แบบไอคอนเล็ก
+                              Undo จางไว้จนกว่าจะชี้ที่แถว (จอใหญ่) กันตาลายทั้งคอลัมน์ · จอมือถือไม่มี hover จึงโชว์ปกติ */}
+                          <div className="flex flex-col items-end gap-0.5">
+                            {pending > 0 ? (
+                              onReturnRow ? (
+                                // คลิกยอดค้างส่ง -> เปิดกล่องรับคืนงานทุกใบของคนนี้วันนี้ทีเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
+                                <button type="button"
+                                  onClick={() => onReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                                  title="คลิกเพื่อรับคืนงานของคนนี้"
+                                  className="inline-flex items-center gap-1 font-semibold text-amber-600 rounded px-1.5 -mx-1.5 hover:bg-amber-100 hover:text-amber-800 cursor-pointer">
+                                  {fmt(pending)} <RotateCcw size={11} className="opacity-60" />
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-amber-600">{fmt(pending)}</span>
+                              )
                             ) : (
-                              <span className="font-semibold text-amber-600">{fmt(pending)}</span>
-                            )
-                          ) : null}
-                          {pending > 0 ? null : (
-                            <span className="text-emerald-600" title={m.lastReturnedAt ? `ส่งครบแล้ว — คืนล่าสุด ${m.lastReturnedAt}` : 'ส่งครบแล้ว'}>
-                              ✓
-                              {m.lastReturnedAt && <span className="block text-[10px] text-gray-400 font-normal leading-tight">{shortLot(m.lastReturnedAt)}</span>}
-                            </span>
-                          )}
-                          {onUndoReturnRow && m.returned > 0 && (
-                            <button type="button"
-                              onClick={() => onUndoReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
-                              title="ยกเลิกการรับคืน — ให้กลับไปเป็นค้างส่งเหมือนเดิม"
-                              className="ml-2 inline-flex items-center gap-0.5 align-top text-[11px] text-slate-500 border border-slate-200 rounded px-1.5 py-0.5 hover:bg-slate-100 hover:text-slate-800">
-                              <Undo2 size={11} /> Undo
-                            </button>
-                          )}
-                          {pending > 0 && m.returned > 0 && (
-                            // คืนมาแล้วบางส่วน ยังค้างอยู่ — ป้ายเล็กใต้ยอดค้างส่ง/ไอคอนรับคืน
-                            <span className="block mt-0.5 leading-none">
-                              <span className="inline-block text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5 whitespace-nowrap"
-                                title={`คืนแล้ว ${fmt(m.returned)} จาก ${fmt(m.total)}`}>คืนบางส่วน</span>
-                            </span>
-                          )}
+                              <span className="text-emerald-600 font-semibold" title={m.lastReturnedAt ? `ส่งครบแล้ว — คืนล่าสุด ${m.lastReturnedAt}` : 'ส่งครบแล้ว'}>✓</span>
+                            )}
+                            {(m.returned > 0 || (pending <= 0 && m.lastReturnedAt)) && (
+                              <div className="flex items-center gap-1 leading-none">
+                                {pending > 0 ? (
+                                  <span className="text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5 whitespace-nowrap"
+                                    title={`คืนแล้ว ${fmt(m.returned)} จาก ${fmt(m.total)}`}>คืนบางส่วน</span>
+                                ) : m.lastReturnedAt ? (
+                                  <span className="text-[10px] text-gray-400" title={`คืนล่าสุด ${m.lastReturnedAt}`}>{shortLot(m.lastReturnedAt)}</span>
+                                ) : null}
+                                {onUndoReturnRow && m.returned > 0 && (
+                                  <button type="button"
+                                    onClick={() => onUndoReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                                    title="Undo — ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง"
+                                    aria-label="ยกเลิกการรับคืน"
+                                    className="inline-flex items-center justify-center w-5 h-5 rounded-md text-slate-400 group-hover:text-slate-600 md:opacity-40 md:group-hover:opacity-100 focus-visible:opacity-100 hover:!text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 transition">
+                                    <Undo2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
