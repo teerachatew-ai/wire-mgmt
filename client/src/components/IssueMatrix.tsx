@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Eye, Pencil, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { Eye, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
@@ -257,9 +257,8 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                   <button type="button"
                                     onClick={() => onUndoReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
                                     title="Undo — ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง"
-                                    aria-label="ยกเลิกการรับคืน"
-                                    className="inline-flex items-center justify-center w-5 h-5 rounded-md text-slate-400 group-hover:text-slate-600 md:opacity-40 md:group-hover:opacity-100 focus-visible:opacity-100 hover:!text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 transition">
-                                    <Undo2 size={12} />
+                                    className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-slate-400 group-hover:text-slate-600 md:opacity-50 md:group-hover:opacity-100 focus-visible:opacity-100 hover:!text-rose-600 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 transition whitespace-nowrap">
+                                    <X size={10} strokeWidth={2.5} /> ยกเลิกคืน
                                   </button>
                                 )}
                               </div>
@@ -306,7 +305,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                 {onEdit && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ตัวเลขเพื่อแก้จำนวนเบิกได้ทันที (ถ้าวันนั้นมีหลายใบ จะแก้ได้ทีละใบในกล่องเดียว)</span>}
                 {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
                 {onReturnRow && <span className="flex items-center gap-1.5"><RotateCcw size={12} /> คลิกที่ยอดค้างส่ง (สีส้ม) เพื่อรับคืนงานทุกชนิดที่ค้างของคนนั้นทีเดียว</span>}
-                {onUndoReturnRow && <span className="flex items-center gap-1.5"><Undo2 size={12} /> Undo = ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง</span>}
+                {onUndoReturnRow && <span className="flex items-center gap-1.5"><X size={12} /> ยกเลิกคืน (Undo) = ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง</span>}
                 {onDeleteRow && <span className="flex items-center gap-1.5"><Trash2 size={12} /> ถังขยะหน้าชื่อ = ลบใบเบิกทั้งบรรทัดของคนนั้น</span>}
                 {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
                 <span className="flex items-center gap-1.5 flex-wrap">
