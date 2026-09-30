@@ -920,7 +920,7 @@ router.get('/payroll-monthly', (req, res) => {
     const ng_deduction = mine.reduce((s, p) => s + p.amount, 0);   // ค่าปรับ NG ตามกติกาของรอบนั้น (wagePolicy.ts)
     const ng_excess_qty = mine.reduce((s, p) => s + p.legacy_excess, 0);
     // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
-    const ng_group_times = mine.reduce((mx, p) => Math.max(mx, p.group_tier || 0), 0);   // NG กลุ่มกี่ครั้งในรอบนี้ (กติกาใหม่)
+    const ng_group_times = mine.reduce((mx, p) => Math.max(mx, p.group_tier || 0), 0);   // NG ตัดโดนสายไฟกี่ครั้งในรอบนี้ (กติกาใหม่)
     return { ...m, ng_excess_qty, ng_group_times, ng_deduction, deductions: deductionLines(mine, pol),
       total_wage: Math.ceil(m.gross_wage - ng_deduction), products: productsByMember[m.member_id] || [] };
   });
@@ -1005,7 +1005,7 @@ function buildPayrollDetail(month: string) {
     const mine = penRows.filter(p => p.member_id === m.member_id);
     const ng_deduction = mine.reduce((s, p) => s + p.amount, 0);
     const ng_excess_qty = mine.reduce((s, p) => s + p.legacy_excess, 0);
-    // บรรทัดหัก/เตือนในใบเสร็จ — รอบเก่าเป็นบรรทัด "NG เกินเกณฑ์" แบบเดิม รอบใหม่แยก NG กลุ่มครั้งที่ 1/2/3, NG ดึงเชือก
+    // บรรทัดหัก/เตือนในใบเสร็จ — รอบเก่าเป็นบรรทัด "NG เกินเกณฑ์" แบบเดิม รอบใหม่แยก NG ตัดโดนสายไฟครั้งที่ 1/2/3, NG ดึงเชือก
     const deductions = deductionLines(mine, pol);
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
     const rows = (detailRowsStmt.all(m.member_id, month) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
@@ -1206,7 +1206,7 @@ function buildWageReconcile(m: string) {
     const wage_billed = p.ship_good_cal * wage;               // A
     const wage_dFG = dFG * wage;                               // ΔFG
     const wage_timing = (p.ret_good_cyc - p.ret_good_cal) * wage;  // T (เหลื่อมรอบตัดยอด)
-    // X — ส่วนที่ไม่ได้อยู่ใน "งานดี": NG โรงงาน/หาย (เต็ม) + NG กลุ่ม/ดึงเชือก (ตาม %) − ส่วนที่หักจากงานแก้ไข (งานแก้ไขนับอยู่ในงานดีแล้ว)
+    // X — ส่วนที่ไม่ได้อยู่ใน "งานดี": NG โรงงาน/หาย (เต็ม) + NG ตัดโดนสายไฟ/ดึงเชือก (ตาม %) − ส่วนที่หักจากงานแก้ไข (งานแก้ไขนับอยู่ในงานดีแล้ว)
     const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * pol.defectPct - p.ret_rework_cyc * wage * pol.reworkPct;
     const wage_payroll = wage_billed + wage_dFG + wage_timing + wage_extra;  // B (gross)
     // ไม่ clamp ที่ 0 ต่อสินค้า — ถ้าสินค้าไหนส่งออกมากกว่าที่คืนงานสะสม (fg ติดลบ) ต้องปล่อยให้ติดลบจริง

@@ -914,7 +914,7 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
 /* ── รับคืนงานทั้งหมดของสมาชิกคนหนึ่งในวันเดียว — คลิกที่ยอดค้างส่ง (สีส้ม) ในตารางสรุปรายวัน ──
    รวมใบเบิกที่ยังค้างของคนนั้น "ทุกชนิดงาน" ที่เบิกวันนั้นมาคืนพร้อมกันในกล่องเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
    ค่าเริ่มต้น = คืนครบทุกใบ ไม่มีงานเสีย · ช่องงานเสียโชว์ให้กรอกเลยทุกใบ (ไม่ต้องกด +)
-   กรอก "คืนทั้งหมด" + งาน NG โรงงาน / NG กลุ่ม / NG ดึงเชือก / งานแก้ไข → งานดีคำนวณให้เอง
+   กรอก "คืนทั้งหมด" + งาน NG โรงงาน / NG ตัดโดนสายไฟ / NG ดึงเชือก / งานแก้ไข → งานดีคำนวณให้เอง
    (งานแก้ไขเป็นส่วนหนึ่งของงานดี ส่งโรงงานได้ แต่หักค่าแรงตาม % ในหน้าตั้งค่า)
    ใช้ remainOf สูตรเดียวกับที่ IssueMatrix ใช้ตัดสินว่าจะโชว์ปุ่มนี้ไหม (ผลรวม good+defect+waste ไม่รวม lost —
    สอดคล้องกับยอด "ค้างส่ง" ที่เห็นในตาราง ตัวเลขจะได้ตรงกัน) */
@@ -943,7 +943,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   // ช่องงานเสีย — ลำดับ/ชื่อตามที่หน้างานใช้ + คำใบ้สั้นๆ ว่าคิดเงินยังไง
   const NG_FIELDS = [
     ['ng_factory', 'งาน NG โรงงาน', 'ไม่ปรับ'],
-    ['ng_cut', 'NG กลุ่ม', 'มีค่าปรับ'],
+    ['ng_cut', 'NG ตัดโดนสายไฟ', 'มีค่าปรับ'],
     ['ng_rope', 'NG ดึงเชือก', 'มีค่าปรับ'],
     ['rework_qty', 'งานแก้ไข', 'หักค่าแรง %'],
   ] as const;
@@ -1261,7 +1261,7 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
                     <span className="text-[11px] font-mono text-blue-600 ml-1.5">{r.code}</span>
                     <span className="block text-[11px] text-gray-400">
                       คืนวันที่ {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
-                      {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG กลุ่ม ${r.ng_cut}`}
+                      {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG ตัดโดนสายไฟ ${r.ng_cut}`}
                       {Number(r.ng_rope) > 0 && ` · NG ดึงเชือก ${r.ng_rope}`}{Number(r.rework_qty) > 0 && ` · งานแก้ไข ${r.rework_qty}`}
                     </span>
                   </span>

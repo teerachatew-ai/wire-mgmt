@@ -143,7 +143,7 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
             <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
           </div>
           <div>
-            <label className="label text-rose-600">NG กลุ่ม <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
+            <label className="label text-rose-600">NG ตัดโดนสายไฟ <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_cut')} />
           </div>
           <div>
@@ -309,7 +309,7 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
       </div>
       <div className="flex items-end gap-2 mt-2 flex-wrap">
         {numField('งานดี', good, setGood, 'font-semibold text-green-700')}
-        {numField('NG กลุ่ม', ngCut, setNgCut)}
+        {numField('NG ตัดโดนสายไฟ', ngCut, setNgCut)}
         {numField('NG โรงงาน', ngFactory, setNgFactory)}
         <div className="w-36 shrink-0">
           <label className="block text-[10px] text-gray-400">วันที่คืน</label>
@@ -544,7 +544,7 @@ export default function Returns() {
           <ExportExcelButton filename="รับคืนงาน" rows={(returns_ as any[]).map(r => ({
             'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
             'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
-            'งานดี': r.good_qty, 'งานแก้ไข': r.rework_qty ?? 0, 'NG กลุ่ม': r.ng_cut ?? r.defect_qty, 'NG ดึงเชือก': r.ng_rope ?? 0, 'NG โรงงาน': r.ng_factory ?? 0,
+            'งานดี': r.good_qty, 'งานแก้ไข': r.rework_qty ?? 0, 'NG ตัดโดนสายไฟ': r.ng_cut ?? r.defect_qty, 'NG ดึงเชือก': r.ng_rope ?? 0, 'NG โรงงาน': r.ng_factory ?? 0,
             'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
@@ -577,7 +577,7 @@ export default function Returns() {
               <th className="px-4 py-3 font-medium">สมาชิก</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
               <th className="px-4 py-3 font-medium text-right">งานดี</th>
-              <th className="px-4 py-3 font-medium text-right text-rose-500">NG กลุ่ม</th>
+              <th className="px-4 py-3 font-medium text-right text-rose-500">NG ตัดโดนสายไฟ</th>
               <th className="px-4 py-3 font-medium text-right text-amber-600">NG โรงงาน</th>
               <th className="px-4 py-3 font-medium">ผู้ตรวจ</th>
               <th className="px-4 py-3 font-medium"></th>
@@ -706,7 +706,7 @@ export default function Returns() {
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-xs text-rose-600">NG กลุ่ม (มีค่าปรับ)</label>
+                            <label className="text-xs text-rose-600">NG ตัดโดนสายไฟ (มีค่าปรับ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
                           </div>
                           <div>

@@ -5,24 +5,24 @@ import { prepare } from './db';
      • งานดี (good_qty)         — จ่ายเต็ม · เก็บรวม "งานแก้ไข" ไว้ด้วย (งานแก้ไขคือของดีที่ส่งโรงงานได้)
      • งานแก้ไข (rework_qty)    — เป็นส่วนหนึ่งของงานดี แต่หักค่าแรง X% (ตั้งค่า rework_deduct_percent)
      • NG โรงงาน (ng_factory)   — จ่ายเต็ม ไม่มีค่าปรับ (ไม่ใช่ความผิดสมาชิก)
-     • NG กลุ่ม (ng_cut)        — ตัดขาด/ตัดพลาดเอง · ค่าแรงตาม defect_wage_percent · มีค่าปรับขั้นบันได
-     • NG ดึงเชือก (ng_rope)    — ค่าแรงแบบเดียวกับ NG กลุ่ม · ค่าปรับอีกอัตรา (ng_rope_rate) ทุกครั้ง
+     • NG ตัดโดนสายไฟ (ng_cut)        — ตัดขาด/ตัดพลาดเอง · ค่าแรงตาม defect_wage_percent · มีค่าปรับขั้นบันได
+     • NG ดึงเชือก (ng_rope)    — ค่าแรงแบบเดียวกับ NG ตัดโดนสายไฟ · ค่าปรับอีกอัตรา (ng_rope_rate) ทุกครั้ง
    defect_qty = ng_cut + ng_factory + ng_rope (สต็อก/ส่งออกใช้ยอดนี้เป็นของเสีย)
 
    ค่าปรับ (นับต่อสมาชิก ต่อรอบค่าแรง รีเซ็ตทุกเดือน)
      รอบตั้งแต่ ng_policy_from:
-       NG กลุ่ม นับ "ครั้ง" ตามวันที่รับคืนที่มี NG กลุ่ม (คืนหลายชนิดวันเดียวกัน = ครั้งเดียว)
+       NG ตัดโดนสายไฟ นับ "ครั้ง" ตามวันที่รับคืนที่มี NG ตัดโดนสายไฟ (คืนหลายชนิดวันเดียวกัน = ครั้งเดียว)
          ครั้งที่ 1 = ตักเตือน (ไม่หักเงิน) · ครั้งที่ 2 = ng_group_rate_2 บาท/เส้น · ครั้งที่ 3 ขึ้นไป = ng_group_rate_3 บาท/เส้น
        NG ดึงเชือก = ng_rope_rate บาท/เส้น ทุกครั้ง
      รอบก่อนหน้านั้น: กติกาเดิม "NG เกินเกณฑ์" (เกิน defect_tolerance% × ng_penalty_per_unit) — ไม่แตะของอดีต
    คิดค่าปรับ "ต่อรายการรับคืน" ได้ทั้งหมด จึงรวมย่อยตามสินค้า/วันที่ แล้วบวกกันได้เท่ายอดรวมเป๊ะ */
 
 export type WagePolicy = {
-  defectPct: number;   // ค่าแรงของ NG กลุ่ม/NG ดึงเชือก (สัดส่วนของค่าแรงเต็ม)
+  defectPct: number;   // ค่าแรงของ NG ตัดโดนสายไฟ/NG ดึงเชือก (สัดส่วนของค่าแรงเต็ม)
   reworkPct: number;   // หักค่าแรงงานแก้ไข (สัดส่วนของค่าแรงเต็ม)
   legacyRate: number;  // กติกาเดิม: บาท/เส้นที่เกินเกณฑ์
-  groupRate2: number;  // NG กลุ่ม ครั้งที่ 2 (บาท/เส้น)
-  groupRate3: number;  // NG กลุ่ม ครั้งที่ 3 ขึ้นไป (บาท/เส้น)
+  groupRate2: number;  // NG ตัดโดนสายไฟ ครั้งที่ 2 (บาท/เส้น)
+  groupRate3: number;  // NG ตัดโดนสายไฟ ครั้งที่ 3 ขึ้นไป (บาท/เส้น)
   ropeRate: number;    // NG ดึงเชือก (บาท/เส้น)
   policyFrom: string;  // รอบค่าแรงแรกที่ใช้กติกาใหม่ (YYYY-MM)
 };
@@ -64,7 +64,7 @@ export type PenaltyRow = {
   ng_cut: number; ng_rope: number;
   legacy: boolean;
   legacy_excess: number;        // กติกาเดิม: เส้นที่เกินเกณฑ์
-  group_tier: number | null;    // กติกาใหม่: NG กลุ่ม ครั้งที่เท่าไหร่ของรอบนั้น
+  group_tier: number | null;    // กติกาใหม่: NG ตัดโดนสายไฟ ครั้งที่เท่าไหร่ของรอบนั้น
   group_rate: number;
   amount: number;               // ค่าปรับของรายการนี้ (บาท)
 };
@@ -139,7 +139,7 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
     }
     return lines;
   }
-  // NG กลุ่ม — รวมตามครั้ง (วันที่)
+  // NG ตัดโดนสายไฟ — รวมตามครั้ง (วันที่)
   const byTier = new Map<number, { date: string; qty: number; rate: number }>();
   for (const r of rows) {
     if (r.group_tier === null) continue;
@@ -149,9 +149,9 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
   }
   for (const [tier, t] of [...byTier.entries()].sort((a, b) => a[0] - b[0])) {
     if (tier === 1 || t.rate <= 0) {
-      lines.push({ label: `NG กลุ่ม ครั้งที่ ${tier} (${dm(t.date)}) ${fmtN(t.qty)} เส้น — ${tier === 1 ? 'ตักเตือน' : 'ยังไม่ได้ตั้งอัตราค่าปรับ'}`, amount: 0, note: 'warn' });
+      lines.push({ label: `NG ตัดโดนสายไฟ ครั้งที่ ${tier} (${dm(t.date)}) ${fmtN(t.qty)} เส้น — ${tier === 1 ? 'ตักเตือน' : 'ยังไม่ได้ตั้งอัตราค่าปรับ'}`, amount: 0, note: 'warn' });
     } else {
-      lines.push({ label: `หัก NG กลุ่ม ครั้งที่ ${tier} (${dm(t.date)}) ${fmtN(t.qty)} เส้น × ${fmtN(t.rate)} บาท`, amount: t.qty * t.rate });
+      lines.push({ label: `หัก NG ตัดโดนสายไฟ ครั้งที่ ${tier} (${dm(t.date)}) ${fmtN(t.qty)} เส้น × ${fmtN(t.rate)} บาท`, amount: t.qty * t.rate });
     }
   }
   const rope = rows.reduce((s, r) => s + r.ng_rope, 0);

@@ -13,18 +13,18 @@ function payCycleFor(returnedAt: string): string {
 
 /* แยกยอดคืนจาก body — ใช้ร่วมกันทั้ง POST / batch / PUT
    good_qty = งานดีทั้งหมด "รวมงานแก้ไขแล้ว" (งานแก้ไขส่งโรงงานได้เหมือนงานดี แต่หักค่าแรง % — ดู wagePolicy.ts)
-   defect_qty = NG กลุ่ม + NG โรงงาน + NG ดึงเชือก (ยอดรวมของเสียที่ระบบสต็อก/คุณภาพใช้)
+   defect_qty = NG ตัดโดนสายไฟ + NG โรงงาน + NG ดึงเชือก (ยอดรวมของเสียที่ระบบสต็อก/คุณภาพใช้)
    ถ้าไม่ส่งฟิลด์ใหม่มา (หน้าจอเก่า/พอร์ทัล) ใช้ค่าเดิมของรายการ (prev) หรือ 0 */
 function parseQty(b: any, prev?: any) {
   const num = (v: any) => parseFloat(v) || 0;
   const keep = (k: string) => (b[k] === undefined && prev ? num(prev[k]) : num(b[k]));
   const gQty = num(b.good_qty);
-  const ngCut = num(b.ng_cut);                 // NG กลุ่ม (มีค่าปรับ)
+  const ngCut = num(b.ng_cut);                 // NG ตัดโดนสายไฟ (มีค่าปรับ)
   const ngFac = num(b.ng_factory);             // NG โรงงาน (จ่ายปกติ ไม่ปรับ)
   const ngRope = keep('ng_rope');              // NG ดึงเชือก (ค่าปรับอีกอัตรา)
   const rework = Math.min(keep('rework_qty'), gQty);
   const split = ngCut + ngFac + ngRope;
-  // รองรับของเดิมที่ส่ง defect_qty มาเดี่ยวๆ -> นับเป็น NG กลุ่ม
+  // รองรับของเดิมที่ส่ง defect_qty มาเดี่ยวๆ -> นับเป็น NG ตัดโดนสายไฟ
   const dQty = split > 0 ? split : num(b.defect_qty);
   const finalNgCut = split > 0 ? ngCut : dQty;
   return { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty: num(b.waste_qty), lQty: keep('lost_qty') };

@@ -523,7 +523,7 @@ def write_member_sheet(m, label=None):
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
-    # กติกาใหม่ (ตั้งแต่รอบ ก.ย. 2569): NG กลุ่ม ครั้งที่ 1 ตักเตือน / ครั้งที่ 2, 3 หักตามอัตรา / NG ดึงเชือก
+    # กติกาใหม่ (ตั้งแต่รอบ ก.ย. 2569): NG ตัดโดนสายไฟ ครั้งที่ 1 ตักเตือน / ครั้งที่ 2, 3 หักตามอัตรา / NG ดึงเชือก
     # ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines) — บรรทัดเตือนไม่มีตัวเงิน แสดงข้อความสีเหลืองเข้ม
     # รอบเก่าใช้บล็อก "หัก NG เกินเกณฑ์" ด้านล่างเหมือนเดิมทุกอย่าง (ng_excess_qty > 0 เฉพาะรอบเก่า)
     if not m.get("ng_excess_qty"):

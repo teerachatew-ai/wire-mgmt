@@ -137,7 +137,7 @@ export default function SettingsPage() {
           <input type="number" min="1" className="input" value={current.overdue_days_limit || ''} onChange={e => set('overdue_days_limit', e.target.value)} />
         </div>
         <div>
-          <label className="label">% ค่าจ้างสำหรับงานเสีย (NG กลุ่ม / NG ดึงเชือก)</label>
+          <label className="label">% ค่าจ้างสำหรับงานเสีย (NG ตัดโดนสายไฟ / NG ดึงเชือก)</label>
           <input type="number" min="0" max="100" step="1" className="input" value={current.defect_wage_percent || ''} onChange={e => set('defect_wage_percent', e.target.value)} />
           <p className="text-xs text-gray-400 mt-1">0 = ไม่จ่ายค่าแรงสำหรับงานเสีย, 100 = จ่ายเต็ม · NG โรงงานจ่ายเต็มเสมอ</p>
         </div>
@@ -149,7 +149,7 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-500 mt-0.5">มีผลตั้งแต่รอบจ่ายค่าแรงเดือน ก.ย. 2569 เป็นต้นไป · นับครั้งใหม่ทุกรอบจ่าย · NG โรงงานไม่มีค่าปรับ</p>
           </div>
           <div className="text-sm text-gray-700">
-            <span className="font-medium">NG กลุ่ม</span> <span className="text-xs text-gray-400">(ตัดสายไฟขาด — นับครั้งตามวันที่รับคืนที่มี NG กลุ่ม)</span>
+            <span className="font-medium">NG ตัดโดนสายไฟ</span> <span className="text-xs text-gray-400">(นับครั้งตามวันที่รับคืนที่มี NG ประเภทนี้)</span>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
