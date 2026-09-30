@@ -379,7 +379,7 @@ router.get('/member-paycycle/:memberId', (req, res) => {
   for (const r of rows) {
     const pr = penById.get(r.id);
     r.penalty = pr ? pr.amount : 0;
-    r.ng_group_tier = pr ? pr.group_tier : null;
+    r.ng_strike = pr ? pr.strike : null;   // NG ครั้งที่เท่าไหร่ (สะสม) ของงานวันที่เบิกนี้
   }
   // สรุปต่อประเภทงาน
   const g: Record<string, any> = {};
@@ -920,8 +920,9 @@ router.get('/payroll-monthly', (req, res) => {
     const ng_deduction = mine.reduce((s, p) => s + p.amount, 0);   // ค่าปรับ NG ตามกติกาของรอบนั้น (wagePolicy.ts)
     const ng_excess_qty = mine.reduce((s, p) => s + p.legacy_excess, 0);
     // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
-    const ng_group_times = mine.reduce((mx, p) => Math.max(mx, p.group_tier || 0), 0);   // NG ตัดโดนสายไฟกี่ครั้งในรอบนี้ (กติกาใหม่)
-    return { ...m, ng_excess_qty, ng_group_times, ng_deduction, deductions: deductionLines(mine, pol),
+    // NG ครั้งที่เท่าไหร่บ้างที่หักในรอบนี้ (นับสะสม) เช่น [2, 3]
+    const ng_strikes = [...new Set(mine.filter(p => p.strike).map(p => p.strike as number))].sort((a, b) => a - b);
+    return { ...m, ng_excess_qty, ng_strikes, ng_deduction, deductions: deductionLines(mine, pol),
       total_wage: Math.ceil(m.gross_wage - ng_deduction), products: productsByMember[m.member_id] || [] };
   });
 
@@ -946,7 +947,8 @@ router.get('/payroll-monthly', (req, res) => {
 
   res.json({
     month,
-    ng_policy: String(month) >= pol.policyFrom ? 'tiered' : 'legacy',   // หน้าเว็บเลือกคอลัมน์ค่าปรับให้ตรงกติกาของรอบ
+    // หน้าเว็บเลือกคอลัมน์ค่าปรับให้ตรงกติกาของรอบ (กติกาใหม่ = งานจากล็อตตั้งแต่ 28 ส.ค. 2569)
+    ng_policy: penRows.some(p => !p.legacy) || String(month) >= '2026-09' ? 'tiered' : 'legacy',
     members,
     total_wage,
     month_revenue: monthRevenue,

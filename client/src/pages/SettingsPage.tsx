@@ -142,15 +142,16 @@ export default function SettingsPage() {
           <p className="text-xs text-gray-400 mt-1">0 = ไม่จ่ายค่าแรงสำหรับงานเสีย, 100 = จ่ายเต็ม · NG โรงงานจ่ายเต็มเสมอ</p>
         </div>
 
-        {/* ค่าปรับงานเสีย + งานแก้ไข — กติกาอยู่ที่ server/wagePolicy.ts (มีผลตั้งแต่รอบค่าแรง ก.ย. 2569) */}
+        {/* ค่าปรับงานเสีย + งานแก้ไข — กติกาอยู่ที่ server/wagePolicy.ts (งานจากล็อตตั้งแต่ 28 ส.ค. 2569) */}
         <div className="border rounded-xl p-4 space-y-3 bg-rose-50/30">
           <div>
             <h3 className="font-semibold text-gray-800">ค่าปรับงานเสีย (NG) และงานแก้ไข</h3>
-            <p className="text-xs text-gray-500 mt-0.5">มีผลตั้งแต่รอบจ่ายค่าแรงเดือน ก.ย. 2569 เป็นต้นไป · นับครั้งใหม่ทุกรอบจ่าย · NG โรงงานไม่มีค่าปรับ</p>
+            <p className="text-xs text-gray-500 mt-0.5">มีผลกับงานจากล็อตที่โรงงานมาส่งตั้งแต่ 28 ส.ค. 2569 · นับครั้งสะสมต่อเนื่อง (ไม่รีเซ็ตรายเดือน) · NG โรงงานไม่มีค่าปรับ</p>
           </div>
           <div className="text-sm text-gray-700">
-            <span className="font-medium">NG ตัดโดนสายไฟ</span> <span className="text-xs text-gray-400">(นับครั้งตามวันที่รับคืนที่มี NG ประเภทนี้)</span>
+            <span className="font-medium">การนับครั้ง</span> <span className="text-xs text-gray-400">นับรวม NG ตัดโดนสายไฟ + NG ดึงเชือก · งานที่เบิกวันเดียวกัน = 1 ครั้ง ไม่ว่ากี่เส้น</span>
           </div>
+          <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG ตัดโดนสายไฟ</div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="label">ครั้งที่ 1</label>
@@ -169,7 +170,7 @@ export default function SettingsPage() {
             <div>
               <label className="label">NG ดึงเชือก <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
               <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate || ''} onChange={e => set('ng_rope_rate', e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">ปรับทุกครั้งที่มี</p>
+              <p className="text-xs text-gray-400 mt-1">ตั้งแต่ครั้งที่ 2 (ครั้งแรกตักเตือน)</p>
             </div>
             <div>
               <label className="label">งานแก้ไข <span className="text-[11px] text-gray-400 font-normal">หักค่าแรง %</span></label>

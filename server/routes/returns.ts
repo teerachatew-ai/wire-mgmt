@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { computePayCycle, loadCutoffConfig } from '../payCycle';
 import { userOf } from '../reqUser';
+import { loadWagePolicy, computePenalties, strikeSummaries, strikeDetail, thDay } from '../wagePolicy';
 
 const router = Router();
 
@@ -38,6 +39,40 @@ function updateIssueStatus(issueId: number) {
   prepare(`UPDATE issues SET status = ? WHERE id = ?`).run(status, issueId);
   return { status, total };
 }
+
+/* พรีวิวค่าปรับ NG ก่อนกดยืนยันรับคืน — หน้าเว็บเอาไปแสดงหน้าต่างเตือน
+   body: { returned_at, lines: [{ issue_id, ng_cut, ng_rope, good_qty }], exclude_return_id? }
+   ตอบกลับเฉพาะสมาชิกที่มี NG ตามกติกาใหม่ (งานจากล็อตตั้งแต่ 28 ส.ค. 2569) พร้อม "ครั้งที่" สะสม และค่าปรับของรอบนี้ */
+router.post('/ng-preview', (req, res) => {
+  const { returned_at, lines, exclude_return_id } = req.body || {};
+  if (!returned_at || !Array.isArray(lines)) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  const pol = loadWagePolicy();
+  const virt = lines.map((l: any) => ({ issue_id: Number(l.issue_id), returned_at: String(returned_at),
+    ng_cut: parseFloat(l.ng_cut) || 0, ng_rope: parseFloat(l.ng_rope) || 0, good_qty: parseFloat(l.good_qty) || 0 }));
+  const all = computePenalties(pol, {}, virt, exclude_return_id ? Number(exclude_return_id) : undefined);
+  const fresh = all.filter(r => r.id < 0 && r.strike !== null);
+  const byMember = new Map<number, any>();
+  for (const r of fresh) {
+    if (!byMember.has(r.member_id)) {
+      const m = prepare(`SELECT id, code, name, nickname FROM members WHERE id = ?`).get(r.member_id) as any;
+      // ครั้งที่มีอยู่แล้วก่อนรายการนี้ (ไม่นับรายการสมมติ)
+      const before = new Set(all.filter(x => x.member_id === r.member_id && x.id > 0 && x.strike !== null).map(x => x.strike)).size;
+      byMember.set(r.member_id, { member_id: r.member_id, code: m?.code, name: m?.name, nickname: m?.nickname, strikes_before: before, rows: [] });
+    }
+    byMember.get(r.member_id).rows.push(r);
+  }
+  const members = [...byMember.values()].map(m => {
+    const summaries = strikeSummaries(m.rows).map(s => {
+      const existed = all.some(x => x.member_id === m.member_id && x.id > 0 && x.strike === s.strike);
+      return { ...s, issue_day: thDay(s.issue_date), detail: strikeDetail(s), is_new: !existed };
+    });
+    const strikes_after = Math.max(m.strikes_before, ...summaries.map((s: any) => s.strike));
+    return { member_id: m.member_id, code: m.code, name: m.name, nickname: m.nickname,
+      strikes_before: m.strikes_before, strikes_after, strikes: summaries,
+      amount: summaries.reduce((a: number, s: any) => a + s.amount, 0) };
+  });
+  res.json({ members, rates: { cut2: pol.groupRate2, cut3: pol.groupRate3, rope: pol.ropeRate } });
+});
 
 router.get('/', (req, res) => {
   const { issue_id, date, from, to } = req.query;

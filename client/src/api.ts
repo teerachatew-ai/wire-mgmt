@@ -60,6 +60,8 @@ export const returnApi = {
   create: (data: any) => api.post('/returns', data).then(r => r.data),
   // รับคืนหลายใบในรอบเดียว — เร็วกว่ายิงทีละใบมาก (ดู server/routes/returns.ts /batch)
   createBatch: (data: any) => api.post('/returns/batch', data).then(r => r.data),
+  // พรีวิว "NG ครั้งที่" + ค่าปรับ ก่อนกดยืนยันรับคืน (components/NgWarning.tsx)
+  ngPreview: (data: any) => api.post('/returns/ng-preview', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/returns/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/returns/${id}`).then(r => r.data),
 };

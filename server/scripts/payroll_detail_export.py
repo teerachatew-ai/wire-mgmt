@@ -91,6 +91,8 @@ F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 # ค่าแรงสุทธิรอบนี้ = ส่วนหนึ่งของตาราง จึงใช้ขนาดเดียวกับตัวเลขในตาราง
 # ข้อความยืนยันการรับเงินขยายอีก 10% จากเดิม (เจ้าของขอ — เป็นข้อความที่สมาชิกต้องอ่านก่อนเซ็น)
 F_NG, F_NET, F_CONFIRM, F_SIGN = 10, F_TABLE, 10.29, 11.55
+# บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
+F_NGLINE, H_NGLINE2 = 12, 34
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
@@ -523,24 +525,46 @@ def write_member_sheet(m, label=None):
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
-    # กติกาใหม่ (ตั้งแต่รอบ ก.ย. 2569): NG ตัดโดนสายไฟ ครั้งที่ 1 ตักเตือน / ครั้งที่ 2, 3 หักตามอัตรา / NG ดึงเชือก
-    # ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines) — บรรทัดเตือนไม่มีตัวเงิน แสดงข้อความสีเหลืองเข้ม
-    # รอบเก่าใช้บล็อก "หัก NG เกินเกณฑ์" ด้านล่างเหมือนเดิมทุกอย่าง (ng_excess_qty > 0 เฉพาะรอบเก่า)
-    if not m.get("ng_excess_qty"):
-        for ln in m.get("deductions") or []:
+    # กติกาใหม่ (งานจากล็อตตั้งแต่ 28 ส.ค. 2569): 1 บรรทัดต่อ "NG ครั้งที่ X" (นับสะสม · 1 วันที่เบิก = 1 ครั้ง)
+    # เช่น "NG ครั้งที่ 2 · งานเบิก 12 ก.ย. · ตัดโดนสายไฟ 2 เส้น×5฿" ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines)
+    # ครั้งที่ 1 = ตักเตือน (ไม่มีตัวเงิน) · ปิดท้ายด้วยบรรทัด "รวมถูกหักค่าแรง" ซึ่งเป็นยอดเดียวที่เอาไปลบจากค่าแรง
+    # แต่ละครั้งแสดง 2 บรรทัดขนาดปกติ (ไม่ย่อจนอ่านไม่ออก) — ความสูงรวมยังพอดี 1 หน้าเพราะใบเสร็จตั้ง fitToHeight=1
+    # งานล็อตเก่า (กติกา "NG เกินเกณฑ์") ก็มาเป็นบรรทัดสำเร็จรูปในชุดเดียวกัน (มีเฉพาะเมื่ออัตราเดิม > 0)
+    # บล็อกเดิมด้านล่างใช้เฉพาะข้อมูลแบบเก่าที่ไม่มี "deductions" เท่านั้น
+    ng_lines = m.get("deductions") or []
+    has_strike = any(ln.get("strike") for ln in ng_lines)
+    if ng_lines:
+        RW2 = Alignment(horizontal="right", vertical="center", wrap_text=True)
+        first_ng = row
+        for ln in ng_lines:
             warn = ln.get("note") == "warn"
             color = "B45309" if warn else RED
+            two = bool(ln.get("title"))
             ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-            cell(ws, f"A{row}", ln["label"], font=Font(name=FONT, size=FS(F_NG), color=color), align=R, border=box)
+            # 2 บรรทัด (ตั้งความสูงแถวเองตายตัว ไม่พึ่ง auto-height) — บรรทัดบน "NG ครั้งที่ X · งานเบิก วันที่" บรรทัดล่างรายละเอียด/ค่าปรับ
+            text = (ln["title"] + chr(10) + ln["detail"]) if two else ln["label"]
+            fsz = FS(F_NGLINE) if two else FS(F_NG)
+            cell(ws, f"A{row}", text, font=Font(name=FONT, size=fsz, color=color), align=RW2 if two else R, border=box)
             ref = f"{LAST_P_LETTER}{row}"
             if warn:
-                cell(ws, ref, "-", font=Font(name=FONT, size=FS(F_NG), color=color), align=R, border=box)
+                cell(ws, ref, "-", font=Font(name=FONT, size=fsz, color=color), align=R, border=box)
             else:
-                cell(ws, ref, -float(ln["amount"]), font=Font(name=FONT, size=FS(F_NG), color=color), align=R, fmt=MONEY, border=box)
-                net_formula_parts.append(ref)
-            ws.row_dimensions[row].height = RH(H_NG)
+                cell(ws, ref, -float(ln["amount"]), font=Font(name=FONT, size=fsz, color=color), align=R, fmt=MONEY, border=box)
+                if not has_strike:
+                    net_formula_parts.append(ref)
+            ws.row_dimensions[row].height = RH(H_NGLINE2 if two else H_NG)
             row += 1
-    if m.get("ng_excess_qty") and m.get("ng_deduction"):
+        last_ng = row - 1
+    if ng_lines and has_strike:
+        ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
+        cell(ws, f"A{row}", "รวมถูกหักค่าแรง (ค่าปรับ NG)", font=Font(name=FONT, size=FS(F_NGLINE), bold=True, color=RED), align=R, border=box)
+        total_ref = f"{LAST_P_LETTER}{row}"
+        cell(ws, total_ref, f"=SUM({LAST_P_LETTER}{first_ng}:{LAST_P_LETTER}{last_ng})",
+             font=Font(name=FONT, size=FS(F_NGLINE), bold=True, color=RED), align=R, fmt=MONEY, border=box)
+        ws.row_dimensions[row].height = RH(H_NET)
+        net_formula_parts.append(total_ref)
+        row += 1
+    if "deductions" not in m and m.get("ng_excess_qty") and m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
              font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, border=box)

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { returnApi, issueApi, returnRequestApi } from '../api';
+import { useNgGate } from '../components/NgWarning';
 import { Plus, X, RotateCcw, AlertTriangle, Edit2, Trash2, Smartphone, Check, CheckCheck, Loader2 } from 'lucide-react';
 
 // วันที่แบบสั้น dd/mm/yyyy (พ.ศ.)
@@ -44,11 +45,15 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const { gate, dialog } = useNgGate();
   const [siblings, setSiblings] = useState<any[] | null>(null); // รายการรับคืนคู่กัน (คืนพร้อมกัน) — รอถามว่าจะแก้งานดีให้ตรงกันด้วยไหม
   const [pendingGoodQty, setPendingGoodQty] = useState<any>(null);
   const [applying, setApplying] = useState(false);
 
   const onSubmit = async (data: any) => {
+    // เตือน NG (ไม่นับรายการเดิมที่กำลังแก้ ใช้ค่าที่แก้ใหม่แทน)
+    if (!(await gate({ returned_at: data.returned_at, exclude_return_id: ret.id,
+      lines: [{ issue_id: ret.issue_id, ng_cut: data.ng_cut, ng_rope: data.ng_rope, good_qty: data.good_qty }] }))) return;
     setLoading(true); setError('');
     try {
       // เศษ/หาย ไม่มีช่องให้กรอกแล้ว — ส่งค่าเดิมกลับไปด้วย กันรายการเก่าถูกล้างเป็น 0 ตอนแก้ไขเรื่องอื่น
@@ -160,6 +165,7 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
           <input className="input" {...register('notes')} />
         </div>
         {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">{error}</div>}
+        {dialog}
         <div className="flex gap-2 justify-end pt-1">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="submit" className="btn-primary" disabled={loading}>
@@ -269,6 +275,7 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
   const [returnedAt, setReturnedAt] = useState(req.returned_at || new Date().toISOString().split('T')[0]);
   const [busy, setBusy] = useState<'confirm' | 'reject' | null>(null);
   const [error, setError] = useState('');
+  const { gate, dialog } = useNgGate();
 
   // แจ้งค่าล่าสุดของแถวนี้ขึ้นไปให้ปุ่ม "ยืนยันทั้งหมด" ด้านบนใช้ตอนกด (แก้ตัวเลขไว้ก่อนแล้วค่อยกดยืนยันทั้งหมดทีเดียวได้)
   useEffect(() => {
@@ -276,6 +283,7 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
   }, [good, ngCut, ngFactory, waste, lost, returnedAt]);
 
   const confirm = async () => {
+    if (!(await gate({ returned_at: returnedAt, lines: [{ issue_id: req.issue_id, ng_cut: ngCut, good_qty: good }] }))) return;
     setBusy('confirm'); setError('');
     try {
       await returnRequestApi.confirm(req.id, { good_qty: good, ng_cut: ngCut, ng_factory: ngFactory, waste_qty: waste, lost_qty: lost, returned_at: returnedAt });
@@ -297,6 +305,7 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
 
   return (
     <div className="p-3.5 border-b last:border-0 bg-amber-50/40">
+      {dialog}
       <div className="flex items-center gap-2 flex-wrap">
         {req.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: req.color }} />}
         <span className="font-semibold text-gray-800">{req.member_name}</span>
@@ -351,12 +360,17 @@ function PendingRequestsPanel() {
     qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
   const handleRowChange = (id: number, data: any) => { valuesRef.current[id] = data; };
+  const { gate, dialog } = useNgGate();
 
   const confirmAll = async () => {
     setConfirmingAll(true); setBulkError('');
     const failed: string[] = [];
     for (const r of pending as any[]) {
-      try { await returnRequestApi.confirm(r.id, valuesRef.current[r.id] || {}); }
+      const v = valuesRef.current[r.id] || {};
+      // มี NG -> เด้งเตือนทีละคำขอ (กดกลับไปแก้ไข = ข้ามคำขอนั้นไว้ก่อน)
+      if (!(await gate({ returned_at: v.returned_at || r.returned_at || new Date().toISOString().split('T')[0],
+        lines: [{ issue_id: r.issue_id, ng_cut: v.ng_cut ?? r.ng_cut, good_qty: v.good_qty ?? r.good_qty }] }))) continue;
+      try { await returnRequestApi.confirm(r.id, v); }
       catch (e: any) { failed.push(`${r.member_name} · ${r.product_name}: ${e.response?.data?.error || 'ผิดพลาด'}`); }
     }
     setConfirmingAll(false);
@@ -367,6 +381,7 @@ function PendingRequestsPanel() {
   if ((pending as any[]).length === 0) return null;
   return (
     <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 overflow-hidden">
+      {dialog}
       <div className="px-4 py-3 bg-amber-100 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Smartphone size={16} className="text-amber-700" />
@@ -504,10 +519,13 @@ export default function Returns() {
   // งานแก้ไขอยู่ในงานดีแล้ว ไม่บวกซ้ำ
   const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.ng_rope) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
 
+  const { gate, dialog } = useNgGate();   // เตือน "NG ครั้งที่" + ค่าปรับ ก่อนยืนยัน
   const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); setIssueDayFilter(''); reset(); };
 
   const submit = handleSubmit(async (shared: any) => {
     if (lines.length === 0) { setError('กรุณาเลือกใบเบิกอย่างน้อย 1 ใบ'); return; }
+    if (!(await gate({ returned_at: shared.returned_at,
+      lines: lines.map(l => ({ issue_id: l.issue.id, ng_cut: l.ng_cut, ng_rope: l.ng_rope, good_qty: l.good_qty })) }))) return;
     setSaving(true); setError('');
     const warnings: string[] = [];
     try {
@@ -736,6 +754,7 @@ export default function Returns() {
                 </div>
               </div>
               {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-600">{error}</div>}
+              {dialog}
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" className="btn-secondary" onClick={closeModal}>ยกเลิก</button>
                 <button type="submit" className="btn-primary" disabled={saving || lines.length === 0}>

@@ -8,6 +8,7 @@ import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2 } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
 import IssueMatrix, { shortLot, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
+import { useNgGate } from '../components/NgWarning';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -932,6 +933,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   ));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { gate, dialog } = useNgGate();   // เตือน "NG ครั้งที่" + ค่าปรับ ก่อนยืนยัน
 
   const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
   const toggleOn = (id: number, on: boolean) => setLines(l => ({ ...l, [id]: { ...l[id], on } }));
@@ -949,15 +951,14 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   ] as const;
 
   const save = async () => {
+    const payload = picked.map((i: any) => {
+      const l = lines[i.id];
+      return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0 };
+    });
+    if (!(await gate({ returned_at: returnedAt, lines: payload }))) return;
     setSaving(true); setError('');
     try {
-      const res = await returnApi.createBatch({
-        returned_at: returnedAt,
-        lines: picked.map((i: any) => {
-          const l = lines[i.id];
-          return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0 };
-        }),
-      });
+      const res = await returnApi.createBatch({ returned_at: returnedAt, lines: payload });
       const problems = [
         ...((res.warnings || []) as any[]).map((w: any) => `${w.code}: ${w.warning}`),
         ...((res.failed || []) as any[]).map((f: any) => `${f.code || f.issue_id}: ${f.error}`),
@@ -1102,6 +1103,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
           </button>
         </div>
       </div>
+      {dialog}
     </Modal>
   );
 }
