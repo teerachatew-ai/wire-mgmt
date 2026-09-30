@@ -6,6 +6,7 @@ import {
   AlertTriangle, Users, FileStack, Plus, Trash2, Receipt, FileDown, Loader2, FileText, Landmark
 } from 'lucide-react';
 import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
+import ProfitPie from '../components/ProfitPie';
 import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
@@ -390,6 +391,11 @@ export default function Dashboard() {
           <span className="p-2 rounded-xl bg-emerald-100 text-emerald-600"><Factory size={16} /></span>
           <h2 className="font-bold text-slate-800">รายรับ-กำไร แยกตามรุ่นสายไฟ</h2>
           <span className="ml-auto text-xs text-slate-400">{isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'}</span>
+        </div>
+        {/* pie กำไรขั้นต้นของแต่ละรุ่น + อัตรากำไร — เปลี่ยนเดือนได้จากปุ่มด้านบน/คลิกแท่งกราฟแนวโน้ม */}
+        <div className="border-b border-slate-100">
+          <ProfitPie products={data.products} period={period}
+            periodLabel={isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[640px]">

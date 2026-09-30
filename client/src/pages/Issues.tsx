@@ -1092,18 +1092,24 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   );
 }
 
-/* ── ลบใบเบิกทั้งบรรทัด (ทุกชนิดงานของคนนี้ที่เบิกวันนี้) ──
-   กดถังขยะหน้าชื่อในตารางสรุปรายวัน → เห็นรายการที่จะลบทั้งหมดก่อนยืนยันครั้งเดียว
-   ใบที่มีรายการรับคืนผูกอยู่ จะลบรายการรับคืนนั้นไปด้วย (บอกไว้ชัดๆ ในกล่องก่อนกด) */
+/* ── ลบใบเบิกของคนนี้ที่เบิกวันนี้ (เลือกได้ทีละรายการ) ──
+   กดถังขยะหน้าชื่อในตารางสรุปรายวัน → ติ๊กเลือกเฉพาะรายการที่จะลบ (ค่าเริ่มต้นยังไม่เลือก กันลบพลาด)
+   มี "เลือกทั้งหมด" ให้กดทีเดียวถ้าจะลบทั้งบรรทัด
+   ใบที่มีรายการรับคืนผูกอยู่ จะลบรายการรับคืนนั้นไปด้วย (เตือนไว้ชัดๆ เฉพาะเมื่อเลือกใบแบบนั้น) */
 function DeleteRowDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const items = [...row.items].sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th'));
+  const all = [...row.items].sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th'));
+  // มีใบเดียว = ติ๊กให้เลย (ไม่มีอะไรให้เลือก) · หลายใบ = เริ่มจากยังไม่ติ๊ก ให้เลือกเองว่าจะลบใบไหน
+  const [picked, setPicked] = useState<Record<number, boolean>>(() => all.length === 1 ? { [all[0].id]: true } : {});
+  const items = all.filter((i: any) => picked[i.id]);
   const returnedOf = (i: any) => (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
   const withReturns = items.filter((i: any) => returnedOf(i) > 0);
   const total = items.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+  const allOn = all.length > 0 && all.every((i: any) => picked[i.id]);
 
   const doDelete = async () => {
+    if (items.length === 0) return;
     setBusy(true); setError('');
     const failed: string[] = [];
     for (const i of items) {
@@ -1117,28 +1123,43 @@ function DeleteRowDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: ()
   };
 
   return (
-    <Modal title="ลบใบเบิกทั้งบรรทัด" onClose={onClose}>
+    <Modal title="ลบใบเบิก" onClose={onClose}>
       <div className="space-y-3">
         <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5">
           <span className="font-mono text-xs text-gray-400 mr-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b>
           <span className="text-gray-400 text-xs ml-2">เบิกวันที่ {row.date}</span>
         </div>
+        {all.length > 1 && (
+          <div className="flex items-center gap-3 text-xs text-gray-500 px-1">
+            <span>ติ๊กเลือกรายการที่จะลบ</span>
+            <button type="button" className="text-blue-600 hover:underline"
+              onClick={() => setPicked(allOn ? {} : Object.fromEntries(all.map((i: any) => [i.id, true])))}>
+              {allOn ? 'ไม่เลือกเลย' : 'เลือกทั้งหมด'}
+            </button>
+          </div>
+        )}
         <div className="border rounded-xl divide-y">
-          {items.map((i: any) => (
-            <div key={i.id} className="flex items-center justify-between px-3 py-2 text-sm">
-              <span className="flex items-center gap-1.5">
-                {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: i.color }} />}
-                {i.product_name}
+          {all.map((i: any) => (
+            <label key={i.id} className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer ${picked[i.id] ? 'bg-red-50/60' : 'hover:bg-gray-50'}`}>
+              <input type="checkbox" className="w-4 h-4 shrink-0" checked={!!picked[i.id]}
+                onChange={e => setPicked(p => ({ ...p, [i.id]: e.target.checked }))} />
+              <span className="flex-1 flex items-center gap-1.5 min-w-0">
+                {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                <span className={picked[i.id] ? 'text-gray-800' : 'text-gray-600'}>{i.product_name}</span>
                 <span className="text-[11px] font-mono text-blue-600">{i.code}</span>
               </span>
-              <span className="tabular-nums text-gray-700">
+              <span className="tabular-nums text-gray-700 shrink-0">
                 {Number(i.quantity).toLocaleString('th-TH')} {i.unit}
                 {returnedOf(i) > 0 && <span className="text-[11px] text-rose-600 ml-1.5">(คืนแล้ว {returnedOf(i).toLocaleString('th-TH')})</span>}
               </span>
-            </div>
+            </label>
           ))}
         </div>
-        <p className="text-sm text-gray-600">ลบทั้งหมด <b>{items.length}</b> ใบ รวม <b>{total.toLocaleString('th-TH')}</b> เส้น</p>
+        <p className="text-sm text-gray-600">
+          {items.length > 0
+            ? <>จะลบ <b>{items.length}</b> ใบ รวม <b>{total.toLocaleString('th-TH')}</b> เส้น{items.length < all.length && <span className="text-gray-400"> · ที่เหลือ {all.length - items.length} ใบไม่ถูกแตะ</span>}</>
+            : <span className="text-gray-400">ยังไม่ได้เลือกรายการ</span>}
+        </p>
         {withReturns.length > 0 && (
           <div className="text-sm bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-3 py-2">
             ⚠ มี {withReturns.length} ใบที่รับคืนไปแล้ว — รายการรับคืนของใบเหล่านั้นจะถูกลบไปด้วย (ค่าแรงของงานที่คืนแล้วจะหายไป)
@@ -1147,8 +1168,8 @@ function DeleteRowDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: ()
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
-          <button type="button" className="btn-danger flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl px-4 py-2 font-medium disabled:opacity-60"
-            disabled={busy} onClick={doDelete}>
+          <button type="button" className="btn-danger flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl px-4 py-2 font-medium disabled:opacity-40"
+            disabled={busy || items.length === 0} onClick={doDelete}>
             {busy ? <><Loader2 size={14} className="animate-spin" /> กำลังลบ...</> : <><Trash2 size={14} /> ลบ {items.length} ใบ</>}
           </button>
         </div>

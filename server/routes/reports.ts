@@ -117,7 +117,7 @@ router.get('/performance', (req, res) => {
 
   // Per-product money performance — รายรับอิงเดือนปฏิทิน (วันส่งของ) ให้ตรงกับใบแจ้งหนี้/ใบวางบิลเป๊ะ
   const products = prepare(`
-    SELECT p.id, p.code, p.name, p.unit, p.factory_price, p.wage_per_unit,
+    SELECT p.id, p.code, p.name, p.unit, p.color, p.factory_price, p.wage_per_unit,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as shipped_good_all,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as shipped_good_month,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as recv_good_all,
