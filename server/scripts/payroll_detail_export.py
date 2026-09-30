@@ -92,7 +92,7 @@ F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 # ข้อความยืนยันการรับเงินขยายอีก 10% จากเดิม (เจ้าของขอ — เป็นข้อความที่สมาชิกต้องอ่านก่อนเซ็น)
 F_NG, F_NET, F_CONFIRM, F_SIGN = 10, F_TABLE, 10.29, 11.55
 # บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
-F_NGLINE, H_NGLINE2 = 12, 34
+F_NGLINE, H_NGLINE2 = 12, 20
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
@@ -534,7 +534,8 @@ def write_member_sheet(m, label=None):
     ng_lines = m.get("deductions") or []
     has_strike = any(ln.get("strike") for ln in ng_lines)
     if ng_lines:
-        RW2 = Alignment(horizontal="right", vertical="center", wrap_text=True)
+        # 1 ครั้ง = 1 บรรทัด (ผู้ใช้ขอ) · ย่อตัวอักษรอัตโนมัติเฉพาะกรณีข้อความยาวผิดปกติ (ตัดโดนสายไฟ+ดึงเชือก+ตักเตือนในครั้งเดียว)
+        RW2 = Alignment(horizontal="right", vertical="center", shrink_to_fit=True)
         first_ng = row
         for ln in ng_lines:
             warn = ln.get("note") == "warn"
@@ -542,7 +543,7 @@ def write_member_sheet(m, label=None):
             two = bool(ln.get("title"))
             ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
             # 2 บรรทัด (ตั้งความสูงแถวเองตายตัว ไม่พึ่ง auto-height) — บรรทัดบน "NG ครั้งที่ X · งานเบิก วันที่" บรรทัดล่างรายละเอียด/ค่าปรับ
-            text = (ln["title"] + chr(10) + ln["detail"]) if two else ln["label"]
+            text = ln["label"]
             fsz = FS(F_NGLINE) if two else FS(F_NG)
             cell(ws, f"A{row}", text, font=Font(name=FONT, size=fsz, color=color), align=RW2 if two else R, border=box)
             ref = f"{LAST_P_LETTER}{row}"

@@ -144,31 +144,51 @@ export function sumPenalties(rows: PenaltyRow[], keyOf: (r: PenaltyRow) => strin
   return m;
 }
 
-// title/detail = แบ่ง 2 บรรทัดสำหรับใบเสร็จ (ตัวใหญ่อ่านง่าย ไม่ต้องย่อ) · label = รวมเป็นบรรทัดเดียวสำหรับหน้าเว็บ
+// label = 1 ครั้ง 1 บรรทัด (ใบเสร็จ/หน้าเว็บ) · title/detail = ส่วนหัว/ส่วนรายละเอียดของ label
 export type DeductionLine = { label: string; amount: number; note?: string; strike?: number; issue_date?: string; title?: string; detail?: string };
 
 const TH_MONTH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 export const thDay = (d: string) => { const [, mo, da] = String(d).split('-'); return `${Number(da)} ${TH_MONTH[Number(mo) - 1] || ''}`; };
 const fmtN = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
-export type StrikeSummary = { strike: number; issue_date: string; ng_cut: number; ng_rope: number; cut_rate: number; rope_rate: number; amount: number };
+export type StrikeSummary = {
+  strike: number; issue_date: string; ng_cut: number; ng_rope: number; cut_rate: number; rope_rate: number; amount: number;
+  cut_items: Record<string, number>; rope_items: Record<string, number>;   // รุ่น -> จำนวนเส้น
+};
+
+/** ชื่อรุ่นแบบเดียวกับหัวคอลัมน์ในใบเสร็จ: เอาชื่อในวงเล็บ ตัดคำ ป้าย/เส้น/สาย และช่องว่าง + เลขรหัส
+    เช่น "MA020-676_A (ป้ายขาวยาว)" -> "ขาวยาว 676" */
+export function modelLabel(name: string): string {
+  const inner = /\(([^)]+)\)/.exec(name || '');
+  const short = (inner ? inner[1] : (name || '-')).replace(/ป้าย|เส้น|สาย/g, '').replace(/\s+/g, '').trim();
+  const prefix = String(name || '').split(' (')[0].trim();
+  const code = (/-(\d+)/.exec(prefix) || /(\d+)/.exec(prefix) || [])[1] || '';
+  return code ? `${short} ${code}`.trim() : short;
+}
 
 /** รวมรายการตาม "ครั้ง" (วันที่เบิก) — ใช้ทั้งบรรทัดใบเสร็จและหน้าต่างเตือน */
 export function strikeSummaries(rows: PenaltyRow[]): StrikeSummary[] {
   const m = new Map<number, StrikeSummary>();
   for (const r of rows) {
     if (r.strike === null) continue;
-    const s = m.get(r.strike) || { strike: r.strike, issue_date: r.issue_date, ng_cut: 0, ng_rope: 0, cut_rate: r.cut_rate, rope_rate: r.rope_rate, amount: 0 };
+    const s = m.get(r.strike) || { strike: r.strike, issue_date: r.issue_date, ng_cut: 0, ng_rope: 0, cut_rate: r.cut_rate, rope_rate: r.rope_rate, amount: 0, cut_items: {}, rope_items: {} };
     s.ng_cut += r.ng_cut; s.ng_rope += r.ng_rope; s.amount += r.amount;
+    const ml = modelLabel(r.product_name);
+    if (r.ng_cut > 0) s.cut_items[ml] = (s.cut_items[ml] || 0) + r.ng_cut;
+    if (r.ng_rope > 0) s.rope_items[ml] = (s.rope_items[ml] || 0) + r.ng_rope;
     m.set(r.strike, s);
   }
   return [...m.values()].sort((a, b) => a.strike - b.strike);
 }
 
-/** ข้อความรายละเอียดของครั้งหนึ่ง เช่น "ตัดโดนสายไฟ 2 เส้น×5฿ + ดึงเชือก 3 เส้น×3฿" */
+/** ข้อความรายละเอียดของครั้งหนึ่ง ระบุรุ่น+จำนวนเส้น เช่น
+    "ตัดโดนสายไฟ ขาวยาว 676 1 เส้น, ขาวสั้น 633 2 เส้น (5฿/เส้น) + ดึงเชือก ยาวชมพู 674 3 เส้น (3฿/เส้น)" */
 export function strikeDetail(s: StrikeSummary): string {
-  const part = (label: string, q: number, rate: number) => q > 0 ? `${label} ${fmtN(q)} เส้น${rate > 0 ? `×${fmtN(rate)}฿` : ''}` : '';
-  return [part('ตัดโดนสายไฟ', s.ng_cut, s.cut_rate), part('ดึงเชือก', s.ng_rope, s.rope_rate)].filter(Boolean).join(' + ');
+  const part = (label: string, items: Record<string, number>, rate: number) => {
+    const list = Object.entries(items).map(([m, q]) => `${m} ${fmtN(q)} เส้น`).join(', ');
+    return list ? `${label} ${list}${rate > 0 ? ` (${fmtN(rate)}฿/เส้น)` : ''}` : '';
+  };
+  return [part('ตัดโดนสายไฟ', s.cut_items, s.cut_rate), part('ดึงเชือก', s.rope_items, s.rope_rate)].filter(Boolean).join(' + ');
 }
 
 /** บรรทัดหัก/เตือนสำหรับใบเสร็จ/หน้าสรุปค่าแรง ของสมาชิกหนึ่งคนในรอบเดียว */
