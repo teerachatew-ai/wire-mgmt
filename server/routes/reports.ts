@@ -3,6 +3,7 @@ import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
 import { varianceByProduct, lotVariances, lotKey } from '../receivedActual';
+import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines } from '../wagePolicy';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -62,20 +63,17 @@ function outstandingWageValue(): number {
   return rows.reduce((s: number, r: any) => s + (r.with_members || 0) * (r.wage || 0), 0);
 }
 
-// ค่าแรงสมาชิกรวมตาม "รอบจ่าย" (pay_cycle) — ตรงกับหน้าสรุปค่าแรง (หักปรับ NG-เกินเกณฑ์ + ปัดขึ้นเต็มบาทต่อคน)
+// ค่าแรงสมาชิกรวมตาม "รอบจ่าย" (pay_cycle) — ตรงกับหน้าสรุปค่าแรง (หักค่าปรับ NG ตามกติกาของรอบนั้น + ปัดขึ้นเต็มบาทต่อคน)
 function payCycleWage(cycle: string | null): number {
-  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
-  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const pol = loadWagePolicy();
   const rows = prepare(`
-    SELECT m.id,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross,
-      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess
+    SELECT m.id, COALESCE(SUM(${WAGE_SQL}), 0) as gross
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     ${cycle ? 'WHERE r.pay_cycle = ?' : ''}
     GROUP BY m.id
-  `).all(...(cycle ? [defectWagePct, cycle] : [defectWagePct])) as any[];
-  return rows.reduce((s, r) => s + Math.ceil((r.gross || 0) - (r.ng_excess || 0) * ngPenaltyRate), 0);
+  `).all(...wageParams(pol), ...(cycle ? [cycle] : [])) as any[];
+  const pen = sumPenalties(computePenalties(pol, { cycle }), r => r.member_id);
+  return rows.reduce((s, r) => s + Math.ceil((r.gross || 0) - (pen.get(r.id) || 0)), 0);
 }
 
 router.get('/dashboard', (_req, res) => {
@@ -316,26 +314,25 @@ router.get('/outstanding', (_req, res) => {
 router.get('/payroll', (req, res) => {
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'กรุณาระบุช่วงวันที่' });
-  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
-  const defectWagePct = parseFloat(settings.find(s => s.key === 'defect_wage_percent')?.value || '0') / 100;
+  const pol = loadWagePolicy();
 
   const detail = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name,
       m.bank_name, m.bank_account, p.name as product_name, p.unit, p.wage_per_unit,
       COALESCE(SUM(r.good_qty),0) as good_qty, COALESCE(SUM(r.defect_qty),0) as defect_qty,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit) + SUM(r.ng_cut) * p.wage_per_unit * ?,0) as wage
+      COALESCE(SUM(${WAGE_SQL}),0) as wage
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.returned_at >= ? AND r.returned_at <= ?
     GROUP BY m.id, p.id ORDER BY m.code, p.name
-  `).all(defectWagePct, from, to);
+  `).all(...wageParams(pol), from, to);
 
   const summary = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname, m.bank_name, m.bank_account,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?),0) as total_wage
+      COALESCE(SUM(${WAGE_SQL}),0) as total_wage
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.returned_at >= ? AND r.returned_at <= ?
     GROUP BY m.id ORDER BY m.code
-  `).all(defectWagePct, from, to) as any[];
+  `).all(...wageParams(pol), from, to) as any[];
   // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
   for (const s of summary) s.total_wage = Math.ceil(s.total_wage || 0);
 
@@ -365,18 +362,25 @@ router.get('/member-history/:memberId', (req, res) => {
 router.get('/member-paycycle/:memberId', (req, res) => {
   const cycle = typeof req.query.cycle === 'string' && /^\d{4}-\d{2}$/.test(req.query.cycle) ? req.query.cycle : '';
   if (!cycle) return res.json({ rows: [], byProduct: [] });
-  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const pol = loadWagePolicy();
   const rows = prepare(`
-    SELECT r.id, r.code as return_code, r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.lost_qty, r.waste_qty,
+    SELECT r.id, r.code as return_code, r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.lost_qty, r.waste_qty,
       i.code as issue_code, i.issued_at, p.name as product_name, p.unit, p.color, p.wage_per_unit,
-      ((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?) as wage
+      ${WAGE_SQL} as wage
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
     ORDER BY i.issued_at, i.code, r.returned_at
-  `).all(defectWagePct, req.params.memberId, cycle) as any[];
+  `).all(...wageParams(pol), req.params.memberId, cycle) as any[];
+  // ค่าปรับ NG ต่อรายการ (แสดงคู่กับค่าแรงของแถวนั้น) + บรรทัดหักเงินรวมของรอบ
+  const penRows = computePenalties(pol, { cycle, memberId: Number(req.params.memberId) });
+  const penById = new Map(penRows.map(p => [p.id, p]));
+  for (const r of rows) {
+    const pr = penById.get(r.id);
+    r.penalty = pr ? pr.amount : 0;
+    r.ng_group_tier = pr ? pr.group_tier : null;
+  }
   // สรุปต่อประเภทงาน
   const g: Record<string, any> = {};
   for (const r of rows) {
@@ -385,7 +389,9 @@ router.get('/member-paycycle/:memberId', (req, res) => {
     g[k].good += Number(r.good_qty) || 0;
     g[k].wage += Number(r.wage) || 0;
   }
-  res.json({ rows, byProduct: Object.values(g) });
+  const deductions = deductionLines(penRows, pol);
+  const penalty_total = penRows.reduce((s, p) => s + p.amount, 0);
+  res.json({ rows, byProduct: Object.values(g), deductions, penalty_total });
 });
 
 router.get('/stock-reconcile', (_req, res) => {
@@ -873,24 +879,24 @@ router.get('/payroll-monthly', (req, res) => {
 
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
   const cfg = Object.fromEntries((settings as any[]).map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
   const groupDeductPct = parseFloat(cfg.group_deduction_percent || '0') / 100;
-
-  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const pol = loadWagePolicy(cfg);
 
   const rawMembers = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
       m.bank_name, m.bank_account,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
+      COALESCE(SUM(${WAGE_SQL}), 0) as gross_wage,
       COALESCE(SUM(r.ng_cut), 0) as ng_cut_qty,
-      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
+      COALESCE(SUM(r.ng_rope), 0) as ng_rope_qty,
+      COALESCE(SUM(r.rework_qty), 0) as rework_qty
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
     WHERE r.pay_cycle = ?
     GROUP BY m.id ORDER BY m.code
-  `).all(defectWagePct, month) as any[];
+  `).all(...wageParams(pol), month) as any[];
+  const penRows = computePenalties(pol, { cycle: String(month) });
 
   // จำนวนสายไฟแต่ละชนิดที่ตัด (งานดี) ต่อสมาชิก ในรอบจ่ายนี้ — ใช้แสดงในตารางค่าแรง
   const productRows = prepare(`
@@ -910,9 +916,13 @@ router.get('/payroll-monthly', (req, res) => {
   }
 
   const members = rawMembers.map((m: any) => {
-    const ng_deduction = m.ng_excess_qty * ngPenaltyRate;   // 20฿ ต่อเส้นที่เกินเกณฑ์
+    const mine = penRows.filter(p => p.member_id === m.member_id);
+    const ng_deduction = mine.reduce((s, p) => s + p.amount, 0);   // ค่าปรับ NG ตามกติกาของรอบนั้น (wagePolicy.ts)
+    const ng_excess_qty = mine.reduce((s, p) => s + p.legacy_excess, 0);
     // ค่าแรงสมาชิกปัดขึ้นเต็มบาท
-    return { ...m, ng_deduction, total_wage: Math.ceil(m.gross_wage - ng_deduction), products: productsByMember[m.member_id] || [] };
+    const ng_group_times = mine.reduce((mx, p) => Math.max(mx, p.group_tier || 0), 0);   // NG กลุ่มกี่ครั้งในรอบนี้ (กติกาใหม่)
+    return { ...m, ng_excess_qty, ng_group_times, ng_deduction, deductions: deductionLines(mine, pol),
+      total_wage: Math.ceil(m.gross_wage - ng_deduction), products: productsByMember[m.member_id] || [] };
   });
 
   const total_wage = members.reduce((s: number, m: any) => s + m.total_wage, 0);
@@ -936,6 +946,7 @@ router.get('/payroll-monthly', (req, res) => {
 
   res.json({
     month,
+    ng_policy: String(month) >= pol.policyFrom ? 'tiered' : 'legacy',   // หน้าเว็บเลือกคอลัมน์ค่าปรับให้ตรงกติกาของรอบ
     members,
     total_wage,
     month_revenue: monthRevenue,
@@ -954,8 +965,7 @@ router.get('/payroll-monthly', (req, res) => {
 function buildPayrollDetail(month: string) {
   const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
   const cfg = Object.fromEntries(settings.map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
-  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const pol = loadWagePolicy(cfg);
   const { holidays, overrides, cutoffDay } = loadCutoffConfig(settings);
   const cutoff = computeCutoff(month, holidays, overrides, cutoffDay);
   const cutoffStart = payCycleWindow(month, holidays, overrides, cutoffDay).start;
@@ -964,18 +974,18 @@ function buildPayrollDetail(month: string) {
   const rawMembers = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
       m.bank_name, m.bank_account,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
-      COALESCE(SUM(r.ng_cut), 0) as ng_cut_qty,
-      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
+      COALESCE(SUM(${WAGE_SQL}), 0) as gross_wage,
+      COALESCE(SUM(r.ng_cut), 0) as ng_cut_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.pay_cycle = ?
     GROUP BY m.id ORDER BY m.code
-  `).all(defectWagePct, month) as any[];
+  `).all(...wageParams(pol), month) as any[];
+  const penRows = computePenalties(pol, { cycle: month });
 
   const detailRowsStmt = prepare(`
     SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
       p.name as product_name, p.color, p.unit, p.wage_per_unit,
-      r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
+      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
     ORDER BY i.issued_at, r.id
@@ -983,16 +993,20 @@ function buildPayrollDetail(month: string) {
   const carryRowsStmt = prepare(`
     SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
       p.name as product_name, p.color, p.unit, p.wage_per_unit,
-      r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty
+      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.returned_at > ? AND r.returned_at LIKE ?
     ORDER BY i.issued_at, r.id
   `);
 
-  const lineWage = (r: any) => (r.good_qty + r.ng_factory + r.lost_qty) * r.wage_per_unit + r.ng_cut * r.wage_per_unit * defectWagePct;
+  const lineWage = (r: any) => returnWage(r, r.wage_per_unit, pol);
 
   const members = rawMembers.map((m: any) => {
-    const ng_deduction = m.ng_excess_qty * ngPenaltyRate;
+    const mine = penRows.filter(p => p.member_id === m.member_id);
+    const ng_deduction = mine.reduce((s, p) => s + p.amount, 0);
+    const ng_excess_qty = mine.reduce((s, p) => s + p.legacy_excess, 0);
+    // บรรทัดหัก/เตือนในใบเสร็จ — รอบเก่าเป็นบรรทัด "NG เกินเกณฑ์" แบบเดิม รอบใหม่แยก NG กลุ่มครั้งที่ 1/2/3, NG ดึงเชือก
+    const deductions = deductionLines(mine, pol);
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
     const rows = (detailRowsStmt.all(m.member_id, month) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
     const carryRaw = (carryRowsStmt.all(m.member_id, cutoff, `${month}%`) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
@@ -1005,7 +1019,7 @@ function buildPayrollDetail(month: string) {
       productAgg[r.product_name].qty += r.good_qty;
     }
     return {
-      ...m, ng_deduction, total_wage, rows,
+      ...m, ng_excess_qty, ng_deduction, deductions, total_wage, rows,
       carry_rows: carryRaw, carry_subtotal,
       product_wages: Object.values(productAgg),
     };
@@ -1014,7 +1028,7 @@ function buildPayrollDetail(month: string) {
   return {
     month, cutoff, cutoff_start: cutoffStart, next_month: nextM,
     org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
-    ng_penalty_rate: ngPenaltyRate,
+    ng_penalty_rate: pol.legacyRate,
     members,
     total_wage: members.reduce((s: number, m: any) => s + m.total_wage, 0),
   };
@@ -1027,17 +1041,16 @@ router.get('/member-reconcile', (req, res) => {
   const month = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)
     ? req.query.month : new Date().toISOString().substring(0, 7);
 
-  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const pol = loadWagePolicy();
 
   const rows = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname, m.phone,
-      r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.waste_qty, r.lost_qty,
-      ((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?) as wage
+      r.returned_at, r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.waste_qty, r.lost_qty,
+      ${WAGE_SQL} as wage
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.pay_cycle = ?
     ORDER BY m.code, r.returned_at
-  `).all(defectWagePct, month) as any[];
+  `).all(...wageParams(pol), month) as any[];
 
   const byMember: Record<number, any> = {};
   for (const r of rows) {
@@ -1048,7 +1061,7 @@ router.get('/member-reconcile', (req, res) => {
       days: {} as Record<string, number>,
     });
     mm.total_good += r.good_qty;
-    mm.total_ng += r.ng_cut + r.ng_factory;
+    mm.total_ng += r.ng_cut + r.ng_factory + (r.ng_rope || 0);
     mm.total_waste += r.waste_qty;
     mm.total_lost += r.lost_qty;
     mm.total_wage += r.wage;
@@ -1144,7 +1157,7 @@ const RESERVE_READY_STOCK_FROM = '2026-09';
 function buildWageReconcile(m: string) {
   const settingsRows = prepare(`SELECT key, value FROM settings`).all() as any[];
   const cfg = Object.fromEntries(settingsRows.map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
+  const pol = loadWagePolicy(cfg);
   const monthStart = `${m}-01`;
   const nextStart = `${nextMonth(m)}-01`;
   const mk = `${m}%`;
@@ -1161,7 +1174,8 @@ function buildWageReconcile(m: string) {
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_good_cyc,
       COALESCE((SELECT SUM(r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngfac_cyc,
       COALESCE((SELECT SUM(r.lost_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_lost_cyc,
-      COALESCE((SELECT SUM(r.ng_cut)     FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngcut_cyc,
+      COALESCE((SELECT SUM(r.ng_cut + r.ng_rope) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngcut_cyc,
+      COALESCE((SELECT SUM(r.rework_qty) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_rework_cyc,
       -- คืนงานดี ตามวันปฏิทิน (physical, ใช้กระทบกับยอดวางบิล — ห้ามเปลี่ยนไปอิงเส้นตัดยอด)
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at>=? AND r.returned_at<?),0) as ret_good_cal,
       -- ส่งออกงานดี ตามเดือนปฏิทิน (billing) — ยอดโรงงานรับจริงถ้ามี
@@ -1172,7 +1186,7 @@ function buildWageReconcile(m: string) {
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at<?),0) as ret_good_upto,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at<?),0) as ship_good_upto
     FROM products p WHERE p.active=1
-  `).all(m, m, m, m, monthStart, nextStart, mk, cycle.start, cycle.start, cycleEndExclusive, cycleEndExclusive) as any[];
+  `).all(m, m, m, m, m, monthStart, nextStart, mk, cycle.start, cycle.start, cycleEndExclusive, cycleEndExclusive) as any[];
 
   /* เงินกันข้ามเดือน = สต็อกที่สมาชิกคืนแล้วรอส่งโรงงาน × ค่าแรง/หน่วย
      • ตั้งแต่รอบ ก.ย. 2569: ใช้ "ยอดพร้อมส่งจริง" ณ วันเริ่ม/วันปิดรอบจ่าย (ชุดเดียวกับหน้าสต็อกสินค้า/จัดลัง)
@@ -1192,7 +1206,8 @@ function buildWageReconcile(m: string) {
     const wage_billed = p.ship_good_cal * wage;               // A
     const wage_dFG = dFG * wage;                               // ΔFG
     const wage_timing = (p.ret_good_cyc - p.ret_good_cal) * wage;  // T (เหลื่อมรอบตัดยอด)
-    const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * defectWagePct; // X
+    // X — ส่วนที่ไม่ได้อยู่ใน "งานดี": NG โรงงาน/หาย (เต็ม) + NG กลุ่ม/ดึงเชือก (ตาม %) − ส่วนที่หักจากงานแก้ไข (งานแก้ไขนับอยู่ในงานดีแล้ว)
+    const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * pol.defectPct - p.ret_rework_cyc * wage * pol.reworkPct;
     const wage_payroll = wage_billed + wage_dFG + wage_timing + wage_extra;  // B (gross)
     // ไม่ clamp ที่ 0 ต่อสินค้า — ถ้าสินค้าไหนส่งออกมากกว่าที่คืนงานสะสม (fg ติดลบ) ต้องปล่อยให้ติดลบจริง
     // เพื่อให้หักล้าง (net) กับสินค้าอื่นที่มีของค้างบวกอยู่ได้ถูกต้องตอนรวมยอด — ถ้า clamp ทีละตัวก่อนรวม ยอดรวมจะสูงเกินจริง
@@ -1329,24 +1344,21 @@ router.put('/manager-month', (req, res) => {
 
 // ── Cumulative payroll per member (month-by-month) ─────────────────────────
 router.get('/payroll-cumulative', (req, res) => {
-  const settings = prepare(`SELECT key, value FROM settings`).all() as any[];
-  const cfg = Object.fromEntries((settings as any[]).map((s: any) => [s.key, s.value]));
-  const defectWagePct = parseFloat(cfg.defect_wage_percent || '0') / 100;
-  const ngPenaltyRate = parseFloat(cfg.ng_penalty_per_unit || '20');
+  const pol = loadWagePolicy();
+  const pen = sumPenalties(computePenalties(pol), r => `${r.member_id}|${r.pay_cycle}`);
 
-  // Monthly wage per member (net = ค่าแรง − ค่าปรับ NG เกินเกณฑ์)
+  // Monthly wage per member (net = ค่าแรง − ค่าปรับ NG ตามกติกาของรอบนั้น)
   const rows = prepare(`
     SELECT m.id as member_id, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
       r.pay_cycle as month,
-      COALESCE(SUM((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit + r.ng_cut * p.wage_per_unit * ?), 0) as gross_wage,
-      COALESCE(SUM(MAX(0, r.ng_cut - ROUND(p.defect_tolerance / 100.0 * (r.good_qty + r.ng_cut)))), 0) as ng_excess_qty
+      COALESCE(SUM(${WAGE_SQL}), 0) as gross_wage
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
     GROUP BY m.id, r.pay_cycle
     ORDER BY m.code, month
-  `).all(defectWagePct) as any[];
+  `).all(...wageParams(pol)) as any[];
 
   // Group by member
   const memberMap: Record<number, any> = {};
@@ -1361,7 +1373,7 @@ router.get('/payroll-cumulative', (req, res) => {
         months: []
       };
     }
-    const wage = Math.ceil(row.gross_wage - (row.ng_excess_qty * ngPenaltyRate));   // ปัดขึ้นเต็มบาท
+    const wage = Math.ceil(row.gross_wage - (pen.get(`${row.member_id}|${row.month}`) || 0));   // ปัดขึ้นเต็มบาท
     memberMap[row.member_id].months.push({ month: row.month, wage });
     memberMap[row.member_id].total_wage += wage;
   }

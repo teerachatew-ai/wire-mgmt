@@ -913,7 +913,9 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
 
 /* ── รับคืนงานทั้งหมดของสมาชิกคนหนึ่งในวันเดียว — คลิกที่ยอดค้างส่ง (สีส้ม) ในตารางสรุปรายวัน ──
    รวมใบเบิกที่ยังค้างของคนนั้น "ทุกชนิดงาน" ที่เบิกวันนั้นมาคืนพร้อมกันในกล่องเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
-   ค่าเริ่มต้น = คืนครบทุกใบ ไม่มีงานเสีย (เหมือนหน้ารับคืนงานหลัก) เปิด "มีงานเสีย" ต่อใบถ้าต้องกรอกแยก
+   ค่าเริ่มต้น = คืนครบทุกใบ ไม่มีงานเสีย · ช่องงานเสียโชว์ให้กรอกเลยทุกใบ (ไม่ต้องกด +)
+   กรอก "คืนทั้งหมด" + งาน NG โรงงาน / NG กลุ่ม / NG ดึงเชือก / งานแก้ไข → งานดีคำนวณให้เอง
+   (งานแก้ไขเป็นส่วนหนึ่งของงานดี ส่งโรงงานได้ แต่หักค่าแรงตาม % ในหน้าตั้งค่า)
    ใช้ remainOf สูตรเดียวกับที่ IssueMatrix ใช้ตัดสินว่าจะโชว์ปุ่มนี้ไหม (ผลรวม good+defect+waste ไม่รวม lost —
    สอดคล้องกับยอด "ค้างส่ง" ที่เห็นในตาราง ตัวเลขจะได้ตรงกัน) */
 function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: () => void; onSaved: () => void }) {
@@ -924,24 +926,27 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
 
   // วันที่คืน = วันที่ทำรายการรับคืน (วันนี้ตามเวลาเครื่อง) ไม่ใช่วันที่เบิก — แก้เองได้ถ้ารับคืนย้อนหลัง
   const [returnedAt, setReturnedAt] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));
-  // on = ติ๊กเลือกคืนรายการนี้ (ค่าเริ่มต้นเลือกทุกรายการ) · good_qty แก้ได้ตรงๆ เผื่อคืนไม่ครบ
+  // on = ติ๊กเลือกคืนรายการนี้ (ค่าเริ่มต้นเลือกทุกรายการ) · total = จำนวนที่คืนมาทั้งหมด แก้ได้เผื่อคืนไม่ครบ
   const [lines, setLines] = useState<Record<number, any>>(() => Object.fromEntries(
-    outstanding.map((i: any) => [i.id, { on: true, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }])
+    outstanding.map((i: any) => [i.id, { on: true, total: remainOf(i), ng_factory: '', ng_cut: '', ng_rope: '', rework_qty: '' }])
   ));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
-  // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ/หาย=0) — เหมือนหน้ารับคืนงานหลักเป๊ะ
-  const toggleDefect = (i: any, hasDefect: boolean) => setLines(l => ({
-    ...l,
-    [i.id]: hasDefect
-      ? { ...l[i.id], hasDefect: true }
-      : { ...l[i.id], good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false },
-  }));
   const toggleOn = (id: number, on: boolean) => setLines(l => ({ ...l, [id]: { ...l[id], on } }));
   const setAllOn = (on: boolean) => setLines(l => Object.fromEntries(Object.entries(l).map(([k, v]: any) => [k, { ...v, on }])));
-  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
+  const n = (v: any) => parseFloat(v) || 0;
+  const lineTotal = (l: any) => n(l.total);
+  const ngOf = (l: any) => n(l.ng_factory) + n(l.ng_cut) + n(l.ng_rope);
+  const goodOf = (l: any) => lineTotal(l) - ngOf(l);   // งานดีทั้งหมด (รวมงานแก้ไข)
+  // ช่องงานเสีย — ลำดับ/ชื่อตามที่หน้างานใช้ + คำใบ้สั้นๆ ว่าคิดเงินยังไง
+  const NG_FIELDS = [
+    ['ng_factory', 'งาน NG โรงงาน', 'ไม่ปรับ'],
+    ['ng_cut', 'NG กลุ่ม', 'มีค่าปรับ'],
+    ['ng_rope', 'NG ดึงเชือก', 'มีค่าปรับ'],
+    ['rework_qty', 'งานแก้ไข', 'หักค่าแรง %'],
+  ] as const;
 
   const save = async () => {
     setSaving(true); setError('');
@@ -950,7 +955,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
         returned_at: returnedAt,
         lines: picked.map((i: any) => {
           const l = lines[i.id];
-          return { issue_id: i.id, good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0, waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0 };
+          return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0 };
         }),
       });
       const problems = [
@@ -995,6 +1000,8 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const grandTotal = picked.reduce((s: number, i: any) => s + lineTotal(lines[i.id]), 0);
   // คืนมากกว่ายอดค้างของใบนั้นไม่ได้ — กันไว้ตั้งแต่หน้าจอ ไม่ต้องรอ error จาก server
   const overLines = picked.filter((i: any) => lineTotal(lines[i.id]) > remainOf(i) + 0.0001);
+  // งานเสียรวมเกินจำนวนที่คืน หรืองานแก้ไขเกินงานดี = กรอกผิด
+  const badLines = picked.filter((i: any) => goodOf(lines[i.id]) < -0.0001 || n(lines[i.id].rework_qty) > goodOf(lines[i.id]) + 0.0001);
 
   return (
     <Modal title="รับคืนงาน" onClose={onClose} wide>
@@ -1028,40 +1035,44 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
                 </div>
                 {!l.on ? (
                   <div className="text-xs text-gray-400 pl-6">ไม่คืนรายการนี้ (ยังค้างไว้เหมือนเดิม)</div>
-                ) : !l.hasDefect ? (
-                  <div className="flex items-center gap-2 flex-wrap pl-6">
-                    <span className="text-sm text-gray-600">คืน</span>
-                    <input type="number" step="0.01" min="0" max={rem} className="input !min-h-[34px] !py-1 !px-2 text-sm w-28 text-right font-semibold"
-                      value={l.good_qty} onChange={e => updateLine(i.id, 'good_qty', e.target.value)} />
-                    <span className="text-sm text-gray-500">{i.unit}</span>
-                    {(parseFloat(l.good_qty) || 0) !== rem && (
-                      <button type="button" onClick={() => updateLine(i.id, 'good_qty', rem)}
-                        className="text-[11px] text-blue-600 hover:underline">คืนครบ {rem.toLocaleString('th-TH')}</button>
-                    )}
-                    {(parseFloat(l.good_qty) || 0) < rem - 0.0001 && (
-                      <span className="text-[11px] text-amber-600">ค้างต่ออีก {(rem - (parseFloat(l.good_qty) || 0)).toLocaleString('th-TH')}</span>
-                    )}
-                    {(parseFloat(l.good_qty) || 0) > rem + 0.0001 && (
-                      <span className="text-[11px] text-rose-600">เกินยอดค้าง</span>
-                    )}
-                    <button type="button" onClick={() => toggleDefect(i, true)} className="text-xs text-amber-600 hover:underline shrink-0 ml-auto">+ มีงานเสีย</button>
-                  </div>
                 ) : (
-                  <div className="space-y-1.5 pl-6">
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {([['good_qty', 'งานดี'], ['ng_cut', 'เสีย-ตัด'], ['ng_factory', 'เสีย-รง.']] as const).map(([f, label]) => (
+                  <div className="space-y-2 pl-6">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-gray-600">คืนทั้งหมด</span>
+                      <input type="number" step="0.01" min="0" max={rem} className="input !min-h-[34px] !py-1 !px-2 text-sm w-28 text-right font-semibold"
+                        value={l.total} onChange={e => updateLine(i.id, 'total', e.target.value)} />
+                      <span className="text-sm text-gray-500">{i.unit}</span>
+                      {lineTotal(l) !== rem && (
+                        <button type="button" onClick={() => updateLine(i.id, 'total', rem)}
+                          className="text-[11px] text-blue-600 hover:underline">คืนครบ {rem.toLocaleString('th-TH')}</button>
+                      )}
+                      {lineTotal(l) < rem - 0.0001 && (
+                        <span className="text-[11px] text-amber-600">ค้างต่ออีก {(rem - lineTotal(l)).toLocaleString('th-TH')}</span>
+                      )}
+                      {lineTotal(l) > rem + 0.0001 && <span className="text-[11px] text-rose-600">เกินยอดค้าง</span>}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                      {NG_FIELDS.map(([f, label, hint]) => (
                         <div key={f}>
-                          <label className="block text-[10px] text-gray-400">{label}</label>
-                          <input type="number" step="0.01" min="0" className="input !min-h-[34px] !py-1 !px-1.5 text-sm"
+                          <label className="block text-[11px] text-gray-600 leading-tight">{label} <span className="text-[10px] text-gray-400">· {hint}</span></label>
+                          <input type="number" step="0.01" min="0" placeholder="0"
+                            className={`input !min-h-[34px] !py-1 !px-1.5 text-sm text-right ${n(l[f]) > 0 ? (f === 'rework_qty' ? '!border-amber-300 bg-amber-50' : '!border-rose-300 bg-rose-50') : ''}`}
                             value={l[f]} onChange={e => updateLine(i.id, f, e.target.value)} />
                         </div>
                       ))}
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[11px] ${lineTotal(l) === rem ? 'text-gray-400' : 'text-amber-600'}`}>
-                        รวม {lineTotal(l).toLocaleString('th-TH')} / ค้าง {rem.toLocaleString('th-TH')} {i.unit}
-                      </span>
-                      <button type="button" onClick={() => toggleDefect(i, false)} className="text-[11px] text-green-600 hover:underline">↩ คืนครบ ไม่มีงานเสีย</button>
+                    <div className="text-[11px]">
+                      {goodOf(l) < -0.0001 ? (
+                        <span className="text-rose-600">งานเสียรวม {ngOf(l).toLocaleString('th-TH')} มากกว่าจำนวนที่คืน</span>
+                      ) : n(l.rework_qty) > goodOf(l) + 0.0001 ? (
+                        <span className="text-rose-600">งานแก้ไขมากกว่างานดี ({goodOf(l).toLocaleString('th-TH')})</span>
+                      ) : (
+                        <span className="text-gray-500">
+                          งานดี <b className="text-green-700">{goodOf(l).toLocaleString('th-TH')}</b>
+                          {n(l.rework_qty) > 0 && <> (ในนั้นงานแก้ไข <b className="text-amber-700">{n(l.rework_qty).toLocaleString('th-TH')}</b>)</>}
+                          {ngOf(l) > 0 && <> · งานเสีย <b className="text-rose-600">{ngOf(l).toLocaleString('th-TH')}</b></>}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1077,13 +1088,16 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
         {overLines.length > 0 && (
           <div className="text-xs text-rose-600 px-1">มีรายการที่กรอกเกินยอดค้าง — แก้ให้ไม่เกินก่อนบันทึก</div>
         )}
+        {badLines.length > 0 && (
+          <div className="text-xs text-rose-600 px-1">มีรายการที่งานเสีย/งานแก้ไขไม่ตรงกับจำนวนที่คืน — แก้ก่อนบันทึก</div>
+        )}
 
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
 
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="button" className="btn-primary flex items-center gap-1.5"
-            disabled={saving || picked.length === 0 || overLines.length > 0} onClick={save}>
+            disabled={saving || picked.length === 0 || overLines.length > 0 || badLines.length > 0} onClick={save}>
             {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</> : <><RotateCcw size={14} /> รับคืน {picked.length} รายการ</>}
           </button>
         </div>
@@ -1247,7 +1261,8 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
                     <span className="text-[11px] font-mono text-blue-600 ml-1.5">{r.code}</span>
                     <span className="block text-[11px] text-gray-400">
                       คืนวันที่ {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
-                      {Number(r.ng_cut) > 0 && ` · เสีย-ตัด ${r.ng_cut}`}{Number(r.ng_factory) > 0 && ` · เสีย-รง. ${r.ng_factory}`}
+                      {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG กลุ่ม ${r.ng_cut}`}
+                      {Number(r.ng_rope) > 0 && ` · NG ดึงเชือก ${r.ng_rope}`}{Number(r.rework_qty) > 0 && ` · งานแก้ไข ${r.rework_qty}`}
                     </span>
                   </span>
                   <span className="tabular-nums font-semibold">{qtyOf(r).toLocaleString('th-TH')} {r.unit}</span>

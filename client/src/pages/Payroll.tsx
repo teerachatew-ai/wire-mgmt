@@ -29,6 +29,14 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
   const byProduct: any[] = data?.byProduct || [];
   const totGood = rows.reduce((s, r) => s + (Number(r.good_qty) || 0), 0);
   const totWage = rows.reduce((s, r) => s + (Number(r.wage) || 0), 0);
+  const deductions: any[] = data?.deductions || [];
+  // สรุปงานเสีย/งานแก้ไขของแถว — แสดงเฉพาะชนิดที่มี
+  const ngParts = (r: any) => [
+    r.ng_cut > 0 && `กลุ่ม ${fmtQty(r.ng_cut)}${r.ng_group_tier ? ` (ครั้งที่ ${r.ng_group_tier})` : ''}`,
+    r.ng_rope > 0 && `ดึงเชือก ${fmtQty(r.ng_rope)}`,
+    r.ng_factory > 0 && `โรงงาน ${fmtQty(r.ng_factory)}`,
+    r.rework_qty > 0 && `แก้ไข ${fmtQty(r.rework_qty)}`,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -64,7 +72,7 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
                     <th className="px-3 py-2 text-left font-medium">เบิก / คืน</th>
                     <th className="px-3 py-2 text-left font-medium">ประเภทงาน</th>
                     <th className="px-3 py-2 text-right font-medium text-green-600">งานดี</th>
-                    <th className="px-3 py-2 text-right font-medium text-rose-500">NG ตัด</th>
+                    <th className="px-3 py-2 text-right font-medium text-rose-500">NG / แก้ไข</th>
                     <th className="px-3 py-2 text-right font-medium text-green-700">ค่าแรง (บาท)</th>
                   </tr>
                 </thead>
@@ -80,7 +88,9 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
                         {r.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ backgroundColor: r.color }} />}{r.product_name}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums text-green-600">{fmtQty(r.good_qty)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-rose-500">{r.ng_cut > 0 ? fmtQty(r.ng_cut) : '-'}</td>
+                      <td className="px-3 py-2 text-right text-xs text-rose-500">
+                        {ngParts(r).length ? ngParts(r).map(t => <span key={t} className="block whitespace-nowrap">{t}</span>) : '-'}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-green-700">{fmt(r.wage)}</td>
                     </tr>
                   ))}
@@ -92,7 +102,17 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
                   </tr>
                 </tbody>
               </table>
-              <p className="text-[11px] text-gray-400">* ค่าแรงสุทธิในตารางหลักหักค่าปรับ NG-เกินเกณฑ์แล้ว และปัดขึ้นเต็มบาท</p>
+              {deductions.length > 0 && (
+                <div className="border rounded-lg divide-y text-sm">
+                  {deductions.map((d: any, i: number) => (
+                    <div key={i} className={`flex items-center justify-between gap-3 px-3 py-2 ${d.note === 'warn' ? 'bg-amber-50 text-amber-800' : 'text-rose-700'}`}>
+                      <span>{d.label}</span>
+                      <span className="tabular-nums font-semibold shrink-0">{d.note === 'warn' ? '—' : `-${fmt(d.amount)}`}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400">* ค่าแรงสุทธิในตารางหลักหักค่าปรับ NG แล้ว และปัดขึ้นเต็มบาท · ค่าแรงรายแถวยังไม่หักค่าปรับ (งานแก้ไขหักตาม % แล้ว)</p>
             </>
           )}
         </div>
@@ -451,8 +471,13 @@ function MonthlyTab() {
                   <th className="px-4 py-3 font-medium">ชื่อ</th>
                   <th className="px-4 py-3 font-medium">ธนาคาร / เลขบัญชี</th>
                   <th className="px-4 py-3 font-medium">จำนวนที่ตัด (แยกชนิด)</th>
-                  <th className="px-4 py-3 font-medium text-right text-gray-400">NG ตัด (เส้น)</th>
-                  <th className="px-4 py-3 font-medium text-right text-rose-500">เกินเกณฑ์ (เส้น)</th>
+                  {data.ng_policy === 'tiered' ? (<>
+                    <th className="px-4 py-3 font-medium text-right text-gray-400">NG กลุ่ม (เส้น)</th>
+                    <th className="px-4 py-3 font-medium text-right text-rose-500">ครั้ง / ดึงเชือก</th>
+                  </>) : (<>
+                    <th className="px-4 py-3 font-medium text-right text-gray-400">NG ตัด (เส้น)</th>
+                    <th className="px-4 py-3 font-medium text-right text-rose-500">เกินเกณฑ์ (เส้น)</th>
+                  </>)}
                   <th className="px-4 py-3 font-medium text-right text-rose-500">ถูกหัก (บาท)</th>
                   <th className="px-4 py-3 font-medium text-right">ค่าแรงสุทธิ (บาท)</th>
                 </tr>
@@ -489,8 +514,23 @@ function MonthlyTab() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-gray-400">{m.ng_cut_qty > 0 ? m.ng_cut_qty.toLocaleString() : '-'}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-rose-500 font-medium">{m.ng_excess_qty > 0 ? m.ng_excess_qty.toLocaleString() : '-'}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-rose-500">{m.ng_deduction > 0 ? `-${fmt(m.ng_deduction)}` : '-'}</td>
+                    {data.ng_policy === 'tiered' ? (
+                      <td className="px-4 py-3 text-right text-xs whitespace-nowrap">
+                        {m.ng_group_times > 0 && (
+                          <span className={`inline-block rounded-full px-2 py-0.5 font-medium ${m.ng_group_times >= 3 ? 'bg-rose-100 text-rose-700' : m.ng_group_times === 2 ? 'bg-orange-100 text-orange-700' : 'bg-amber-50 text-amber-700'}`}>
+                            {m.ng_group_times === 1 ? 'ครั้งที่ 1 · เตือน' : `${m.ng_group_times} ครั้ง`}
+                          </span>
+                        )}
+                        {m.ng_rope_qty > 0 && <span className="ml-1 text-rose-500">ดึงเชือก {m.ng_rope_qty.toLocaleString()}</span>}
+                        {!(m.ng_group_times > 0) && !(m.ng_rope_qty > 0) && <span className="text-gray-300">-</span>}
+                      </td>
+                    ) : (
+                      <td className="px-4 py-3 text-right tabular-nums text-rose-500 font-medium">{m.ng_excess_qty > 0 ? m.ng_excess_qty.toLocaleString() : '-'}</td>
+                    )}
+                    <td className="px-4 py-3 text-right tabular-nums text-rose-500"
+                      title={(m.deductions || []).map((d: any) => d.label).join('\n') || undefined}>
+                      {m.ng_deduction > 0 ? `-${fmt(m.ng_deduction)}` : '-'}
+                    </td>
                     <td className="px-4 py-3 text-right font-bold text-green-700">{fmt(m.total_wage)}</td>
                   </tr>
                 ))}
@@ -532,7 +572,10 @@ function MonthlyTab() {
             </div>
             {data.total_ng_deduction > 0 && (
               <div className="px-4 py-2.5 text-xs text-gray-500 border-t bg-rose-50/40">
-                💡 ค่าปรับงานเสียจากการตัด = 20 บาท/เส้น เฉพาะส่วนที่เกินเกณฑ์ % ยอมรับได้ของแต่ละรุ่น — รวม <strong className="text-rose-600">{fmt(data.total_ng_deduction)}</strong> บาท ถือเป็นรายได้เข้ากลุ่ม
+                {data.ng_policy === 'tiered'
+                  ? <>💡 ค่าปรับ NG กลุ่ม (ครั้งที่ 1 ตักเตือน · ครั้งที่ 2/3 ตามอัตราในหน้าตั้งค่า) + NG ดึงเชือก — รวม </>
+                  : <>💡 ค่าปรับงานเสียจากการตัด เฉพาะส่วนที่เกินเกณฑ์ % ยอมรับได้ของแต่ละรุ่น — รวม </>}
+                <strong className="text-rose-600">{fmt(data.total_ng_deduction)}</strong> บาท ถือเป็นรายได้เข้ากลุ่ม
               </div>
             )}
           </div>
@@ -776,7 +819,7 @@ function WageReconcileTab() {
               {t.total_ng_deduction > 0 && (
                 <div className="flex items-center justify-between gap-2 py-1">
                   <div className="min-w-0">
-                    <span className="text-gray-700">− หักค่าปรับ NG เกินเกณฑ์</span>
+                    <span className="text-gray-700">− หักค่าปรับ NG</span>
                     <span className="block text-[11px] text-gray-400">งานเสียจากการตัดเกินเกณฑ์ที่ยอมรับได้ (ปรับต่อคน)</span>
                   </div>
                   <span className="tabular-nums font-semibold shrink-0 text-rose-600">−{money(t.total_ng_deduction)}</span>
@@ -849,7 +892,7 @@ function WageReconcileTab() {
                     </tr>
                     {Math.abs(adjB) > 0.005 && (
                       <tr className="text-xs text-gray-500">
-                        <td className="px-3 py-2" colSpan={5}>ปรับยอดจากค่าปรับ NG เกินเกณฑ์ + ปัดค่าแรงขึ้นเต็มบาทรายคน (คิดรายคน แยกรายสายไฟไม่ได้)</td>
+                        <td className="px-3 py-2" colSpan={5}>ปรับยอดจากค่าปรับ NG + ปัดค่าแรงขึ้นเต็มบาทรายคน (คิดรายคน แยกรายสายไฟไม่ได้)</td>
                         <td className="px-3 py-2 text-right tabular-nums">{adjB > 0 ? '+' : '−'}{money(Math.abs(adjB))}</td>
                         <td className={`px-3 py-2 text-right tabular-nums ${signCls(-adjB)}`}>{signed(-adjB)}</td>
                       </tr>

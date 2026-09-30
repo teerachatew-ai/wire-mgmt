@@ -239,7 +239,8 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                             ) : (
                               <span className="font-semibold text-amber-600">{fmt(pending)}</span>
                             )
-                          ) : (
+                          ) : null}
+                          {pending > 0 ? null : (
                             <span className="text-emerald-600" title={m.lastReturnedAt ? `ส่งครบแล้ว — คืนล่าสุด ${m.lastReturnedAt}` : 'ส่งครบแล้ว'}>
                               ✓
                               {m.lastReturnedAt && <span className="block text-[10px] text-gray-400 font-normal leading-tight">{shortLot(m.lastReturnedAt)}</span>}
@@ -252,6 +253,13 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                               className="ml-2 inline-flex items-center gap-0.5 align-top text-[11px] text-slate-500 border border-slate-200 rounded px-1.5 py-0.5 hover:bg-slate-100 hover:text-slate-800">
                               <Undo2 size={11} /> Undo
                             </button>
+                          )}
+                          {pending > 0 && m.returned > 0 && (
+                            // คืนมาแล้วบางส่วน ยังค้างอยู่ — ป้ายเล็กใต้ยอดค้างส่ง/ไอคอนรับคืน
+                            <span className="block mt-0.5 leading-none">
+                              <span className="inline-block text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5 whitespace-nowrap"
+                                title={`คืนแล้ว ${fmt(m.returned)} จาก ${fmt(m.total)}`}>คืนบางส่วน</span>
+                            </span>
                           )}
                         </td>
                       </tr>

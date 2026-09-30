@@ -34,6 +34,8 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
       good_qty: ret.good_qty,
       ng_cut: ret.ng_cut ?? ret.defect_qty ?? 0,
       ng_factory: ret.ng_factory ?? 0,
+      ng_rope: ret.ng_rope ?? 0,
+      rework_qty: ret.rework_qty ?? 0,
       waste_qty: ret.waste_qty,
       lost_qty: ret.lost_qty ?? 0,
       inspector: ret.inspector || '',
@@ -129,16 +131,24 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="label">งานดี *</label>
+            <label className="label">งานดี * <span className="text-[11px] text-gray-400 font-normal">(รวมงานแก้ไข)</span></label>
             <input type="number" step="0.01" min="0" className="input" {...register('good_qty', { required: true })} />
           </div>
           <div>
-            <label className="label text-rose-600">งานเสีย — จากการตัด (หักเงิน)</label>
+            <label className="label text-amber-700">งานแก้ไข <span className="text-[11px] text-gray-400 font-normal">(หักค่าแรง %)</span></label>
+            <input type="number" step="0.01" min="0" className="input" {...register('rework_qty')} />
+          </div>
+          <div>
+            <label className="label text-amber-600">งาน NG โรงงาน <span className="text-[11px] text-gray-400 font-normal">(ไม่ปรับ)</span></label>
+            <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
+          </div>
+          <div>
+            <label className="label text-rose-600">NG กลุ่ม <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_cut')} />
           </div>
           <div>
-            <label className="label text-amber-600">งานเสีย — จากโรงงาน (จ่ายปกติ)</label>
-            <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
+            <label className="label text-rose-600">NG ดึงเชือก <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
+            <input type="number" step="0.01" min="0" className="input" {...register('ng_rope')} />
           </div>
         </div>
         <div>
@@ -299,8 +309,8 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
       </div>
       <div className="flex items-end gap-2 mt-2 flex-wrap">
         {numField('งานดี', good, setGood, 'font-semibold text-green-700')}
-        {numField('เสีย-ตัด', ngCut, setNgCut)}
-        {numField('เสีย-รง.', ngFactory, setNgFactory)}
+        {numField('NG กลุ่ม', ngCut, setNgCut)}
+        {numField('NG โรงงาน', ngFactory, setNgFactory)}
         <div className="w-36 shrink-0">
           <label className="block text-[10px] text-gray-400">วันที่คืน</label>
           <input type="date" className="input !py-1.5 !min-h-0 text-sm" value={returnedAt} onChange={e => setReturnedAt(e.target.value)} />
@@ -482,16 +492,17 @@ export default function Returns() {
   const remainOf = (i: any) => i.quantity - (i.returned_good + i.returned_defect + i.returned_waste);
   // ค่าเริ่มต้น = คืนครบ ไม่มีงานเสีย (งานดี = คงเหลือ) — hasDefect=false จะซ่อนช่องกรอกตัวเลข
   // เลือกใบเบิกแล้ว "คงคำค้นหาไว้" เพื่อเลือกใบถัดไปของคนเดียวกันได้เลย ไม่ต้องพิมพ์ใหม่
-  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }]); };
+  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }]); };
   const removeIssue = (id: number) => setLines(l => l.filter(x => x.issue.id !== id));
   const updateLine = (id: number, field: string, val: any) =>
     setLines(l => l.map(x => x.issue.id === id ? { ...x, [field]: val } : x));
   // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ=0)
   const toggleDefect = (i: any, on: boolean) =>
     setLines(l => l.map(x => x.issue.id === i.id
-      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, waste_qty: 0, lost_qty: 0 })
+      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0 })
       : x));
-  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
+  // งานแก้ไขอยู่ในงานดีแล้ว ไม่บวกซ้ำ
+  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.ng_rope) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
 
   const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); setIssueDayFilter(''); reset(); };
 
@@ -506,6 +517,7 @@ export default function Returns() {
         lines: lines.map(l => ({
           issue_id: l.issue.id,
           good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0,
+          ng_rope: l.ng_rope || 0, rework_qty: l.rework_qty || 0,
           waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0,
         })),
       });
@@ -532,7 +544,7 @@ export default function Returns() {
           <ExportExcelButton filename="รับคืนงาน" rows={(returns_ as any[]).map(r => ({
             'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
             'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
-            'งานดี': r.good_qty, 'เสีย-ตัด': r.ng_cut ?? r.defect_qty, 'เสีย-โรงงาน': r.ng_factory ?? 0,
+            'งานดี': r.good_qty, 'งานแก้ไข': r.rework_qty ?? 0, 'NG กลุ่ม': r.ng_cut ?? r.defect_qty, 'NG ดึงเชือก': r.ng_rope ?? 0, 'NG โรงงาน': r.ng_factory ?? 0,
             'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
@@ -565,8 +577,8 @@ export default function Returns() {
               <th className="px-4 py-3 font-medium">สมาชิก</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
               <th className="px-4 py-3 font-medium text-right">งานดี</th>
-              <th className="px-4 py-3 font-medium text-right text-rose-500">เสีย-ตัด</th>
-              <th className="px-4 py-3 font-medium text-right text-amber-600">เสีย-โรงงาน</th>
+              <th className="px-4 py-3 font-medium text-right text-rose-500">NG กลุ่ม</th>
+              <th className="px-4 py-3 font-medium text-right text-amber-600">NG โรงงาน</th>
               <th className="px-4 py-3 font-medium">ผู้ตรวจ</th>
               <th className="px-4 py-3 font-medium"></th>
             </tr>
@@ -682,16 +694,24 @@ export default function Returns() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="text-xs text-gray-500">งานดี *</label>
+                            <label className="text-xs text-gray-500">งานดี * (รวมงานแก้ไข)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.good_qty} onChange={e => updateLine(l.issue.id, 'good_qty', e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-xs text-rose-600">เสีย — จากการตัด (หักเงิน)</label>
+                            <label className="text-xs text-amber-700">งานแก้ไข (หักค่าแรง %)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.rework_qty} onChange={e => updateLine(l.issue.id, 'rework_qty', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-amber-600">งาน NG โรงงาน (ไม่ปรับ)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
+                          </div>
+                          <div>
+                            <label className="text-xs text-rose-600">NG กลุ่ม (มีค่าปรับ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-xs text-amber-600">เสีย — จากโรงงาน (จ่ายปกติ)</label>
-                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
+                            <label className="text-xs text-rose-600">NG ดึงเชือก (มีค่าปรับ)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_rope} onChange={e => updateLine(l.issue.id, 'ng_rope', e.target.value)} />
                           </div>
                         </div>
                         <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
@@ -764,7 +784,11 @@ const ReturnRow = memo(function ReturnRow({ r, checked, onToggle, onEdit, onDele
       <td className="px-4 py-3 text-gray-800">{r.member_name}{r.member_nickname && <span className="text-xs text-gray-400"> ({r.member_nickname})</span>}</td>
       <td className="px-4 py-3 text-gray-600"><span className="inline-flex items-center gap-1.5">{r.product_color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: r.product_color }} />}{r.product_name}</span></td>
       <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
-      <td className="px-4 py-3 text-right font-medium text-rose-500">{r.ng_cut ?? r.defect_qty}</td>
+      <td className="px-4 py-3 text-right font-medium text-rose-500">
+        {r.ng_cut ?? r.defect_qty}
+        {Number(r.ng_rope) > 0 && <span className="block text-[11px] font-normal">ดึงเชือก {r.ng_rope}</span>}
+        {Number(r.rework_qty) > 0 && <span className="block text-[11px] font-normal text-amber-700">แก้ไข {r.rework_qty}</span>}
+      </td>
       <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>
       <td className="px-4 py-3 text-gray-500 text-xs">{r.inspector || '-'}</td>
       <td className="px-4 py-3">

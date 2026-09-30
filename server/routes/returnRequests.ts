@@ -46,25 +46,28 @@ router.post('/:id/confirm', (req, res) => {
   if (!issue) return res.status(400).json({ error: 'ไม่พบใบเบิก' });
   if (issue.status === 'closed') return res.status(400).json({ error: 'ใบเบิกนี้ปิดแล้ว' });
 
-  const { good_qty, ng_cut, ng_factory, waste_qty, lost_qty, returned_at, inspector, notes } = req.body;
+  const { good_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, returned_at, inspector, notes } = req.body;
   const gQty = good_qty !== undefined ? (parseFloat(good_qty) || 0) : request.good_qty;
   const ngCut = ng_cut !== undefined ? (parseFloat(ng_cut) || 0) : request.ng_cut;
   const ngFac = ng_factory !== undefined ? (parseFloat(ng_factory) || 0) : request.ng_factory;
   const wQty = waste_qty !== undefined ? (parseFloat(waste_qty) || 0) : request.waste_qty;
   const lQty = lost_qty !== undefined ? (parseFloat(lost_qty) || 0) : request.lost_qty;
+  // NG ดึงเชือก / งานแก้ไข — สมาชิกไม่ได้แจ้งมา เจ้าหน้าที่กรอกตอนยืนยัน (งานแก้ไขเป็นส่วนหนึ่งของงานดี)
+  const ngRope = parseFloat(ng_rope) || 0;
+  const rework = Math.min(parseFloat(rework_qty) || 0, gQty);
   const retAt = returned_at || request.returned_at || todayThai();
 
   const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(request.issue_id) as any;
   const remaining = issue.quantity - (prev.total || 0);
-  if (gQty + ngCut + ngFac + wQty + lQty > remaining + 0.001) {
+  if (gQty + ngCut + ngFac + ngRope + wQty + lQty > remaining + 0.001) {
     return res.status(400).json({ error: `ยืนยันเกินจำนวนที่เบิก (คงเหลือ ${remaining} ${issue.unit})` });
   }
 
   const code = nextDateCode('RT', 'returns', retAt);
   const payCycle = payCycleFor(retAt);
   const result = prepare(
-    `INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(code, request.issue_id, retAt, gQty, ngCut + ngFac, ngCut, ngFac, wQty, lQty, inspector || null, notes || request.notes || null, payCycle, userOf(req));
+    `INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(code, request.issue_id, retAt, gQty, ngCut + ngFac + ngRope, ngCut, ngFac, ngRope, rework, wQty, lQty, inspector || null, notes || request.notes || null, payCycle, userOf(req));
 
   updateIssueStatus(request.issue_id);
 

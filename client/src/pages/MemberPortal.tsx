@@ -291,11 +291,11 @@ function ReturnListScreen({ token, openIssues, onDone, onCancel }: { token: stri
                       ) : (
                         <div className="space-y-2 pt-1">
                           <div>
-                            <label className="text-xs text-gray-500">งานเสียจากการตัด</label>
+                            <label className="text-xs text-gray-500">NG กลุ่ม</label>
                             <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngCut[i.id] || ''} onChange={e => setNgCut(q => ({ ...q, [i.id]: e.target.value }))} />
                           </div>
                           <div>
-                            <label className="text-xs text-gray-500">งานเสียจากโรงงาน</label>
+                            <label className="text-xs text-gray-500">งาน NG โรงงาน</label>
                             <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngFactory[i.id] || ''} onChange={e => setNgFactory(q => ({ ...q, [i.id]: e.target.value }))} />
                           </div>
                         </div>

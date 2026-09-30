@@ -137,14 +137,46 @@ export default function SettingsPage() {
           <input type="number" min="1" className="input" value={current.overdue_days_limit || ''} onChange={e => set('overdue_days_limit', e.target.value)} />
         </div>
         <div>
-          <label className="label">% ค่าจ้างสำหรับงานเสีย</label>
+          <label className="label">% ค่าจ้างสำหรับงานเสีย (NG กลุ่ม / NG ดึงเชือก)</label>
           <input type="number" min="0" max="100" step="1" className="input" value={current.defect_wage_percent || ''} onChange={e => set('defect_wage_percent', e.target.value)} />
-          <p className="text-xs text-gray-400 mt-1">0 = ไม่จ่ายค่าแรงสำหรับงานเสีย, 100 = จ่ายเต็ม</p>
+          <p className="text-xs text-gray-400 mt-1">0 = ไม่จ่ายค่าแรงสำหรับงานเสีย, 100 = จ่ายเต็ม · NG โรงงานจ่ายเต็มเสมอ</p>
         </div>
-        <div>
-          <label className="label">ค่าปรับงานเสียจากการตัด (บาท/เส้นที่เกินเกณฑ์)</label>
-          <input type="number" min="0" step="1" className="input" value={current.ng_penalty_per_unit || ''} onChange={e => set('ng_penalty_per_unit', e.target.value)} />
-          <p className="text-xs text-gray-400 mt-1">หักจากสมาชิกเฉพาะเส้น NG-ตัด ที่เกิน % ยอมรับได้ของรุ่น (เข้ากลุ่ม)</p>
+
+        {/* ค่าปรับงานเสีย + งานแก้ไข — กติกาอยู่ที่ server/wagePolicy.ts (มีผลตั้งแต่รอบค่าแรง ก.ย. 2569) */}
+        <div className="border rounded-xl p-4 space-y-3 bg-rose-50/30">
+          <div>
+            <h3 className="font-semibold text-gray-800">ค่าปรับงานเสีย (NG) และงานแก้ไข</h3>
+            <p className="text-xs text-gray-500 mt-0.5">มีผลตั้งแต่รอบจ่ายค่าแรงเดือน ก.ย. 2569 เป็นต้นไป · นับครั้งใหม่ทุกรอบจ่าย · NG โรงงานไม่มีค่าปรับ</p>
+          </div>
+          <div className="text-sm text-gray-700">
+            <span className="font-medium">NG กลุ่ม</span> <span className="text-xs text-gray-400">(ตัดสายไฟขาด — นับครั้งตามวันที่รับคืนที่มี NG กลุ่ม)</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">ครั้งที่ 1</label>
+              <div className="input bg-gray-50 text-gray-500 flex items-center whitespace-nowrap">ตักเตือน</div>
+            </div>
+            <div>
+              <label className="label">ครั้งที่ 2 <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
+              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_group_rate_2 || ''} onChange={e => set('ng_group_rate_2', e.target.value)} />
+            </div>
+            <div>
+              <label className="label">ครั้งที่ 3+ <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
+              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_group_rate_3 || ''} onChange={e => set('ng_group_rate_3', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">NG ดึงเชือก <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
+              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate || ''} onChange={e => set('ng_rope_rate', e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">ปรับทุกครั้งที่มี</p>
+            </div>
+            <div>
+              <label className="label">งานแก้ไข <span className="text-[11px] text-gray-400 font-normal">หักค่าแรง %</span></label>
+              <input type="number" min="0" max="100" step="1" className="input" placeholder="0" value={current.rework_deduct_percent || ''} onChange={e => set('rework_deduct_percent', e.target.value)} />
+              <p className="text-xs text-gray-400 mt-1">เช่น 50 = หัก 50% ของค่าแรงเต็มของสายไฟชนิดนั้นต่อเส้นที่แก้ไข</p>
+            </div>
+          </div>
         </div>
 
         {/* วัน Cut-off รอบจ่ายค่าแรงตัด (ค่าเริ่มต้น — ใช้กับเดือนที่ไม่ได้กำหนดเองด้านล่าง) */}

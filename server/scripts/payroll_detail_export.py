@@ -523,7 +523,24 @@ def write_member_sheet(m, label=None):
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
-    if m.get("ng_deduction"):
+    # กติกาใหม่ (ตั้งแต่รอบ ก.ย. 2569): NG กลุ่ม ครั้งที่ 1 ตักเตือน / ครั้งที่ 2, 3 หักตามอัตรา / NG ดึงเชือก
+    # ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines) — บรรทัดเตือนไม่มีตัวเงิน แสดงข้อความสีเหลืองเข้ม
+    # รอบเก่าใช้บล็อก "หัก NG เกินเกณฑ์" ด้านล่างเหมือนเดิมทุกอย่าง (ng_excess_qty > 0 เฉพาะรอบเก่า)
+    if not m.get("ng_excess_qty"):
+        for ln in m.get("deductions") or []:
+            warn = ln.get("note") == "warn"
+            color = "B45309" if warn else RED
+            ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
+            cell(ws, f"A{row}", ln["label"], font=Font(name=FONT, size=FS(F_NG), color=color), align=R, border=box)
+            ref = f"{LAST_P_LETTER}{row}"
+            if warn:
+                cell(ws, ref, "-", font=Font(name=FONT, size=FS(F_NG), color=color), align=R, border=box)
+            else:
+                cell(ws, ref, -float(ln["amount"]), font=Font(name=FONT, size=FS(F_NG), color=color), align=R, fmt=MONEY, border=box)
+                net_formula_parts.append(ref)
+            ws.row_dimensions[row].height = RH(H_NG)
+            row += 1
+    if m.get("ng_excess_qty") and m.get("ng_deduction"):
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
              font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, border=box)
