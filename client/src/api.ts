@@ -62,6 +62,8 @@ export const returnApi = {
   createBatch: (data: any) => api.post('/returns/batch', data).then(r => r.data),
   // พรีวิว "NG ครั้งที่" + ค่าปรับ ก่อนกดยืนยันรับคืน (components/NgWarning.tsx)
   ngPreview: (data: any) => api.post('/returns/ng-preview', data).then(r => r.data),
+  // ล็อตโรงงานของใบเบิก (id -> YYYY-MM-DD | null) ใช้บอกในหน้าต่างยืนยันแก้ยอดเบิก
+  issueLots: (ids: number[]) => api.post('/returns/issue-lots', { ids }).then(r => r.data),
   update: (id: number, data: any) => api.put(`/returns/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/returns/${id}`).then(r => r.data),
 };

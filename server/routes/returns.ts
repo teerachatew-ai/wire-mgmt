@@ -3,6 +3,7 @@ import { prepare, nextDateCode } from '../db';
 import { computePayCycle, loadCutoffConfig } from '../payCycle';
 import { userOf } from '../reqUser';
 import { loadWagePolicy, computePenalties, strikeSummaries, strikeDetail, thDay } from '../wagePolicy';
+import { issueLotOf } from '../receivedActual';
 
 const router = Router();
 
@@ -30,6 +31,24 @@ function parseQty(b: any, prev?: any) {
   const finalNgCut = split > 0 ? ngCut : dQty;
   return { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty: num(b.waste_qty), lQty: keep('lost_qty') };
 }
+
+/* แก้ยอดเบิกให้เท่ากับยอดที่สมาชิกคืนจริง (เบิกไป 100 นับคืนได้ 98 หรือ 102 = มัดที่ได้จากโรงงานมีจริงเท่านั้น)
+   • orig_quantity เก็บยอดเบิกเดิมไว้ (ถ้ายังไม่มี) → ส่วนต่าง quantity − orig_quantity คือ "สมาชิกแจ้งขาด/เกิน"
+   • ผูกใบเบิกกับล็อตที่ของมาจริง (ใบที่ไม่ได้ติดป้ายล็อต ใช้ล็อตที่ระบบจัดสรรให้ ณ ตอนนี้ ก่อนแก้จำนวน)
+   → ระบบล็อต (receivedActual.computeLots) บวก/ลบส่วนต่างเข้า "ยอดรับจริง" ของล็อตนั้นเอง
+     ยอดตามใบส่งของ (receives.quantity) ไม่แตะ — เป็นหลักฐานคู่กับโรงงาน */
+function adjustIssueToReturned(issue: any, newQty: number) {
+  const lot = issueLotOf(issue.id);
+  prepare(`UPDATE issues SET orig_quantity = COALESCE(orig_quantity, quantity), lot_date = COALESCE(lot_date, ?), quantity = ? WHERE id = ?`)
+    .run(lot, newQty, issue.id);
+  return lot;
+}
+
+/* ล็อตของใบเบิก (สำหรับบอกในหน้าต่างยืนยันว่าจะไปปรับยอดรับจริงของล็อตไหน) */
+router.post('/issue-lots', (req, res) => {
+  const ids: number[] = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+  res.json(Object.fromEntries(ids.map(id => [id, issueLotOf(id)])));
+});
 
 function updateIssueStatus(issueId: number) {
   const issue = prepare(`SELECT quantity FROM issues WHERE id = ?`).get(issueId) as any;
@@ -144,6 +163,7 @@ router.post('/batch', (req, res) => {
   const created: any[] = [];
   const failed: any[] = [];
   const warnings: any[] = [];
+  const adjusted: any[] = [];   // ใบเบิกที่แก้ยอดตามยอดคืนจริง (adjust_issue)
 
   for (const l of lines) {
     const issue_id = l?.issue_id;
@@ -154,8 +174,18 @@ router.post('/batch', (req, res) => {
     const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty } = parseQty(l);
 
     const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(issue_id) as any;
-    const remaining = issue.quantity - (prev.total || 0);
-    if (gQty + dQty + wQty + lQty > remaining + 0.001) {
+    let remaining = issue.quantity - (prev.total || 0);
+    const lineTotal = gQty + dQty + wQty + lQty;
+    // ผู้ใช้ยืนยันแล้วว่าคืนไม่เท่ายอดเบิก เพราะเบิกไปจริงเท่านี้ -> แก้ยอดเบิก (+ ยอดรับจริงของล็อต) ก่อนบันทึก
+    if (l.adjust_issue === true && Math.abs(lineTotal - remaining) > 0.0001) {
+      const newQty = (prev.total || 0) + lineTotal;
+      if (newQty <= 0) { failed.push({ issue_id, code: issue.code, error: 'ยอดคืนต้องมากกว่า 0' }); continue; }
+      const lot = adjustIssueToReturned(issue, newQty);
+      adjusted.push({ issue_id, code: issue.code, product_name: issue.product_name, from: issue.quantity, to: newQty, lot_date: lot });
+      issue.quantity = newQty;
+      remaining = lineTotal;
+    }
+    if (lineTotal > remaining + 0.001) {
       failed.push({ issue_id, code: issue.code, error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
       continue;
     }
@@ -173,7 +203,7 @@ router.post('/batch', (req, res) => {
     created.push(prepare(`SELECT * FROM returns WHERE id = ?`).get(result.lastInsertRowid));
   }
 
-  res.json({ created, failed, warnings });
+  res.json({ created, failed, warnings, adjusted });
 });
 
 router.put('/:id', (req, res) => {

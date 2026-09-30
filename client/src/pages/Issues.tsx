@@ -934,6 +934,8 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const { gate, dialog } = useNgGate();   // เตือน "NG ครั้งที่" + ค่าปรับ ก่อนยืนยัน
+  // ยอดคืนไม่เท่ายอดค้าง -> ถามก่อนว่า "คืนบางส่วน" หรือ "เบิกไปจริงเท่านี้" (แก้ยอดเบิก + ยอดรับจริงของล็อต)
+  const [mismatch, setMismatch] = useState<{ items: any[]; lots: Record<number, string | null>; resolve: (v: Record<number, boolean> | null) => void } | null>(null);
 
   const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
   const toggleOn = (id: number, on: boolean) => setLines(l => ({ ...l, [id]: { ...l[id], on } }));
@@ -951,10 +953,23 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   ] as const;
 
   const save = async () => {
+    // 1) คืนไม่เท่ายอดค้าง -> ถามยืนยันรายใบ (ขาด: คืนบางส่วน/แก้ยอดเบิก · เกิน: แก้ยอดเบิก)
+    let adjust: Record<number, boolean> = {};
+    const off = picked.filter((i: any) => Math.abs(lineTotal(lines[i.id]) - remainOf(i)) > 0.0001);
+    if (off.length) {
+      let lots: Record<number, string | null> = {};
+      try { lots = await returnApi.issueLots(off.map((i: any) => i.id)); } catch { /* ไม่รู้ล็อตก็ยังถามได้ */ }
+      const choice = await new Promise<Record<number, boolean> | null>(resolve => setMismatch({ items: off, lots, resolve }));
+      setMismatch(null);
+      if (!choice) return;
+      adjust = choice;
+    }
     const payload = picked.map((i: any) => {
       const l = lines[i.id];
-      return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0 };
+      return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0,
+        adjust_issue: adjust[i.id] === true };
     });
+    // 2) มี NG -> เตือน "NG ครั้งที่" + ค่าปรับ
     if (!(await gate({ returned_at: returnedAt, lines: payload }))) return;
     setSaving(true); setError('');
     try {
@@ -999,7 +1014,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
 
   const picked = outstanding.filter((i: any) => lines[i.id]?.on && lineTotal(lines[i.id]) > 0.0001);
   const grandTotal = picked.reduce((s: number, i: any) => s + lineTotal(lines[i.id]), 0);
-  // คืนมากกว่ายอดค้างของใบนั้นไม่ได้ — กันไว้ตั้งแต่หน้าจอ ไม่ต้องรอ error จาก server
+  // คืนมากกว่ายอดค้าง = มัดที่ได้ไปมีมากกว่าที่เบิก -> ไม่บล็อก แต่ตอนกดบันทึกจะถามยืนยันแก้ยอดเบิก
   const overLines = picked.filter((i: any) => lineTotal(lines[i.id]) > remainOf(i) + 0.0001);
   // งานเสียรวมเกินจำนวนที่คืน หรืองานแก้ไขเกินงานดี = กรอกผิด
   const badLines = picked.filter((i: any) => goodOf(lines[i.id]) < -0.0001 || n(lines[i.id].rework_qty) > goodOf(lines[i.id]) + 0.0001);
@@ -1050,7 +1065,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
                       {lineTotal(l) < rem - 0.0001 && (
                         <span className="text-[11px] text-amber-600">ค้างต่ออีก {(rem - lineTotal(l)).toLocaleString('th-TH')}</span>
                       )}
-                      {lineTotal(l) > rem + 0.0001 && <span className="text-[11px] text-rose-600">เกินยอดค้าง</span>}
+                      {lineTotal(l) > rem + 0.0001 && <span className="text-[11px] text-sky-700">เกินยอดเบิก {(lineTotal(l) - rem).toLocaleString('th-TH')} (จะถามยืนยันแก้ยอดเบิก)</span>}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {NG_FIELDS.map(([f, label, hint]) => (
@@ -1087,7 +1102,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
           <b className="text-blue-700 tabular-nums">{grandTotal.toLocaleString('th-TH')}</b>
         </div>
         {overLines.length > 0 && (
-          <div className="text-xs text-rose-600 px-1">มีรายการที่กรอกเกินยอดค้าง — แก้ให้ไม่เกินก่อนบันทึก</div>
+          <div className="text-xs text-sky-700 px-1">มีรายการที่คืนเกินยอดเบิก — กดรับคืนแล้วระบบจะถามยืนยันแก้ยอดเบิกให้</div>
         )}
         {badLines.length > 0 && (
           <div className="text-xs text-rose-600 px-1">มีรายการที่งานเสีย/งานแก้ไขไม่ตรงกับจำนวนที่คืน — แก้ก่อนบันทึก</div>
@@ -1098,13 +1113,84 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="button" className="btn-primary flex items-center gap-1.5"
-            disabled={saving || picked.length === 0 || overLines.length > 0 || badLines.length > 0} onClick={save}>
+            disabled={saving || picked.length === 0 || badLines.length > 0} onClick={save}>
             {saving ? <><Loader2 size={14} className="animate-spin" /> กำลังบันทึก...</> : <><RotateCcw size={14} /> รับคืน {picked.length} รายการ</>}
           </button>
         </div>
       </div>
       {dialog}
+      {mismatch && (
+        <QtyMismatchDialog items={mismatch.items} lots={mismatch.lots} remainOf={remainOf} totalOf={(i: any) => lineTotal(lines[i.id])}
+          onCancel={() => mismatch.resolve(null)} onConfirm={v => mismatch.resolve(v)} />
+      )}
     </Modal>
+  );
+}
+
+/* ── ยืนยันเมื่อยอดคืนไม่เท่ายอดที่เบิก ──
+   ขาด: เลือกเอง (ไม่ตั้งค่าให้ กันกดผ่านๆ) ว่า "คืนบางส่วน" (ค้างส่งส่วนที่เหลือ) หรือ "เบิกไปจริงแค่นี้"
+   เกิน: มีทางเดียวคือแก้ยอดเบิกเพิ่ม (หรือกลับไปแก้ตัวเลข)
+   "แก้ยอดเบิก" = ยอดเบิกใหม่ = ที่คืนแล้วก่อนหน้า + ที่คืนครั้งนี้ และส่วนต่างไปบวก/ลบ "ยอดรับจริง" ของล็อตโรงงานที่ใบนี้เบิกมา
+   (ยอดตามใบส่งของไม่แตะ — ดู server/routes/returns.ts adjustIssueToReturned) */
+function QtyMismatchDialog({ items, lots, remainOf, totalOf, onCancel, onConfirm }: {
+  items: any[]; lots: Record<number, string | null>; remainOf: (i: any) => number; totalOf: (i: any) => number;
+  onCancel: () => void; onConfirm: (adjust: Record<number, boolean>) => void;
+}) {
+  const [pick, setPick] = useState<Record<number, 'partial' | 'adjust' | undefined>>(() =>
+    Object.fromEntries(items.map((i: any) => [i.id, totalOf(i) > remainOf(i) ? 'adjust' : undefined])));
+  const fmt = (v: number) => Number(v || 0).toLocaleString('th-TH');
+  const thDate = (d?: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : '';
+  const ready = items.every((i: any) => pick[i.id]);
+  const opt = (id: number, v: 'partial' | 'adjust', title: React.ReactNode, sub: React.ReactNode) => (
+    <label className={`flex gap-2.5 rounded-lg border px-3 py-2 cursor-pointer ${pick[id] === v ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+      <input type="radio" className="mt-1 shrink-0" checked={pick[id] === v} onChange={() => setPick(p => ({ ...p, [id]: v }))} />
+      <span className="text-sm"><span className="font-medium text-gray-800">{title}</span><span className="block text-xs text-gray-500">{sub}</span></span>
+    </label>
+  );
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4" onClick={onCancel}>
+      <div role="alertdialog" aria-labelledby="qty-mm-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b bg-sky-50">
+          <h3 id="qty-mm-title" className="font-bold text-sky-900 text-lg">ยอดคืนไม่เท่ากับยอดที่เบิก</h3>
+          <p className="text-xs text-sky-800/80 mt-0.5">ยืนยันก่อนบันทึก — ถ้าเบิกไปจริงเท่าที่คืน ระบบจะแก้ยอดเบิกและยอดรับจริงของล็อตโรงงานให้</p>
+        </div>
+        <div className="overflow-y-auto p-4 space-y-3">
+          {items.map((i: any) => {
+            const rem = remainOf(i), tot = totalOf(i), diff = tot - rem;
+            const before = (Number(i.quantity) || 0) - rem;          // คืนไปแล้วก่อนหน้า
+            const newQty = before + tot;
+            const lot = lots[i.id];
+            const lotText = lot ? <>ยอดรับจริงล็อต {thDate(lot)} {diff > 0 ? `+${fmt(diff)}` : `−${fmt(-diff)}`} เส้น</> : <>ไม่พบล็อตโรงงานของใบนี้ — แก้เฉพาะยอดเบิก</>;
+            return (
+              <div key={i.id} className="border rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                    <b className="text-gray-800 truncate">{i.product_name}</b>
+                    <span className="text-[11px] font-mono text-blue-600">{i.code}</span>
+                  </span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${diff < 0 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                    {diff < 0 ? `ขาด ${fmt(-diff)}` : `เกิน ${fmt(diff)}`}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-500">
+                  เบิก {fmt(i.quantity)}{before > 0 && <> · คืนแล้ว {fmt(before)}</>} · คืนครั้งนี้ <b className="text-gray-800">{fmt(tot)}</b> {i.unit}
+                </div>
+                {diff < 0 && opt(i.id, 'partial', <>คืนบางส่วน — ยังค้างส่งอีก {fmt(-diff)} เส้น</>, 'ที่เหลือจะมาคืนทีหลัง ยอดเบิกคงเดิม')}
+                {opt(i.id, 'adjust', <>เบิกไปจริง {fmt(newQty)} — แก้ยอดเบิก {fmt(i.quantity)} → {fmt(newQty)}</>, lotText)}
+              </div>
+            );
+          })}
+        </div>
+        <div className="border-t px-5 py-3 flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onCancel}>กลับไปแก้ไข</button>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={!ready}
+            onClick={() => onConfirm(Object.fromEntries(items.map((i: any) => [i.id, pick[i.id] === 'adjust'])))}>
+            {ready ? 'ยืนยันรับคืน' : 'เลือกให้ครบทุกรายการ'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

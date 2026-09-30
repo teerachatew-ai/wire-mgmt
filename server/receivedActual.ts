@@ -55,7 +55,7 @@ export type LotRow = {
       "มาถึงแล้ว ณ วันที่เบิก" ก่อน (ใบเบิกวันที่ 20 ดึงของล็อตวันที่ 24 ไม่ได้) เกินจากนั้นค่อยไหลไปล็อตถัดไป
    ล็อตล่าสุดปิดด้วยกติกาเดียวกัน แต่เฉพาะเมื่อเริ่มแจกล็อตนั้นไปแล้ว (ดู 2b)
    ล็อตที่นับเองไว้แล้ว (manual) ไม่ปรับอัตโนมัติทับ — ยอดที่คนนับถือเป็นที่สุด */
-export function computeLots(productId?: number): LotRow[] {
+export function computeLots(productId?: number, allocOut?: Map<number, Map<string, number>>): LotRow[] {
   const where = productId ? ` AND product_id = ${Number(productId)}` : '';
   const recv = prepare(`
     SELECT product_id, substr(received_at, 1, 10) d,
@@ -68,13 +68,13 @@ export function computeLots(productId?: number): LotRow[] {
     FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} GROUP BY product_id, lot_date`).all(STOCK_CUTOFF) as any[]) {
     tagged.set(lotKey(r.product_id, r.d), { qty: Number(r.q) || 0, reported: Number(r.rep) || 0 });
   }
-  const untaggedOf = new Map<number, { d: string; q: number }[]>();
+  const untaggedOf = new Map<number, { id: number; d: string; q: number }[]>();
   for (const u of prepare(`
-    SELECT product_id, substr(issued_at, 1, 10) d, quantity q
+    SELECT id, product_id, substr(issued_at, 1, 10) d, quantity q
     FROM issues WHERE lot_date IS NULL AND issued_at >= ?${where}
     ORDER BY issued_at, id`).all(STOCK_CUTOFF) as any[]) {
     if (!untaggedOf.has(u.product_id)) untaggedOf.set(u.product_id, []);
-    untaggedOf.get(u.product_id)!.push({ d: u.d, q: Number(u.q) || 0 });
+    untaggedOf.get(u.product_id)!.push({ id: u.id, d: u.d, q: Number(u.q) || 0 });
   }
 
   // 1) ยอดรับจริงตั้งต้นรายล็อต
@@ -137,11 +137,32 @@ export function computeLots(productId?: number): LotRow[] {
         if (left <= 0) break;
         const take = Math.min(Math.max(0, l.remaining), left);
         l.untagged += take; l.remaining -= take; left -= take;
+        if (allocOut && take > 0) {
+          if (!allocOut.has(u.id)) allocOut.set(u.id, new Map());
+          allocOut.get(u.id)!.set(l.lot_date, (allocOut.get(u.id)!.get(l.lot_date) || 0) + take);
+        }
       }
     }
     out.push(...lots);
   }
   return out;
+}
+
+/** ล็อตของใบเบิก — ติดป้ายไว้ใช้ lot_date · ไม่ได้ติดป้ายใช้ล็อตที่ระบบจัดสรรให้มากที่สุด (ตาม computeLots)
+    ใช้ตอนแก้ยอดเบิกตามยอดที่สมาชิกคืนจริง เพื่อผูกส่วนต่างกลับเข้า "ยอดรับจริง" ของล็อตนั้นให้ถูกล็อต
+    ใบเบิกก่อน STOCK_CUTOFF ที่ไม่ได้ติดป้าย ไม่มีล็อต (คืน null) */
+export function issueLotOf(issueId: number): string | null {
+  const i = prepare(`SELECT id, product_id, lot_date, substr(issued_at, 1, 10) d FROM issues WHERE id = ?`).get(issueId) as any;
+  if (!i) return null;
+  if (i.lot_date) return String(i.lot_date).slice(0, 10);
+  if (i.d < STOCK_CUTOFF) return null;
+  const alloc = new Map<number, Map<string, number>>();
+  const lots = computeLots(i.product_id, alloc);
+  const mine = alloc.get(i.id);
+  if (mine && mine.size) return [...mine.entries()].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0][0];
+  // ยังไม่ได้จัดสรร (ของหมดทุกล็อต) → ล็อตล่าสุดที่มาถึงแล้ว ณ วันที่เบิก
+  const arrived = lots.filter(l => l.lot_date <= i.d);
+  return arrived.length ? arrived[arrived.length - 1].lot_date : (lots[0]?.lot_date ?? null);
 }
 
 /** ส่วนต่าง "รับจริง − ใบส่งของ" รายล็อต (มีเฉพาะล็อตที่ไม่ตรงใบส่งของ)
