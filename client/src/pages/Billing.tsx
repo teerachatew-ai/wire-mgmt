@@ -142,12 +142,20 @@ export default function Billing() {
 
   // แถวที่ส่งไปทำเอกสาร: จำนวน = จำนวนคิดเงิน (รับจริง − NG×อัตราหัก)
   const exportLines = () => lines.map(l => ({ ...l, quantity: Math.round(billQty(l, ngRate) * 100) / 100 }));
+  // ใบวางบิล: งานที่มี NG แตกเป็น 2 บรรทัด — งานดี (คิดเงินเต็ม) + งาน NG (ราคา × (1 − อัตราหัก NG), 100% = ไม่คิดเงิน)
+  // ยอดเงินรวมเท่ากับ exportLines เป๊ะ: (รับจริง − NG) × ราคา + NG × ราคา × (1 − อัตรา)
+  const billingExportLines = () => lines.map(l => {
+    const ng = (l.ng_qty === '' || l.ng_qty == null) ? 0 : Number(l.ng_qty);
+    if (ng <= 0) return { ...l, quantity: Math.round(billQty(l, ngRate) * 100) / 100 };
+    return { ...l, quantity: Math.max(0, Math.round((effQty(l) - ng) * 100) / 100), ng_qty: ng,
+      ng_price: Math.round(l.price * (1 - ngRate / 100) * 10000) / 10000 };
+  });
 
   const exportXLSX = async () => {
     const tab = openDownloadTab();
     setExporting(true);
     try {
-      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() });
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: billingExportLines() });
       download(blob, `ใบวางบิล-${monthLabel(month)}.xlsx`, tab);
     } catch (e) {
       tab?.close();
@@ -159,7 +167,7 @@ export default function Billing() {
     const tab = openDownloadTab();
     setExportingPdf(true);
     try {
-      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: exportLines() }, 'pdf');
+      const blob = await reportApi.billingExport({ month, wht_rate: whtRate, supplier, lines: billingExportLines() }, 'pdf');
       download(blob, `ใบวางบิล-${monthLabel(month)}.pdf`, tab);
     } catch (e) {
       tab?.close();

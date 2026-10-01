@@ -34,6 +34,24 @@ EN = ["January", "February", "March", "April", "May", "June",
 BASE = 17          # first data row
 CAP = 26           # template provides rows 17..42
 MINROWS = 40       # จำนวนแถวมาตรฐานในฟอร์ม
+NG_SUFFIX = " (งาน NG)"
+
+
+# ── แตกรายการที่มี NG เป็น 2 บรรทัด: บรรทัดแรก = งานดี (คิดเงิน) · บรรทัดต่อมา = งาน NG (ไม่คิดเงิน) ──
+# หน้าวางบิลส่งมา: quantity = จำนวนคิดเงินเต็มราคา, ng_qty = จำนวน NG, ng_price = ราคาต่อชิ้นของ NG
+# (อัตราหัก NG 100% -> ng_price = 0 -> บรรทัด NG แสดง "-" ในช่องราคา/จำนวนเงิน)
+def expand_ng(rows):
+    out = []
+    for l in rows:
+        ng = float(l.get("ng_qty") or 0)
+        if ng <= 0:
+            out.append(l)
+            continue
+        if (l.get("quantity") or 0) > 0:
+            out.append(l)
+        out.append({**l, "part_number": (l.get("part_number") or "") + NG_SUFFIX, "quantity": ng,
+                    "price": float(l.get("ng_price") or 0), "is_ng": True})
+    return out
 
 
 # ── สรุปรวมต่อประเภทสินค้า (group by project+part+description+price) ─────────
@@ -41,15 +59,16 @@ def summarize(rows):
     groups = {}
     order = []
     for l in rows:
-        key = (l.get("project") or "", l.get("part_number") or "", l.get("description") or "", l.get("price") or 0)
+        key = (l.get("project") or "", l.get("part_number") or "", l.get("description") or "", l.get("price") or 0, bool(l.get("is_ng")))
         if key not in groups:
             groups[key] = {"project": l.get("project"), "part_number": l.get("part_number"),
                            "description": l.get("description"), "price": l.get("price"),
-                           "quantity": 0, "deliveryDate": None}
+                           "quantity": 0, "deliveryDate": None, "is_ng": bool(l.get("is_ng"))}
             order.append(key)
         groups[key]["quantity"] += (l.get("quantity") or 0)
     out_rows = [groups[k] for k in order]
-    out_rows.sort(key=lambda r: (str(r.get("project") or ""), str(r.get("part_number") or "")))
+    # งาน NG อยู่ต่อจากงานดีของรุ่นเดียวกัน (เทียบชื่อรุ่นโดยตัดคำว่า "(งาน NG)" ออก)
+    out_rows.sort(key=lambda r: (str(r.get("project") or ""), str(r.get("part_number") or "").replace(NG_SUFFIX, ""), r.get("is_ng", False)))
     return out_rows
 
 
@@ -139,6 +158,13 @@ def fill_form(ws, rows):
                 ws.cell(row=idx, column=7).value = None
             ws.cell(row=idx, column=8).value = l.get("price") or None
             ws.cell(row=idx, column=11).value = wht_rate
+            if l.get("is_ng") and not l.get("price"):
+                # งาน NG ไม่คิดเงิน -> ราคา/จำนวนเงิน/ภาษี เป็น "-" (SUM ข้ามข้อความเอง ยอดรวมไม่เพี้ยน)
+                for col in (8, 9, 10):
+                    c = ws.cell(row=idx, column=col)
+                    c.value = "-"
+                    a = c.alignment
+                    c.alignment = Alignment(horizontal="center", vertical=a.vertical or "center")
         else:
             for col in (3, 4, 5, 6, 7, 8, 11):
                 ws.cell(row=idx, column=col).value = None
@@ -169,7 +195,8 @@ ws_summary = wb.copy_worksheet(ws_detail)   # คัดลอกจากเท�
 ws_summary.title = SUMMARY_TITLE
 ws_detail.title = DETAIL_TITLE
 
-# กรอกข้อมูล
+# กรอกข้อมูล — แตกบรรทัด NG ก่อน (ทั้งสรุปและรายวัน)
+lines = expand_ng(lines)
 fill_form(ws_summary, summarize(lines))
 fill_form(ws_detail, lines)
 
@@ -185,5 +212,9 @@ if mode == "pdf":
             del wb[sn]
 
 wb.active = wb.index(ws_summary)
+# เลือกไว้แค่ชีตเดียว — ชีตที่คัดลอกมาจากเทมเพลตติดสถานะ "ถูกเลือก" มาด้วย ทำให้ Excel เปิดมาเป็นโหมด [Group]
+# (แก้ชีตหนึ่งแล้วไปแก้อีกชีตด้วย) จึงปลดทุกชีตยกเว้นชีตสรุป
+for _ws in wb.worksheets:
+    _ws.sheet_view.tabSelected = (_ws is ws_summary)
 wb.save(out)
 print(out)
