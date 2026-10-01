@@ -8,7 +8,7 @@ import sys, json, datetime, warnings
 from copy import copy
 warnings.simplefilter("ignore")
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import range_boundaries
 from openpyxl.worksheet.properties import PageSetupProperties
 
@@ -73,7 +73,8 @@ def summarize(rows):
 
 
 # ── กรอกข้อมูลลงชีตฟอร์มหนึ่งชีต (header + supplier + rows + footer + page) ──
-def fill_form(ws, rows):
+def fill_form(ws, rows, compact=False):
+    # compact = ชีตสรุป: แถวว่างใต้รายการเหลือแค่ 1 แถว (ไม่ต้องเติมให้ครบ 40 แถวแบบฟอร์มรายวัน)
     # หัวคอลัมน์ C: PO -> ชื่อโครงการ
     ws["C15"] = "ชื่อโครงการ"
     ws["C16"] = "Project"
@@ -102,7 +103,7 @@ def fill_form(ws, rows):
         c.alignment = Alignment(horizontal=a.horizontal, vertical=a.vertical, shrink_to_fit=True)
 
     n = len(rows)
-    target = max(MINROWS, n)
+    target = (n + 1) if compact else max(MINROWS, n)
 
     def copy_row_style(src, dst):
         for col in range(1, 13):  # A..L
@@ -111,6 +112,25 @@ def fill_form(ws, rows):
             t._style = copy(s._style)
 
     DATA_H = ws.row_dimensions[17].height or 19.5
+
+    def shift_footer(delta, op):
+        # ย้ายส่วนท้าย (ยอดรวม/ลายเซ็น/หมายเหตุ ตั้งแต่แถว 43) — openpyxl ไม่ย้าย merge กับความสูงแถวให้เอง
+        foot_merges = [str(mm) for mm in ws.merged_cells.ranges if mm.min_row >= 43]
+        foot_heights = {r: ws.row_dimensions[r].height for r in range(43, 70) if ws.row_dimensions[r].height is not None}
+        for rng in foot_merges:
+            ws.unmerge_cells(rng)
+        op()
+        for r in range(43 + min(0, delta), 70 + max(0, delta)):
+            ws.row_dimensions[r].height = None
+        for rng in foot_merges:
+            c1, r1, c2, r2 = range_boundaries(rng)
+            ws.merge_cells(start_row=r1 + delta, end_row=r2 + delta, start_column=c1, end_column=c2)
+        for r, h in foot_heights.items():
+            ws.row_dimensions[r + delta].height = h
+
+    if target < CAP:
+        shrink = CAP - target
+        shift_footer(-shrink, lambda: ws.delete_rows(BASE + target, shrink))
 
     if target > CAP:
         extra = target - CAP
@@ -134,10 +154,13 @@ def fill_form(ws, rows):
 
     tr = BASE + target
     last = tr - 1
+    base_styles = {col: copy(ws.cell(row=BASE, column=col)._style) for col in range(1, 13)}
+    RED = "FF0000"
 
     for idx in range(BASE, last + 1):
         li = idx - BASE
-        copy_row_style(BASE, idx)
+        for col in range(1, 13):   # สไตล์จากแถวต้นแบบ (เก็บไว้ก่อน เพราะแถว NG จะเปลี่ยนสีแถวนั้นเป็นแดง)
+            ws.cell(row=idx, column=col)._style = copy(base_styles[col])
         ws.row_dimensions[idx].height = DATA_H
         ws.cell(row=idx, column=2).value  = "=ROW()-16"
         ws.cell(row=idx, column=9).value  = f'=IF(F{idx}*H{idx}=0,"",F{idx}*H{idx})'
@@ -158,13 +181,19 @@ def fill_form(ws, rows):
                 ws.cell(row=idx, column=7).value = None
             ws.cell(row=idx, column=8).value = l.get("price") or None
             ws.cell(row=idx, column=11).value = wht_rate
-            if l.get("is_ng") and not l.get("price"):
-                # งาน NG ไม่คิดเงิน -> ราคา/จำนวนเงิน/ภาษี เป็น "-" (SUM ข้ามข้อความเอง ยอดรวมไม่เพี้ยน)
-                for col in (8, 9, 10):
+            if l.get("is_ng"):
+                if not l.get("price"):
+                    # งาน NG ไม่คิดเงิน -> ราคา/จำนวนเงิน/ภาษี/อัตราภาษี เป็น "-" (SUM ข้ามข้อความเอง ยอดรวมไม่เพี้ยน)
+                    for col in (8, 9, 10, 11):
+                        c = ws.cell(row=idx, column=col)
+                        c.value = "-"
+                        a = c.alignment
+                        c.alignment = Alignment(horizontal="center", vertical=a.vertical or "center")
+                # ทั้งแถว NG ตัวอักษรสีแดง (เหมือนที่ใช้ในฟอร์มจริง)
+                for col in range(2, 12):
                     c = ws.cell(row=idx, column=col)
-                    c.value = "-"
-                    a = c.alignment
-                    c.alignment = Alignment(horizontal="center", vertical=a.vertical or "center")
+                    f = copy(c.font)
+                    c.font = Font(name=f.name, size=f.size, bold=f.bold, italic=f.italic, underline=f.underline, color=RED)
         else:
             for col in (3, 4, 5, 6, 7, 8, 11):
                 ws.cell(row=idx, column=col).value = None
@@ -176,8 +205,7 @@ def fill_form(ws, rows):
     nr = tr + 2
     ws.cell(row=nr, column=10).value = f'=IF(J{tr}="","",I{tr}-J{tr})'
 
-    extra2 = max(0, target - CAP)
-    footer_last = 63 + extra2
+    footer_last = 63 + (target - CAP)   # ส่วนท้ายเลื่อนตามจำนวนแถวที่เพิ่ม/ลด
     if ws.sheet_properties.pageSetUpPr is None:
         ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
     else:
@@ -197,7 +225,7 @@ ws_detail.title = DETAIL_TITLE
 
 # กรอกข้อมูล — แตกบรรทัด NG ก่อน (ทั้งสรุปและรายวัน)
 lines = expand_ng(lines)
-fill_form(ws_summary, summarize(lines))
+fill_form(ws_summary, summarize(lines), compact=True)
 fill_form(ws_detail, lines)
 
 # จัดลำดับ: สรุปไว้หน้าแรก, รายวันหน้าถัดไป

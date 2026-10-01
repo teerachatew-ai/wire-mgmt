@@ -259,23 +259,23 @@ function SummaryCards({ data }: { data: any }) {
   );
 }
 
-/* ─── Top 5 สมาชิกที่ได้เงินมากสุดของเดือน ─────────────────── */
+/* ─── Top 10 สมาชิกที่ได้เงินมากสุดของเดือน ─────────────────── */
 function Top5Earners({ members, month, onPick }: { members: any[]; month: string; onPick: (m: any) => void }) {
-  const top = [...(members || [])].sort((a, b) => (b.total_wage || 0) - (a.total_wage || 0)).slice(0, 5);
+  const top = [...(members || [])].sort((a, b) => (b.total_wage || 0) - (a.total_wage || 0)).slice(0, 10);
   if (top.length === 0) return null;
   const max = top[0].total_wage || 1;
-  const medal = ['🥇', '🥈', '🥉', '4.', '5.'];
+  const medal = ['🥇', '🥈', '🥉'];   // อันดับ 4 ขึ้นไปแสดงเป็นตัวเลข
   return (
     <div className="card p-0 overflow-hidden">
       <div className="px-4 py-3 border-b bg-amber-50 flex items-center gap-2">
         <TrendingUp size={15} className="text-amber-600" />
-        <h2 className="font-semibold text-amber-800 text-sm">Top 5 ค่าแรงสูงสุด — {monthLabel(month)}</h2>
+        <h2 className="font-semibold text-amber-800 text-sm">Top 10 ค่าแรงสูงสุด — {monthLabel(month)}</h2>
       </div>
       <div className="p-4 space-y-2.5">
         {top.map((m: any, i: number) => (
           <button key={m.member_id} type="button" onClick={() => onPick(m)}
             className="w-full flex items-center gap-3 text-left hover:bg-gray-50 rounded-lg px-2 py-1 -mx-2 transition-colors">
-            <span className="w-7 text-center text-sm shrink-0">{medal[i]}</span>
+            <span className="w-7 text-center text-sm shrink-0 tabular-nums text-gray-500">{medal[i] ?? `${i + 1}.`}</span>
             <span className="w-40 shrink-0 truncate text-sm font-medium text-gray-800">
               {m.member_name}{m.member_nickname && <span className="text-gray-400 font-normal"> ({m.member_nickname})</span>}
             </span>
