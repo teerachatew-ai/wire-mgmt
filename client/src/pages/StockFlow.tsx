@@ -640,8 +640,7 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
 }
 
 /* ── แก้ยอดส่งออกทั้งวันในหน้าเดียว — คลิกวันที่ในตารางสรุปรายวันมาเปิด (คู่กับ EditDayModal ของหน้ารับของ) ──
-   ต่างจากฝั่งรับของตรงที่ใบส่งหนึ่งมีทั้ง "งานดี" กับ "งานเสีย" แยกกัน — ช่องนี้แก้เฉพาะยอดรวม (งานดี+งานเสีย)
-   โดยปรับที่ "งานดี" เป็นหลัก ถ้ามีงานเสียแยกอยู่แล้วให้ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
+   ต่างจากฝั่งรับของตรงที่ใบส่งหนึ่งมีทั้ง "งานดี" กับ "งานเสีย" — แก้แยกกันได้ทั้งคู่ (และ NG ที่โรงงานแจ้ง)
    ยอดทั้งวันปกติอยู่ในใบส่งเดียว — งานที่แก้จะลงใบล่าสุดของวันนั้น (สร้างใบใหม่ให้เองถ้าวันนั้นยังไม่มีใบส่งเลย)
    ช่อง NG = งาน NG ที่โรงงานแจ้งกลับ (bill_ng_qty) — ตัวเดียวกับช่อง NG ในหน้าวางบิล ใช้หักรายรับในใบวางบิล/ใบแจ้งหนี้/ใบเสร็จ
    ส่วนต่าง NG ลงรายการของใบล่าสุดของวันที่มีสินค้านั้น */
@@ -662,101 +661,91 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
     return m;
   }, [dayShipments]);
 
-  const [qty, setQty] = useState<Record<string, string> | null>(null);
-  const [ng, setNg] = useState<Record<string, string>>({});
-  const ngSumOf = (pid: any) => (byProduct[String(pid)] || []).reduce((s, it) => s + (Number(it.bill_ng_qty) || 0), 0);
-  if (qty === null && !isLoading) {
-    const initial: Record<string, string> = {};
-    const initialNg: Record<string, string> = {};
+  // แยก 3 ช่องต่อสินค้า (เดิมช่องเดียวเป็นยอดรวม งานดี+งานเสีย → แก้/ลบงานเสียจากหน้านี้ไม่ได้)
+  //   good   = งานดีที่ส่งไป · defect = งานเสียที่ส่งไปด้วย (นับเป็นยอดส่งออกในสต็อก ไม่คิดเงิน)
+  //   ng     = NG ที่โรงงานแจ้งกลับ (bill_ng_qty) — ตัวเดียวกับช่อง NG ในหน้าวางบิล หักรายรับในใบวางบิล/ใบแจ้งหนี้/ใบเสร็จ
+  type F = 'good' | 'defect' | 'ng';
+  const COL: Record<F, string> = { good: 'good_qty', defect: 'defect_qty', ng: 'bill_ng_qty' };
+  const sumOf = (pid: any, f: F) => (byProduct[String(pid)] || []).reduce((s, it) => s + (Number(it[COL[f]]) || 0), 0);
+  const [val, setVal] = useState<Record<string, Record<F, string>> | null>(null);
+  if (val === null && !isLoading) {
+    const init: Record<string, Record<F, string>> = {};
     for (const p of products) {
-      const sum = (byProduct[String(p.id)] || []).reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
-      if (sum > 0) initial[p.id] = String(sum);
-      const n = ngSumOf(p.id);
-      if (n > 0) initialNg[p.id] = String(n);
+      const g = sumOf(p.id, 'good'), d = sumOf(p.id, 'defect'), n = sumOf(p.id, 'ng');
+      init[p.id] = { good: g ? String(g) : '', defect: d ? String(d) : '', ng: n ? String(n) : '' };
     }
-    setQty(initial);
-    setNg(initialNg);
+    setVal(init);
   }
+  const setField = (pid: any, f: F, v: string) => setVal(s => ({ ...(s as any), [pid]: { ...(s as any)[pid], [f]: v } }));
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const visibleProducts = products.filter((p: any) => p.active || (byProduct[String(p.id)] || []).length > 0);
 
   const save = async () => {
-    if (!qty) return;
+    if (!val) return;
     setSaving(true); setError('');
     try {
       const ships = dayShipments as any[];
-      // สำเนารายการของแต่ละใบส่งที่จะแก้ (แก้เฉพาะใบที่มีการเปลี่ยน)
       const edited = new Map<number, any[]>();
       const itemsOf = (sh: any) => { if (!edited.has(sh.id)) edited.set(sh.id, sh.items.filter((it: any) => it.product_id).map((it: any) => ({ ...it }))); return edited.get(sh.id)!; };
-      // ใบส่งเป้าหมายของยอดส่ง = ใบล่าสุดของวันนี้ (id สูงสุด) — ส่วนต่างทั้งหมดที่แก้จะลงใบนี้ ใบอื่นคงเดิม
+      // ใบส่งเป้าหมาย = ใบล่าสุดของวันนี้ (id สูงสุด) — ส่วนต่างงานดีลงใบนี้ · งานเสีย/NG ลงใบล่าสุดที่มีสินค้านั้น
       const targetShip = ships.length > 0 ? ships.reduce((a, b) => (a.id > b.id ? a : b)) : null;
-      const newItemsForFreshShipment: any[] = [];   // เผื่อวันนี้ยังไม่มีใบส่งเลย
+      const fresh: any[] = [];   // วันนี้ยังไม่มีใบส่งเลย -> สร้างใบใหม่
+      const num = (v: string) => parseFloat(v) || 0;
 
       for (const p of visibleProducts) {
-        const items = byProduct[String(p.id)] || [];
-        const oldSum = items.reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
-        const newQty = parseFloat(qty[p.id]) || 0;
-        const oldNg = ngSumOf(p.id);
-        const newNg = parseFloat(ng[p.id]) || 0;
-        if (newNg < 0) throw new Error(`${p.name}: NG ติดลบไม่ได้`);
-        if (newNg > newQty) throw new Error(`${p.name}: NG (${fmt(newNg)}) มากกว่ายอดส่ง (${fmt(newQty)}) ไม่ได้`);
+        const v = val[p.id] || { good: '', defect: '', ng: '' };
+        const nGood = num(v.good), nDefect = num(v.defect), nNg = num(v.ng);
+        if (nGood < 0 || nDefect < 0 || nNg < 0) throw new Error(`${p.name}: ตัวเลขติดลบไม่ได้`);
+        if (nNg > nGood) throw new Error(`${p.name}: NG (${fmt(nNg)}) มากกว่างานดีที่ส่ง (${fmt(nGood)}) ไม่ได้`);
+        const dGood = nGood - sumOf(p.id, 'good'), dDefect = nDefect - sumOf(p.id, 'defect'), dNg = nNg - sumOf(p.id, 'ng');
+        if (!dGood && !dDefect && !dNg) continue;
 
-        if (newQty !== oldSum) {
-          const delta = newQty - oldSum;
-          if (!targetShip) {
-            if (newQty > 0) newItemsForFreshShipment.push({ product_id: p.id, good_qty: newQty, defect_qty: 0, bill_ng_qty: newNg || null });
-            continue;
-          }
-          const tItems = itemsOf(targetShip);
-          const idx = tItems.findIndex((it: any) => String(it.product_id) === String(p.id));
-          if (idx >= 0) {
-            const newGood = (Number(tItems[idx].good_qty) || 0) + delta;
-            if (newGood < 0) {
-              throw new Error(`${p.name}: ยอดใหม่น้อยเกินไป (มีงานเสียพ่วงอยู่ในใบเดิม) กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
-            }
-            tItems[idx] = { ...tItems[idx], good_qty: newGood };
-          } else if (delta > 0) {
-            tItems.push({ product_id: p.id, good_qty: delta, defect_qty: 0, bill_ng_qty: null });
-          }
+        if (!targetShip) {
+          if (nGood + nDefect > 0) fresh.push({ product_id: p.id, good_qty: nGood, defect_qty: nDefect, bill_ng_qty: nNg || null });
+          else if (nNg > 0) throw new Error(`${p.name}: ต้องมียอดส่งก่อนถึงจะใส่ NG ได้`);
+          continue;
         }
-
-        if (newNg !== oldNg) {
-          // NG ลงใบล่าสุดของวันที่มีสินค้านี้ (รวมใบที่เพิ่งเพิ่มสินค้าเข้าไปด้านบน)
-          const holder = [...ships].sort((a, b) => b.id - a.id)
-            .find(sh => itemsOf(sh).some((it: any) => String(it.product_id) === String(p.id)));
-          if (!holder) {
-            const fresh = newItemsForFreshShipment.find(it => String(it.product_id) === String(p.id));
-            if (fresh) { fresh.bill_ng_qty = newNg || null; continue; }
-            throw new Error(`${p.name}: ต้องมียอดส่งก่อนถึงจะใส่ NG ได้`);
-          }
-          const hItems = itemsOf(holder);
-          const idx = hItems.findIndex((it: any) => String(it.product_id) === String(p.id));
-          const val = (Number(hItems[idx].bill_ng_qty) || 0) + (newNg - oldNg);
-          if (val < 0) throw new Error(`${p.name}: NG ถูกแยกอยู่หลายใบ กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
-          hItems[idx] = { ...hItems[idx], bill_ng_qty: val || null };
+        // งานดี -> ใบล่าสุดของวัน (เพิ่มสินค้าเข้าใบนั้นถ้ายังไม่มี)
+        if (dGood) {
+          const t = itemsOf(targetShip);
+          let i = t.findIndex((it: any) => String(it.product_id) === String(p.id));
+          if (i < 0) { t.push({ product_id: p.id, good_qty: 0, defect_qty: 0, bill_ng_qty: null }); i = t.length - 1; }
+          const g = (Number(t[i].good_qty) || 0) + dGood;
+          if (g < 0) throw new Error(`${p.name}: งานดีถูกแยกอยู่หลายใบ ลดลงมากขนาดนี้ต้องไปแก้ทีละใบที่ "รายการทีละใบ"`);
+          t[i] = { ...t[i], good_qty: g };
+        }
+        // งานเสีย / NG -> ใบล่าสุดที่มีสินค้านี้ (รวมใบที่เพิ่งเพิ่มสินค้าเข้าไปด้านบน)
+        for (const [f, d] of [['defect', dDefect], ['ng', dNg]] as [F, number][]) {
+          if (!d) continue;
+          const holder = [...ships].sort((a, b) => b.id - a.id).find(sh => itemsOf(sh).some((it: any) => String(it.product_id) === String(p.id)));
+          if (!holder) throw new Error(`${p.name}: ต้องมียอดงานดีก่อน`);
+          const h = itemsOf(holder);
+          const i = h.findIndex((it: any) => String(it.product_id) === String(p.id));
+          const nv = (Number(h[i][COL[f]]) || 0) + d;
+          if (nv < 0) throw new Error(`${p.name}: ${f === 'ng' ? 'NG' : 'งานเสีย'}ถูกแยกอยู่หลายใบ กรุณาไปแก้ทีละใบที่ "รายการทีละใบ"`);
+          h[i] = { ...h[i], [COL[f]]: f === 'ng' ? (nv || null) : nv };
         }
       }
 
-      // บันทึกเฉพาะใบที่มีการเปลี่ยนแปลงจริง
+      // บันทึกเฉพาะใบที่เปลี่ยนจริง · รายการที่เหลือ 0 ทั้งงานดีและงานเสีย = ลบสินค้านั้นออกจากใบ (server กรองให้)
       for (const sh of ships) {
         const items = edited.get(sh.id);
         if (!items) continue;
-        const changed = JSON.stringify(items) !== JSON.stringify(sh.items.filter((it: any) => it.product_id));
-        if (!changed) continue;
+        if (JSON.stringify(items) === JSON.stringify(sh.items.filter((it: any) => it.product_id))) continue;
+        const keep = items.filter((it: any) => (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0) > 0);
+        if (keep.length === 0) throw new Error(`ใบ ${sh.code} จะไม่เหลือรายการเลย — ถ้าจะยกเลิกทั้งใบ ให้ลบที่ "รายการทีละใบ"`);
         await shipmentApi.update(sh.id, {
           shipped_at: sh.shipped_at, notes: sh.notes || '',
-          items: items.map((it: any) => ({
+          items: keep.map((it: any) => ({
             product_id: it.product_id, good_qty: Number(it.good_qty) || 0, defect_qty: Number(it.defect_qty) || 0,
             received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
             bill_ng_qty: it.bill_ng_qty ?? null,
           })),
         });
       }
-      if (newItemsForFreshShipment.length > 0) {
-        await shipmentApi.create({ shipped_at: date, notes: '', items: newItemsForFreshShipment });
-      }
+      if (fresh.length > 0) await shipmentApi.create({ shipped_at: date, notes: '', items: fresh });
       qc.invalidateQueries({ queryKey: ['shipments'] });
       qc.invalidateQueries({ queryKey: ['stock-flow'] });
       qc.invalidateQueries({ queryKey: ['billing'] });   // ใบวางบิล/ใบแจ้งหนี้ใช้ NG ชุดเดียวกัน
@@ -768,48 +757,50 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
     }
   };
 
-  const filledCount = qty ? Object.values(qty).filter(v => parseFloat(v) > 0).length : 0;
+  const filledCount = val ? Object.values(val).filter(v => parseFloat(v.good) > 0 || parseFloat(v.defect) > 0).length : 0;
+  const inputCls = 'input !min-h-[38px] !py-1.5 !px-2 text-right';
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
           <h3 className="font-semibold text-gray-800">แก้ไขยอดส่งออก — {date}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
-        {isLoading || qty === null ? (
+        {isLoading || val === null ? (
           <div className="py-8 text-center text-gray-400">กำลังโหลด...</div>
         ) : (
           <>
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-2">
-              <p className="text-xs text-gray-400 mb-1">
-                แก้เป็นยอดรวม (งานดี+งานเสีย) ถ้ามีงานเสียแยกอยู่แล้วในใบเดิม ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
-                · ช่อง <b className="text-rose-600">NG</b> = งาน NG ที่โรงงานแจ้ง หักรายรับในใบวางบิล/ใบแจ้งหนี้
+              <p className="text-xs text-gray-500 mb-1 leading-relaxed">
+                <b className="text-green-700">งานดี</b> = ที่ส่งไปให้โรงงาน ·{' '}
+                <b className="text-orange-600">งานเสีย</b> = ส่งไปด้วยแต่ไม่คิดเงิน (ลบออกได้โดยใส่ 0 หรือเว้นว่าง) ·{' '}
+                <b className="text-rose-600">NG โรงงานแจ้ง</b> = หักรายรับในใบวางบิล/ใบแจ้งหนี้
               </p>
-              <div className="flex items-center gap-3 px-3 text-[11px] font-medium text-gray-500">
-                <span className="flex-1">สินค้า</span>
-                <span className="w-28 text-right">ยอดส่ง</span>
-                <span className="w-20 text-right text-rose-600">NG โรงงานแจ้ง</span>
-                <span className="w-8" />
+              <div className="grid grid-cols-[1fr_6rem_5.5rem_5.5rem] gap-2 px-3 text-[11px] font-medium text-gray-500">
+                <span>สินค้า</span>
+                <span className="text-right text-green-700">งานดี</span>
+                <span className="text-right text-orange-600">งานเสีย</span>
+                <span className="text-right text-rose-600">NG โรงงาน</span>
               </div>
               {visibleProducts.map((p: any) => {
                 const items = byProduct[String(p.id)] || [];
-                const defect = items.reduce((s, it) => s + (Number(it.defect_qty) || 0), 0);
+                const v = val[p.id] || { good: '', defect: '', ng: '' };
                 return (
-                  <div key={p.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                    <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 inline-flex items-center gap-2">
+                  <div key={p.id} className="grid grid-cols-[1fr_6rem_5.5rem_5.5rem] gap-2 items-center p-2.5 bg-gray-50 rounded-xl">
+                    <span className="min-w-0 text-sm font-medium text-gray-800 inline-flex items-center gap-2" title={p.name}>
                       {p.color && <span className="w-3 h-3 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                       <span className="truncate">{p.name}</span>
-                      {defect > 0 && <span className="text-[10px] text-amber-600 shrink-0">(มีงานเสีย {fmt(defect)})</span>}
                       {items.length > 1 && <span className="text-[10px] text-amber-600 shrink-0">({items.length} ใบ)</span>}
                     </span>
-                    <input type="number" step="0.01" min="0" className="input w-28 shrink-0 text-right" placeholder="0"
-                      aria-label={`ยอดส่ง ${p.name}`}
-                      value={qty[p.id] ?? ''} onChange={e => setQty(q => ({ ...(q as any), [p.id]: e.target.value }))} />
+                    <input type="number" step="1" min="0" placeholder="0" aria-label={`งานดี ${p.name}`}
+                      className={inputCls} value={v.good} onChange={e => setField(p.id, 'good', e.target.value)} />
+                    <input type="number" step="1" min="0" placeholder="0" aria-label={`งานเสีย ${p.name}`}
+                      className={`${inputCls} ${parseFloat(v.defect) > 0 ? '!border-orange-300 !bg-orange-50 text-orange-700' : ''}`}
+                      value={v.defect} onChange={e => setField(p.id, 'defect', e.target.value)} />
                     <input type="number" step="1" min="0" placeholder="0" aria-label={`NG โรงงานแจ้ง ${p.name}`}
-                      className={`input w-20 shrink-0 text-right ${parseFloat(ng[p.id]) > 0 ? '!border-rose-300 !bg-rose-50 text-rose-700' : ''}`}
-                      value={ng[p.id] ?? ''} onChange={e => setNg(n => ({ ...n, [p.id]: e.target.value }))} />
-                    <span className="text-xs text-gray-400 w-8 shrink-0">{p.unit}</span>
+                      className={`${inputCls} ${parseFloat(v.ng) > 0 ? '!border-rose-300 !bg-rose-50 text-rose-700' : ''}`}
+                      value={v.ng} onChange={e => setField(p.id, 'ng', e.target.value)} />
                   </div>
                 );
               })}
