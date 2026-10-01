@@ -459,7 +459,7 @@ router.get('/billing', (req, res) => {
   const raw = m ? prepare(`
     SELECT si.id as item_id, s.id as shipment_id, s.code as shipment_code,
       s.shipped_at, s.notes as po, p.project as project, p.name as part_number, p.description as descr, p.color,
-      si.good_qty as sent_qty, si.received_qty as received_qty,
+      si.good_qty as sent_qty, si.received_qty as received_qty, si.bill_ng_qty as ng_qty,
       COALESCE(si.received_qty, si.good_qty) as quantity, p.unit, p.factory_price as price
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id
@@ -499,20 +499,29 @@ router.get('/billing', (req, res) => {
 // บันทึกยอด/วันที่ที่แก้ในหน้าวางบิล กลับไปยังรายการส่งของจริง (shipment history)
 // -> จำนวน = อัปเดต "ยอดที่โรงงานรับจริง" (received_qty) ของ shipment_item นั้น
 // -> วันที่ = อัปเดตวันที่ส่ง (shipped_at) ของใบส่งนั้น (กระทบทุกรายการในใบเดียวกัน)
+// -> NG = จำนวนงาน NG ที่โรงงานแจ้ง (bill_ng_qty) — ว่าง = ล้างค่า · ไม่ส่งมา = ไม่แตะของเดิม
 router.put('/billing-sync', (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ error: 'ไม่มีรายการให้บันทึก' });
-    let updatedQty = 0, updatedDate = 0, skipped = 0;
+    let updatedQty = 0, updatedDate = 0, updatedNg = 0, skipped = 0;
     for (const it of items) {
       const itemId = Number(it.item_id);
       if (!itemId) { skipped++; continue; }  // แถวที่เพิ่มเอง (ไม่ได้มาจากใบส่ง) ข้าม
-      const row = prepare(`SELECT si.id, si.shipment_id, s.shipped_at FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.id = ?`).get(itemId) as any;
+      const row = prepare(`SELECT si.id, si.shipment_id, si.bill_ng_qty, s.shipped_at FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.id = ?`).get(itemId) as any;
       if (!row) { skipped++; continue; }
       const q = Number(it.quantity);
       if (Number.isFinite(q) && q >= 0) {
         prepare(`UPDATE shipment_items SET received_qty = ? WHERE id = ?`).run(q, itemId);
         updatedQty++;
+      }
+      if ('ng_qty' in it) {
+        const ng = it.ng_qty === '' || it.ng_qty === null ? null : Number(it.ng_qty);
+        const val = ng !== null && Number.isFinite(ng) && ng > 0 ? ng : null;
+        if (val !== (row.bill_ng_qty ?? null)) {
+          prepare(`UPDATE shipment_items SET bill_ng_qty = ? WHERE id = ?`).run(val, itemId);
+          updatedNg++;
+        }
       }
       const dt = typeof it.deliveryDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(it.deliveryDate) ? it.deliveryDate : '';
       if (dt && dt !== String(row.shipped_at).slice(0, 10)) {
@@ -520,7 +529,7 @@ router.put('/billing-sync', (req, res) => {
         updatedDate++;
       }
     }
-    res.json({ ok: true, updatedQty, updatedDate, skipped });
+    res.json({ ok: true, updatedQty, updatedDate, updatedNg, skipped });
   } catch (e: any) {
     console.error('[billing-sync] error:', e);
     res.status(500).json({ error: `บันทึกไม่สำเร็จ: ${e?.message || e}` });
@@ -607,16 +616,18 @@ router.post('/invoice-export', (req, res) => {
 
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
 
-  // รวมยอดส่งออกต่อสินค้าในเดือนนั้น
+  // รวมยอดส่งออกต่อสินค้าในเดือนนั้น — หักงาน NG ที่โรงงานแจ้ง (bill_ng_qty × อัตราหัก NG %) แบบเดียวกับหน้าวางบิล
+  const ngRate = parseFloat(cfg.bill_ng_rate || '100') / 100;
   const rows = prepare(`
-    SELECT p.project, p.name, p.description, p.factory_price as price, SUM(COALESCE(si.received_qty, si.good_qty)) as quantity
+    SELECT p.project, p.name, p.description, p.factory_price as price,
+      SUM(MAX(0, COALESCE(si.received_qty, si.good_qty) - COALESCE(si.bill_ng_qty, 0) * ?)) as quantity
     FROM shipment_items si
     JOIN shipments s ON si.shipment_id = s.id
     JOIN products p ON si.product_id = p.id
     WHERE s.shipped_at LIKE ? AND COALESCE(si.received_qty, si.good_qty) > 0
     GROUP BY p.id
     ORDER BY p.project, p.name
-  `).all(`${month}%`) as any[];
+  `).all(ngRate, `${month}%`) as any[];
 
   let lines = rows.map((r: any) => ({
     project: r.project || '',

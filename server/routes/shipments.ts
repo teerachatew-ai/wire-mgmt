@@ -31,7 +31,7 @@ router.get('/', (req, res) => {
   const result = rows.map(s => ({
     ...s,
     items: prepare(`
-      SELECT si.good_qty, si.defect_qty, si.received_qty, p.id as product_id, p.code as product_code, p.name as product_name, p.unit, p.color
+      SELECT si.good_qty, si.defect_qty, si.received_qty, si.bill_ng_qty, p.id as product_id, p.code as product_code, p.name as product_name, p.unit, p.color
       FROM shipment_items si JOIN products p ON si.product_id = p.id
       WHERE si.shipment_id = ?
     `).all(s.id)
@@ -41,6 +41,8 @@ router.get('/', (req, res) => {
 
 // จำนวนที่ปลอดภัยสำหรับ SQLite (กัน NaN/undefined/null → 0)
 const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+// NG ที่โรงงานแจ้ง (หักเงินในใบวางบิล/ใบแจ้งหนี้) — ว่าง/0 = ไม่มี (NULL)
+const ngOf = (v: any) => { const n = Number(v); return v === '' || v == null || !Number.isFinite(n) || n <= 0 ? null : n; };
 
 // ── Create shipment ───────────────────────────────────────────────────────
 router.post('/', (req, res) => {
@@ -58,8 +60,8 @@ router.post('/', (req, res) => {
 
     for (const it of validItems) {
       const recv = (it.received_qty === '' || it.received_qty == null) ? null : num(it.received_qty);
-      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
-        .run(shipment.id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv);
+      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty, bill_ng_qty) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(shipment.id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv, ngOf(it.bill_ng_qty));
     }
 
     res.json({ ok: true, code, id: shipment.id });
@@ -81,12 +83,16 @@ router.put('/:id', (req, res) => {
     if (validItems.length === 0) return res.status(400).json({ error: 'กรุณาระบุปริมาณอย่างน้อย 1 รายการ' });
 
     prepare(`UPDATE shipments SET shipped_at = ?, notes = ? WHERE id = ?`).run(shipped_at, notes || null, id);
+    // NG เดิมต่อสินค้า — ถ้าฟอร์มไม่ได้ส่ง bill_ng_qty มา ใช้ค่าเดิม (กัน NG ที่กรอกในหน้าวางบิลหายตอนแก้ใบส่ง)
+    const oldNg = new Map((prepare(`SELECT product_id, bill_ng_qty FROM shipment_items WHERE shipment_id = ?`).all(id) as any[])
+      .map(r => [Number(r.product_id), r.bill_ng_qty]));
     // แทนที่รายการสินค้าทั้งหมด
     prepare(`DELETE FROM shipment_items WHERE shipment_id = ?`).run(id);
     for (const it of validItems) {
       const recv = (it.received_qty === '' || it.received_qty == null) ? null : num(it.received_qty);
-      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty) VALUES (?, ?, ?, ?, ?)`)
-        .run(id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv);
+      const ng = 'bill_ng_qty' in it ? ngOf(it.bill_ng_qty) : (oldNg.get(num(it.product_id)) ?? null);
+      prepare(`INSERT INTO shipment_items (shipment_id, product_id, good_qty, defect_qty, received_qty, bill_ng_qty) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(id, num(it.product_id), num(it.good_qty), num(it.defect_qty), recv, ng);
     }
     res.json({ ok: true, id, code: ship.code });
   } catch (e: any) {

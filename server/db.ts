@@ -342,6 +342,9 @@ CREATE TABLE IF NOT EXISTS managers (
     // ยอดที่โรงงานรับจริง (NULL = ยังไม่ยืนยัน) — ใช้คิดเงินแทน good_qty เมื่อกรอกแล้ว
     db.exec(`ALTER TABLE shipment_items ADD COLUMN received_qty REAL`);
   }
+  // จำนวน NG ที่โรงงานแจ้งตอนวางบิล (หักเงินตามอัตราหัก NG ในหน้าวางบิล) — แยกจาก defect_qty
+  // ซึ่งเป็นงานเสียที่ส่งออกไปพร้อมกัน และถูกนับเป็นยอดส่งออกในสต็อก (ห้ามปนกัน)
+  if (!shipItemCols.includes('bill_ng_qty')) db.exec(`ALTER TABLE shipment_items ADD COLUMN bill_ng_qty REAL`);
 
   {
     // ยอดที่ "นับได้จริง" ตอนของลงจากรถ (NULL = ยังไม่ได้นับเอง ให้ระบบคิดจากที่สมาชิกแจ้งขาด/เกินแทน)

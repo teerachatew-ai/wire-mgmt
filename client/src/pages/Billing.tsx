@@ -56,7 +56,7 @@ export default function Billing() {
         project: l.project || '', part_number: l.part_number || '', description: l.description || '',
         sent_qty: l.sent_qty ?? l.quantity ?? 0,
         received_qty: (l.received_qty === null || l.received_qty === undefined) ? '' : l.received_qty,
-        ng_qty: '',
+        ng_qty: (l.ng_qty === null || l.ng_qty === undefined) ? '' : l.ng_qty,   // NG ที่บันทึกไว้แล้ว
         unit: l.unit || 'EA', price: l.price || 0,
         deliveryDate: (l.shipped_at || '').slice(0, 10),
       })));
@@ -80,7 +80,7 @@ export default function Billing() {
   const qc = useQueryClient();
   const updLine = (i: number, f: keyof Line, v: any) => {
     setLines(ls => ls.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
-    if (f === 'received_qty' || f === 'deliveryDate') setDirty(true);   // รับจริง/วันที่ sync กลับไปใบส่งของได้
+    if (f === 'received_qty' || f === 'deliveryDate' || f === 'ng_qty') setDirty(true);   // รับจริง/NG/วันที่ บันทึกกลับใบส่งของได้
   };
   const addLine = () => setLines(ls => [...ls, { project: '', part_number: '', description: '', sent_qty: 0, received_qty: '', ng_qty: '', unit: 'EA', price: 0, deliveryDate: month ? `${month}-01` : '' }]);
   const delLine = (i: number) => setLines(ls => ls.filter((_, idx) => idx !== i));
@@ -92,13 +92,14 @@ export default function Billing() {
     if (!window.confirm(
       'บันทึกจำนวน/วันที่ที่แก้ไข กลับไปยัง "ประวัติส่งงานออกโรงงาน" ?\n\n' +
       '• จำนวน → อัปเดตเป็น "ยอดที่โรงงานรับจริง" ของใบส่งนั้น\n' +
+      '• NG → บันทึกจำนวนงาน NG ที่โรงงานแจ้ง (หักเงินตามอัตราหัก NG)\n' +
       '• วันที่ → เลื่อนวันที่ของใบส่งนั้น (ทุกรายการในใบเดียวกันจะเลื่อนตาม)\n' +
       '• ใบวางบิล / ใบแจ้งหนี้ / สต๊อค จะใช้ยอดใหม่นี้ทันที'
     )) return;
     setSyncing(true); setSyncMsg('');
     try {
-      const r = await reportApi.billingSync(syncable.map(l => ({ item_id: l.item_id, quantity: effQty(l), deliveryDate: l.deliveryDate })));
-      setSyncMsg(`บันทึกแล้ว ✓ (จำนวน ${r.updatedQty} รายการ${r.updatedDate ? `, วันที่ ${r.updatedDate} ใบ` : ''})`);
+      const r = await reportApi.billingSync(syncable.map(l => ({ item_id: l.item_id, quantity: effQty(l), deliveryDate: l.deliveryDate, ng_qty: l.ng_qty })));
+      setSyncMsg(`บันทึกแล้ว ✓ (จำนวน ${r.updatedQty} รายการ${r.updatedNg ? `, NG ${r.updatedNg} รายการ` : ''}${r.updatedDate ? `, วันที่ ${r.updatedDate} ใบ` : ''})`);
       setDirty(false);
       qc.invalidateQueries({ queryKey: ['billing'] });
       qc.invalidateQueries({ queryKey: ['stock-flow'] });

@@ -554,10 +554,12 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
           good_qty: Number(it.good_qty) || 0,
           defect_qty: Number(it.defect_qty) || 0,
           received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
+          bill_ng_qty: (it.bill_ng_qty === '' || it.bill_ng_qty == null) ? null : Number(it.bill_ng_qty),
         })),
       });
       qc.invalidateQueries({ queryKey: ['shipments'] });
       qc.invalidateQueries({ queryKey: ['stock-flow'] });
+      qc.invalidateQueries({ queryKey: ['billing'] });
       onClose();
     } catch (e: any) { setErr(e.response?.data?.error ?? 'เกิดข้อผิดพลาด'); setSaving(false); }
   };
@@ -610,6 +612,17 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
                         <p className="text-xs text-rose-600 mt-1">⚠️ ต่างจากที่ส่ง {diff > 0 ? '+' : ''}{diff} {it.unit} — ระบบจะคิดเงินจากยอดรับจริง</p>
                       )}
                       {diff === 0 && <p className="text-xs text-green-600 mt-1">✓ ตรงกับที่ส่ง</p>}
+                    </div>
+                    {/* NG ที่โรงงานแจ้งกลับ — หักรายรับในใบวางบิล/ใบแจ้งหนี้/ใบเสร็จ ตามอัตราหัก NG (ตั้งที่หน้าวางบิล)
+                        คนละช่องกับ "งานเสีย" ด้านบน (งานเสียที่เราส่งไปเอง นับเป็นยอดส่งออกในสต็อก) */}
+                    <div className="mt-3">
+                      <label className="label text-xs flex items-center gap-1">NG ที่โรงงานแจ้ง <span className="text-gray-400">(หักรายรับในใบวางบิล/ใบแจ้งหนี้)</span></label>
+                      <input type="number" min="0" step="1" placeholder="ไม่มี — ปล่อยว่างไว้ได้"
+                        className={`input text-sm ${Number(it.bill_ng_qty) > 0 ? 'border-rose-300 bg-rose-50 text-rose-700' : ''}`}
+                        value={it.bill_ng_qty ?? ''} onChange={e => upd(i, 'bill_ng_qty', e.target.value)} />
+                      {Number(it.bill_ng_qty) > 0 && (
+                        <p className="text-xs text-rose-600 mt-1">ใบวางบิลจะหัก {Number(it.bill_ng_qty).toLocaleString('th-TH')} {it.unit} ตามอัตราหัก NG</p>
+                      )}
                     </div>
                   </div>
               );
@@ -704,6 +717,7 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
           items: targetItems.map((it: any) => ({
             product_id: it.product_id, good_qty: Number(it.good_qty) || 0, defect_qty: Number(it.defect_qty) || 0,
             received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
+            bill_ng_qty: it.bill_ng_qty ?? null,
           })),
         });
       }
@@ -885,7 +899,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             <ExportExcelButton filename="ประวัติส่งงานออกโรงงาน" rows={(shipments as any[]).flatMap((sh: any) =>
               (sh.items || []).map((it: any) => ({
                 'เลขที่ใบส่ง': sh.code, 'วันที่ส่ง': sh.shipped_at, 'สินค้า': it.product_name,
-                'งานดี': it.good_qty, 'งานเสีย': it.defect_qty, 'รับจริง(โรงงาน)': it.received_qty ?? '',
+                'งานดี': it.good_qty, 'งานเสีย': it.defect_qty, 'รับจริง(โรงงาน)': it.received_qty ?? '', 'NG โรงงาน': it.bill_ng_qty ?? '',
                 'หมายเหตุ': sh.notes || '', 'ผู้บันทึก': sh.created_by || '',
               }))
             )} />
@@ -943,6 +957,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                   <th className="px-4 py-3 text-right font-medium text-green-600">งานดี (ส่งไป)</th>
                   <th className="px-4 py-3 text-right font-medium text-blue-600">รับจริง</th>
                   <th className="px-4 py-3 text-right font-medium text-orange-500">งานเสีย</th>
+                  <th className="px-4 py-3 text-right font-medium text-rose-600" title="NG ที่โรงงานแจ้ง — หักรายรับในใบวางบิล/ใบแจ้งหนี้">NG โรงงาน</th>
                   <th className="px-4 py-3 text-right font-medium">รวม</th>
                   <th className="px-4 py-3 text-left font-medium">หมายเหตุ</th>
                   <th className="px-4 py-3"></th>
@@ -970,6 +985,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                           : <span className={Number(it.received_qty) !== Number(it.good_qty) ? 'text-rose-600 font-semibold' : 'text-blue-700'}>{fmt(it.received_qty)}</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right text-orange-500">{it.defect_qty ? fmt(it.defect_qty) : '-'}</td>
+                      <td className="px-4 py-2.5 text-right text-rose-600 font-medium">{Number(it.bill_ng_qty) > 0 ? fmt(it.bill_ng_qty) : '-'}</td>
                       <td className="px-4 py-2.5 text-right text-gray-600">{it.product_name ? `${fmt((it.good_qty || 0) + (it.defect_qty || 0))} ${it.unit || ''}` : '-'}</td>
                       <td className="px-4 py-2.5 text-gray-500 text-xs">{i === 0 ? (sh.notes || '') : ''}</td>
                       <td className="px-4 py-2.5">
@@ -990,7 +1006,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
                   ))
                 )}
                 <tr className="bg-gray-50 border-t font-semibold text-gray-700">
-                  <td className="px-4 py-2.5" colSpan={6}>รวมส่งออกทั้งหมด</td>
+                  <td className="px-4 py-2.5" colSpan={8}>รวมส่งออกทั้งหมด</td>
                   <td className="px-4 py-2.5 text-right">{fmt((shipments as any[]).reduce((s: number, sh: any) => s + sh.total_qty, 0))} หน่วย</td>
                   <td colSpan={2}></td>
                 </tr>
