@@ -642,7 +642,9 @@ function EditShipmentModal({ shipment, onClose }: { shipment: any; onClose: () =
 /* ── แก้ยอดส่งออกทั้งวันในหน้าเดียว — คลิกวันที่ในตารางสรุปรายวันมาเปิด (คู่กับ EditDayModal ของหน้ารับของ) ──
    ต่างจากฝั่งรับของตรงที่ใบส่งหนึ่งมีทั้ง "งานดี" กับ "งานเสีย" แยกกัน — ช่องนี้แก้เฉพาะยอดรวม (งานดี+งานเสีย)
    โดยปรับที่ "งานดี" เป็นหลัก ถ้ามีงานเสียแยกอยู่แล้วให้ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
-   ยอดทั้งวันปกติอยู่ในใบส่งเดียว — งานที่แก้จะลงใบล่าสุดของวันนั้น (สร้างใบใหม่ให้เองถ้าวันนั้นยังไม่มีใบส่งเลย) */
+   ยอดทั้งวันปกติอยู่ในใบส่งเดียว — งานที่แก้จะลงใบล่าสุดของวันนั้น (สร้างใบใหม่ให้เองถ้าวันนั้นยังไม่มีใบส่งเลย)
+   ช่อง NG = งาน NG ที่โรงงานแจ้งกลับ (bill_ng_qty) — ตัวเดียวกับช่อง NG ในหน้าวางบิล ใช้หักรายรับในใบวางบิล/ใบแจ้งหนี้/ใบเสร็จ
+   ส่วนต่าง NG ลงรายการของใบล่าสุดของวันที่มีสินค้านั้น */
 function EditDayShipmentModal({ date, products, onClose }: { date: string; products: any[]; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: dayShipments = [], isLoading } = useQuery({
@@ -661,13 +663,19 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
   }, [dayShipments]);
 
   const [qty, setQty] = useState<Record<string, string> | null>(null);
+  const [ng, setNg] = useState<Record<string, string>>({});
+  const ngSumOf = (pid: any) => (byProduct[String(pid)] || []).reduce((s, it) => s + (Number(it.bill_ng_qty) || 0), 0);
   if (qty === null && !isLoading) {
     const initial: Record<string, string> = {};
+    const initialNg: Record<string, string> = {};
     for (const p of products) {
       const sum = (byProduct[String(p.id)] || []).reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
       if (sum > 0) initial[p.id] = String(sum);
+      const n = ngSumOf(p.id);
+      if (n > 0) initialNg[p.id] = String(n);
     }
     setQty(initial);
+    setNg(initialNg);
   }
 
   const [saving, setSaving] = useState(false);
@@ -678,43 +686,68 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
     if (!qty) return;
     setSaving(true); setError('');
     try {
-      // ใบส่งเป้าหมาย = ใบล่าสุดของวันนี้ (id สูงสุด) — ส่วนต่างทั้งหมดที่แก้จะลงใบนี้ ใบอื่นคงเดิม
-      const targetShip = (dayShipments as any[]).length > 0
-        ? (dayShipments as any[]).reduce((a, b) => (a.id > b.id ? a : b)) : null;
-      const targetItems: any[] = targetShip ? targetShip.items.map((it: any) => ({ ...it })) : [];
+      const ships = dayShipments as any[];
+      // สำเนารายการของแต่ละใบส่งที่จะแก้ (แก้เฉพาะใบที่มีการเปลี่ยน)
+      const edited = new Map<number, any[]>();
+      const itemsOf = (sh: any) => { if (!edited.has(sh.id)) edited.set(sh.id, sh.items.filter((it: any) => it.product_id).map((it: any) => ({ ...it }))); return edited.get(sh.id)!; };
+      // ใบส่งเป้าหมายของยอดส่ง = ใบล่าสุดของวันนี้ (id สูงสุด) — ส่วนต่างทั้งหมดที่แก้จะลงใบนี้ ใบอื่นคงเดิม
+      const targetShip = ships.length > 0 ? ships.reduce((a, b) => (a.id > b.id ? a : b)) : null;
       const newItemsForFreshShipment: any[] = [];   // เผื่อวันนี้ยังไม่มีใบส่งเลย
-      let touchedTarget = false;
 
       for (const p of visibleProducts) {
         const items = byProduct[String(p.id)] || [];
         const oldSum = items.reduce((s, it) => s + (Number(it.good_qty) || 0) + (Number(it.defect_qty) || 0), 0);
         const newQty = parseFloat(qty[p.id]) || 0;
-        if (newQty === oldSum) continue;
-        const delta = newQty - oldSum;
+        const oldNg = ngSumOf(p.id);
+        const newNg = parseFloat(ng[p.id]) || 0;
+        if (newNg < 0) throw new Error(`${p.name}: NG ติดลบไม่ได้`);
+        if (newNg > newQty) throw new Error(`${p.name}: NG (${fmt(newNg)}) มากกว่ายอดส่ง (${fmt(newQty)}) ไม่ได้`);
 
-        if (!targetShip) {
-          if (newQty > 0) newItemsForFreshShipment.push({ product_id: p.id, good_qty: newQty, defect_qty: 0 });
-          continue;
-        }
-        const idx = targetItems.findIndex((it: any) => String(it.product_id) === String(p.id));
-        if (idx >= 0) {
-          const newGood = (Number(targetItems[idx].good_qty) || 0) + delta;
-          if (newGood < 0) {
-            throw new Error(`${p.name}: ยอดใหม่น้อยเกินไป (มีงานเสียพ่วงอยู่ในใบเดิม) กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
+        if (newQty !== oldSum) {
+          const delta = newQty - oldSum;
+          if (!targetShip) {
+            if (newQty > 0) newItemsForFreshShipment.push({ product_id: p.id, good_qty: newQty, defect_qty: 0, bill_ng_qty: newNg || null });
+            continue;
           }
-          targetItems[idx] = { ...targetItems[idx], good_qty: newGood };
-        } else if (delta > 0) {
-          targetItems.push({ product_id: p.id, good_qty: delta, defect_qty: 0 });
-        } else {
-          continue;
+          const tItems = itemsOf(targetShip);
+          const idx = tItems.findIndex((it: any) => String(it.product_id) === String(p.id));
+          if (idx >= 0) {
+            const newGood = (Number(tItems[idx].good_qty) || 0) + delta;
+            if (newGood < 0) {
+              throw new Error(`${p.name}: ยอดใหม่น้อยเกินไป (มีงานเสียพ่วงอยู่ในใบเดิม) กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
+            }
+            tItems[idx] = { ...tItems[idx], good_qty: newGood };
+          } else if (delta > 0) {
+            tItems.push({ product_id: p.id, good_qty: delta, defect_qty: 0, bill_ng_qty: null });
+          }
         }
-        touchedTarget = true;
+
+        if (newNg !== oldNg) {
+          // NG ลงใบล่าสุดของวันที่มีสินค้านี้ (รวมใบที่เพิ่งเพิ่มสินค้าเข้าไปด้านบน)
+          const holder = [...ships].sort((a, b) => b.id - a.id)
+            .find(sh => itemsOf(sh).some((it: any) => String(it.product_id) === String(p.id)));
+          if (!holder) {
+            const fresh = newItemsForFreshShipment.find(it => String(it.product_id) === String(p.id));
+            if (fresh) { fresh.bill_ng_qty = newNg || null; continue; }
+            throw new Error(`${p.name}: ต้องมียอดส่งก่อนถึงจะใส่ NG ได้`);
+          }
+          const hItems = itemsOf(holder);
+          const idx = hItems.findIndex((it: any) => String(it.product_id) === String(p.id));
+          const val = (Number(hItems[idx].bill_ng_qty) || 0) + (newNg - oldNg);
+          if (val < 0) throw new Error(`${p.name}: NG ถูกแยกอยู่หลายใบ กรุณาไปแก้ทีละใบที่ "รายการทีละใบ" แทน`);
+          hItems[idx] = { ...hItems[idx], bill_ng_qty: val || null };
+        }
       }
 
-      if (touchedTarget && targetShip) {
-        await shipmentApi.update(targetShip.id, {
-          shipped_at: targetShip.shipped_at, notes: targetShip.notes || '',
-          items: targetItems.map((it: any) => ({
+      // บันทึกเฉพาะใบที่มีการเปลี่ยนแปลงจริง
+      for (const sh of ships) {
+        const items = edited.get(sh.id);
+        if (!items) continue;
+        const changed = JSON.stringify(items) !== JSON.stringify(sh.items.filter((it: any) => it.product_id));
+        if (!changed) continue;
+        await shipmentApi.update(sh.id, {
+          shipped_at: sh.shipped_at, notes: sh.notes || '',
+          items: items.map((it: any) => ({
             product_id: it.product_id, good_qty: Number(it.good_qty) || 0, defect_qty: Number(it.defect_qty) || 0,
             received_qty: (it.received_qty === '' || it.received_qty == null) ? null : Number(it.received_qty),
             bill_ng_qty: it.bill_ng_qty ?? null,
@@ -726,6 +759,7 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
       }
       qc.invalidateQueries({ queryKey: ['shipments'] });
       qc.invalidateQueries({ queryKey: ['stock-flow'] });
+      qc.invalidateQueries({ queryKey: ['billing'] });   // ใบวางบิล/ใบแจ้งหนี้ใช้ NG ชุดเดียวกัน
       onClose();
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'บันทึกไม่สำเร็จ');
@@ -750,7 +784,14 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-2">
               <p className="text-xs text-gray-400 mb-1">
                 แก้เป็นยอดรวม (งานดี+งานเสีย) ถ้ามีงานเสียแยกอยู่แล้วในใบเดิม ไปแก้ทีละใบที่ "รายการทีละใบ" แทน
+                · ช่อง <b className="text-rose-600">NG</b> = งาน NG ที่โรงงานแจ้ง หักรายรับในใบวางบิล/ใบแจ้งหนี้
               </p>
+              <div className="flex items-center gap-3 px-3 text-[11px] font-medium text-gray-500">
+                <span className="flex-1">สินค้า</span>
+                <span className="w-28 text-right">ยอดส่ง</span>
+                <span className="w-20 text-right text-rose-600">NG โรงงานแจ้ง</span>
+                <span className="w-8" />
+              </div>
               {visibleProducts.map((p: any) => {
                 const items = byProduct[String(p.id)] || [];
                 const defect = items.reduce((s, it) => s + (Number(it.defect_qty) || 0), 0);
@@ -762,9 +803,13 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
                       {defect > 0 && <span className="text-[10px] text-amber-600 shrink-0">(มีงานเสีย {fmt(defect)})</span>}
                       {items.length > 1 && <span className="text-[10px] text-amber-600 shrink-0">({items.length} ใบ)</span>}
                     </span>
-                    <input type="number" step="0.01" min="0" className="input w-32 shrink-0 text-right" placeholder="0"
+                    <input type="number" step="0.01" min="0" className="input w-28 shrink-0 text-right" placeholder="0"
+                      aria-label={`ยอดส่ง ${p.name}`}
                       value={qty[p.id] ?? ''} onChange={e => setQty(q => ({ ...(q as any), [p.id]: e.target.value }))} />
-                    <span className="text-xs text-gray-400 w-10 shrink-0">{p.unit}</span>
+                    <input type="number" step="1" min="0" placeholder="0" aria-label={`NG โรงงานแจ้ง ${p.name}`}
+                      className={`input w-20 shrink-0 text-right ${parseFloat(ng[p.id]) > 0 ? '!border-rose-300 !bg-rose-50 text-rose-700' : ''}`}
+                      value={ng[p.id] ?? ''} onChange={e => setNg(n => ({ ...n, [p.id]: e.target.value }))} />
+                    <span className="text-xs text-gray-400 w-8 shrink-0">{p.unit}</span>
                   </div>
                 );
               })}
