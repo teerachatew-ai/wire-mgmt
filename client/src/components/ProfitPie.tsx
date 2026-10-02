@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { parseProductLabel } from '../projectLabel';
+import { parseProductLabel, projectLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
-/* กำไรขั้นต้นแยกตามรุ่นสายไฟ — pie chart
-   กำไรขั้นต้นของรุ่น = รายรับจากโรงงาน − ค่าแรงตัดของรุ่นนั้น
+/* กำไรขั้นต้นแยกตาม "กลุ่มงาน" (model / โครงการ) — pie chart
+   ผู้ใช้ขอให้รวมรุ่นย่อยในโครงการเดียวกันเป็นชิ้นเดียว เช่น ป้ายขาว COT091 = ขาวสั้น 633 + ขาวยาว 676
+   กำไรขั้นต้นของกลุ่ม = รายรับจากโรงงาน − ค่าแรงตัด ของทุกรุ่นในกลุ่มรวมกัน
    ขนาดชิ้น = กำไร (บาท) · ตัวเลขบนชิ้น = อัตรากำไร (กำไร ÷ รายรับของรุ่นนั้น)
    รุ่นที่ขาดทุนวาดเป็นชิ้นใน pie ไม่ได้ (ขนาดติดลบ) — แสดงในตารางข้างๆ เป็นสีแดงแทน ไม่ซ่อน
 
@@ -19,6 +20,8 @@ const FAMILY: Record<string, string[]> = {
 };
 // สีอ่อน -> ตัวหนังสือบนชิ้นใช้สีเข้ม (ตัวหนังสือใช้สีหมึก ไม่ใช้สีของชิ้น)
 const LIGHT = new Set(['#f59e0b', '#f472b6', '#58cd88', '#60a5fa', '#94a3b8']);
+// 1 กลุ่มงาน = 1 สี (ตัวแทนของตระกูลจากชุดสีด้านบน ซึ่งผ่านตัวตรวจตาบอดสีแล้ว)
+const GROUP_COLOR: Record<string, string> = { white: '#f59e0b', pink: '#be185d', green: '#1a9950', blue: '#1d4ed8', other: '#64748b' };
 
 function familyOf(hex?: string | null): string {
   const c = String(hex || '').replace('#', '');
@@ -34,28 +37,37 @@ function familyOf(hex?: string | null): string {
 const thb2 = (n: number) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pct = (n: number) => `${n > 0 ? '' : ''}${n.toFixed(Math.abs(n) < 10 ? 1 : 0)}%`;
 
-type Row = { id: number; name: string; short: string; color: string; revenue: number; wage: number; profit: number; margin: number };
+type Row = { id: string; name: string; short: string; models: string; color: string; revenue: number; wage: number; profit: number; margin: number };
 
 export default function ProfitPie({ products, period, periodLabel }: {
   products: any[]; period: 'month' | 'all'; periodLabel: string;
 }) {
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
   const isM = period === 'month';
 
-  // ลำดับ + สีตายตัวต่อรุ่น — เรียงแบบเดียวกับทุกหน้า (ขาว -> ชมพู -> เขียว -> อื่นๆ)
+  // รวมตามกลุ่มงาน (project) — ลำดับแบบเดียวกับทุกหน้า (ขาว -> ชมพู -> เขียว -> อื่นๆ) ใช้รุ่นแรกของกลุ่มเป็นตัวกำหนด
   const ordered = sortByColorGroup(products, (p: any) => p.name, (p: any) => p.color);
-  const idxInFamily: Record<string, number> = {};
-  const rows: Row[] = ordered.map((p: any) => {
-    const fam = familyOf(p.color);
-    const i = idxInFamily[fam] = (idxInFamily[fam] ?? -1) + 1;
-    const ramp = FAMILY[fam];
+  const groups = new Map<string, Row>();
+  for (const p of ordered) {
     const revenue = Number(isM ? p.revenue_month : p.revenue_all) || 0;
     const wage = Number(isM ? p.wage_month : p.wage_all) || 0;
-    const profit = revenue - wage;
+    if (!(revenue > 0 || wage > 0)) continue;
+    const key = p.project || `p${p.id}`;   // สินค้าที่ไม่ได้ผูกโครงการ แยกเป็นกลุ่มของตัวเอง
     const { num, label } = parseProductLabel(p.name);
-    const short = `${label.replace(/ป้าย|เส้น|สาย/g, '').replace(/\s+/g, '')} ${num}`.trim();
-    return { id: p.id, name: p.name, short, color: ramp[Math.min(i, ramp.length - 1)], revenue, wage, profit, margin: revenue > 0 ? (profit / revenue) * 100 : 0 };
-  }).filter(r => r.revenue > 0 || r.wage > 0);
+    const model = `${label.replace(/ป้าย|เส้น|สาย/g, '').replace(/\s+/g, '')} ${num}`.trim();
+    const g = groups.get(key) || {
+      id: key, name: p.project ? `${projectLabel(p.project)} (${p.project})` : p.name,
+      short: p.project ? projectLabel(p.project).replace(/^งาน\s*/, '') : model,
+      models: '', color: GROUP_COLOR[familyOf(p.color)], revenue: 0, wage: 0, profit: 0, margin: 0,
+    };
+    g.revenue += revenue; g.wage += wage;
+    g.models = g.models ? `${g.models} + ${model}` : model;
+    groups.set(key, g);
+  }
+  const rows: Row[] = [...groups.values()].map(g => {
+    const profit = g.revenue - g.wage;
+    return { ...g, profit, margin: g.revenue > 0 ? (profit / g.revenue) * 100 : 0 };
+  });
 
   if (rows.length === 0) {
     return <p className="px-5 py-8 text-center text-sm text-slate-400">ยังไม่มีรายรับ{isM ? 'ในเดือนนี้' : ''} — เริ่มเมื่อมีการส่งงานออกโรงงาน</p>;
@@ -83,7 +95,7 @@ export default function ProfitPie({ products, period, periodLabel }: {
 
   // ตำแหน่งตัวเลข: ชิ้นใหญ่ -> ในชิ้น · ชิ้นเล็ก -> นอกวงพร้อมเส้นชี้ และดันออกไปอีกชั้นถ้าชนป้ายข้างๆ
   // (เดิมชิ้นเล็กสองชิ้นติดกันตัวเลขทับกันจนอ่านไม่ออก)
-  const labelPos = new Map<number, { x: number; y: number; inside: boolean; lx1: number; ly1: number }>();
+  const labelPos = new Map<string, { x: number; y: number; inside: boolean; lx1: number; ly1: number }>();
   const placed: { x: number; y: number }[] = [];
   for (const sl of slices) {
     const [lx1, ly1] = pt(sl.mid, R + 2);
@@ -106,11 +118,11 @@ export default function ProfitPie({ products, period, periodLabel }: {
       <div className="flex flex-col items-center">
         {gains.length === 0 ? (
           <div className="w-[260px] h-[260px] rounded-full border-2 border-dashed border-rose-200 flex items-center justify-center text-sm text-rose-600 text-center px-8">
-            ทุกรุ่นขาดทุนในช่วงนี้ — ดูรายละเอียดในตาราง
+            ทุกกลุ่มงานขาดทุนในช่วงนี้ — ดูรายละเอียดในตาราง
           </div>
         ) : (
           <svg viewBox={`0 0 ${S} ${S}`} width={S} height={S} role="img"
-            aria-label={`กำไรขั้นต้นแยกตามรุ่น ${periodLabel}`} className="overflow-visible">
+            aria-label={`กำไรขั้นต้นแยกตามกลุ่มงาน ${periodLabel}`} className="overflow-visible">
             {slices.map(({ r, a0, a1, mid }) => {
               const off = hover === r.id ? 6 : 0;
               const dx = off * Math.cos(mid), dy = off * Math.sin(mid);
@@ -144,13 +156,13 @@ export default function ProfitPie({ products, period, periodLabel }: {
         <div className="mt-2 h-10 text-center text-xs leading-tight">
           {hovered ? (
             <>
-              <div className="font-semibold text-slate-700">{hovered.short}</div>
+              <div className="font-semibold text-slate-700">{hovered.short} <span className="font-normal text-slate-400">({hovered.models})</span></div>
               <div className="text-slate-500 tabular-nums">
                 กำไร ฿{thb2(hovered.profit)} · อัตรากำไร {pct(hovered.margin)} · {totalGain > 0 && hovered.profit > 0 ? `${((hovered.profit / totalGain) * 100).toFixed(0)}% ของกำไรรวม` : 'ขาดทุน'}
               </div>
             </>
           ) : (
-            <div className="text-slate-400">ตัวเลขบนชิ้น = อัตรากำไรของรุ่นนั้น · ชี้ที่ชิ้นเพื่อดูยอดเงิน</div>
+            <div className="text-slate-400">ตัวเลขบนชิ้น = อัตรากำไรของกลุ่มงานนั้น · ชี้ที่ชิ้นเพื่อดูยอดเงิน</div>
           )}
         </div>
       </div>
@@ -160,7 +172,7 @@ export default function ProfitPie({ products, period, periodLabel }: {
         <table className="w-full text-sm tabular-nums">
           <thead>
             <tr className="text-xs text-slate-400 border-b border-slate-100">
-              <th className="py-2 pr-2 text-left font-medium">รุ่นสายไฟ</th>
+              <th className="py-2 pr-2 text-left font-medium">กลุ่มงาน (model)</th>
               <th className="py-2 px-2 text-right font-medium">รายรับ</th>
               <th className="py-2 px-2 text-right font-medium">ค่าแรงตัด</th>
               <th className="py-2 px-2 text-right font-medium">กำไรขั้นต้น</th>
@@ -177,9 +189,11 @@ export default function ProfitPie({ products, period, periodLabel }: {
                     <span className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-sm shrink-0"
                         style={loss ? { border: `2px solid ${r.color}` } : { backgroundColor: r.color }} />
-                      <span className="text-slate-700">{r.short}</span>
+                      <span className="text-slate-700 font-medium" title={r.name}>{r.short}</span>
+                      {r.id.startsWith('COT') && <span className="text-[10px] text-slate-400">{r.id.replace('COT', '')}</span>}
                       {loss && <span className="text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1">ขาดทุน</span>}
                     </span>
+                    <span className="block pl-5 text-[11px] text-slate-400">{r.models}</span>
                   </td>
                   <td className="py-2 px-2 text-right text-slate-500">{thb2(r.revenue)}</td>
                   <td className="py-2 px-2 text-right text-slate-500">{thb2(r.wage)}</td>
@@ -193,7 +207,7 @@ export default function ProfitPie({ products, period, periodLabel }: {
           </tbody>
           <tfoot>
             <tr className="bg-slate-50 font-semibold text-slate-800">
-              <td className="py-2 pr-2">รวม {rows.length} รุ่น</td>
+              <td className="py-2 pr-2">รวม {rows.length} กลุ่มงาน</td>
               <td className="py-2 px-2 text-right">{thb2(totalRev)}</td>
               <td className="py-2 px-2 text-right">{thb2(rows.reduce((s, r) => s + r.wage, 0))}</td>
               <td className={`py-2 px-2 text-right ${net < 0 ? 'text-rose-600' : ''}`}>{net < 0 ? '−' : ''}฿{thb2(Math.abs(net))}</td>
@@ -202,8 +216,8 @@ export default function ProfitPie({ products, period, periodLabel }: {
           </tfoot>
         </table>
         <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-          กำไรขั้นต้นของรุ่น = รายรับจากโรงงาน − ค่าแรงตัดของรุ่นนั้น (จำนวนที่ส่งออก × ค่าแรงต่อเส้น) · อัตรากำไร = กำไร ÷ รายรับของรุ่นนั้น
-          {losses.length > 0 && <> · <span className="text-rose-600">รุ่นที่ขาดทุนไม่มีชิ้นใน pie</span> (วาดยอดติดลบเป็นชิ้นไม่ได้)</>}
+          กำไรขั้นต้นของกลุ่มงาน = รายรับจากโรงงาน − ค่าแรงตัด ของทุกรุ่นในกลุ่มรวมกัน (จำนวนที่ส่งออก × ค่าแรงต่อเส้น) · อัตรากำไร = กำไร ÷ รายรับของกลุ่มนั้น
+          {losses.length > 0 && <> · <span className="text-rose-600">กลุ่มที่ขาดทุนไม่มีชิ้นใน pie</span> (วาดยอดติดลบเป็นชิ้นไม่ได้)</>}
           {' '}· ยอดรวมอาจต่างจาก "กำไรขั้นต้น" ด้านบนเล็กน้อย เพราะด้านบนใช้ค่าแรงที่จ่ายจริงตามรอบบัญชี
         </p>
       </div>
