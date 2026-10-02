@@ -7,7 +7,7 @@ import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
 import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2 } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
-import IssueMatrix, { shortLot, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
+import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import { useNgGate } from '../components/NgWarning';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
@@ -693,6 +693,7 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
                       เดิม {Number(i.quantity).toLocaleString('th-TH')}
                       {returned > 0 && <> · คืนแล้ว <span className="text-emerald-600 font-medium">{returned.toLocaleString('th-TH')}</span></>}
                     </div>
+                    <ReturnLogNote log={i.return_log} />
                   </div>
                   <input ref={idx === 0 ? firstInput : undefined} type="number" inputMode="decimal" step="any" min="0.01"
                     className={`input !w-32 text-right text-base font-semibold tabular-nums ${below ? '!border-amber-400 !bg-amber-50' : ''}`}
@@ -876,6 +877,7 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
                       <span className="font-mono text-blue-600">{i.code}</span> · เดิม {Number(i.quantity).toLocaleString('th-TH')}
                       {returned > 0 && <> · คืนแล้ว <span className="text-emerald-600 font-medium">{returned.toLocaleString('th-TH')}</span></>}
                     </div>
+                    <ReturnLogNote log={i.return_log} />
                   </div>
                   <input type="number" inputMode="decimal" step="any" min="0.01"
                     className={`input !w-28 text-right text-base font-semibold tabular-nums ${below ? '!border-amber-400 !bg-amber-50' : ''}`}
@@ -1149,6 +1151,22 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
           onCancel={() => mismatch.resolve(null)} onConfirm={v => mismatch.resolve(v)} />
       )}
     </Modal>
+  );
+}
+
+/* ประวัติการคืนของใบเบิก — โชว์เฉพาะเมื่อแบ่งคืนตั้งแต่ 2 ครั้ง (วันที่ · จำนวน · รอบค่าแรงที่จ่าย)
+   คืนคร่อมวัน Cut-off: แต่ละครั้งจ่ายค่าแรงในรอบของวันที่คืนครั้งนั้น */
+function ReturnLogNote({ log }: { log?: string | null }) {
+  const list = parseReturnLog(log);
+  if (list.length < 2) return null;
+  const split = new Set(list.map(e => e.cycle).filter(Boolean)).size > 1;
+  return (
+    <div className={`text-[11px] mt-0.5 ${split ? 'text-violet-700' : 'text-gray-500'}`}>
+      แบ่งคืน {list.length} ครั้ง: {list.map((e, k) => (
+        <span key={k}>{k > 0 && ' · '}{shortLot(e.date)} <b className="font-semibold">{e.qty.toLocaleString('th-TH')}</b>{split && <> ({cycleLabel(e.cycle)})</>}</span>
+      ))}
+      {split && <span className="text-violet-500"> — ค่าแรงแยกจ่ายตามรอบ</span>}
+    </div>
   );
 }
 

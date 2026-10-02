@@ -12,6 +12,30 @@ export const shortLot = (iso: string) => {
   return m && d ? `${Number(d)} ${TH_MONTH[Number(m) - 1]}` : String(iso || '');
 };
 
+/* ── ประวัติการคืนของใบเบิก (return_log จาก server: "วันที่|จำนวน|รอบค่าแรง;...") ──
+   ค่าแรงคิดตาม "วันที่คืนของแต่ละครั้ง" — แบ่งคืน 2 ครั้งคร่อมวัน Cut-off = ค่าแรงแยกจ่าย 2 รอบ */
+export type ReturnEntry = { date: string; qty: number; cycle: string };
+export const parseReturnLog = (log?: string | null): ReturnEntry[] =>
+  String(log || '').split(';').filter(Boolean).map(x => {
+    const [date, qty, cycle] = x.split('|');
+    return { date, qty: Number(qty) || 0, cycle: cycle || '' };
+  });
+// "2026-10" -> "รอบ ต.ค."
+export const cycleLabel = (ym: string) => {
+  const [, m] = String(ym || '').split('-');
+  return m ? `รอบ ${TH_MONTH[Number(m) - 1]}` : '';
+};
+// รวมการคืนของหลายใบ (ทั้งแถว) ตามวันที่คืน — คืนพร้อมกันหลายชนิดงานวันเดียวกัน = 1 ครั้ง
+export const groupReturns = (items: any[]): ReturnEntry[] => {
+  const m = new Map<string, ReturnEntry>();
+  for (const i of items) for (const e of parseReturnLog(i.return_log)) {
+    const k = `${e.date}|${e.cycle}`;
+    const g = m.get(k) || { date: e.date, qty: 0, cycle: e.cycle };
+    g.qty += e.qty; m.set(k, g);
+  }
+  return [...m.values()].sort((a, b) => a.date.localeCompare(b.date));
+};
+
 // ชื่อสมาชิกบางคนมีชื่อเล่นพ่วงมาในชื่อจริงอยู่แล้ว -> ไม่ต้องต่อท้ายซ้ำอีก
 const nickOf = (name: string, nickname?: string) =>
   nickname && !String(name || '').includes(nickname) ? nickname : '';
@@ -250,7 +274,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                 {pending > 0 ? (
                                   <span className="text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5 whitespace-nowrap"
                                     title={`คืนแล้ว ${fmt(m.returned)} จาก ${fmt(m.total)}`}>คืนบางส่วน</span>
-                                ) : m.lastReturnedAt ? (
+                                ) : m.lastReturnedAt && groupReturns(Object.values(m.items).flat()).length < 2 ? (
                                   <span className="text-[10px] text-gray-400" title={`คืนล่าสุด ${m.lastReturnedAt}`}>{shortLot(m.lastReturnedAt)}</span>
                                 ) : null}
                                 {onUndoReturnRow && m.returned > 0 && (
@@ -263,6 +287,26 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                 )}
                               </div>
                             )}
+                            {(() => {
+                              // แบ่งคืนหลายครั้ง -> บอกวันที่ จำนวน และรอบค่าแรงของแต่ละครั้ง (คร่อม Cut-off = ค่าแรงแยก 2 รอบ)
+                              const log = groupReturns(Object.values(m.items).flat());
+                              if (log.length < 2) return null;
+                              const cycles = new Set(log.map(e => e.cycle).filter(Boolean));
+                              return (
+                                <div className="mt-0.5 text-[10px] leading-tight text-right whitespace-nowrap"
+                                  title={log.map(e => `คืน ${e.date} ${fmt(e.qty)} เส้น → ค่าแรง${cycleLabel(e.cycle)}`).join('\n')}>
+                                  <div className={`font-medium ${cycles.size > 1 ? 'text-violet-700' : 'text-gray-500'}`}>
+                                    แบ่งคืน {log.length} ครั้ง{cycles.size > 1 && ` · ค่าแรง ${cycles.size} รอบ`}
+                                  </div>
+                                  {log.map(e => (
+                                    <div key={`${e.date}|${e.cycle}`} className="text-gray-400 tabular-nums">
+                                      {shortLot(e.date)} <span className="text-gray-600">{fmt(e.qty)}</span>
+                                      {cycles.size > 1 && <span className="text-violet-600"> · {cycleLabel(e.cycle)}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>

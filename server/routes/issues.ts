@@ -27,7 +27,11 @@ router.get('/', (req, res) => {
     COALESCE((SELECT SUM(good_qty) FROM returns WHERE issue_id = i.id),0) as returned_good,
     COALESCE((SELECT SUM(defect_qty) FROM returns WHERE issue_id = i.id),0) as returned_defect,
     COALESCE((SELECT SUM(waste_qty) FROM returns WHERE issue_id = i.id),0) as returned_waste,
-    (SELECT MAX(returned_at) FROM returns WHERE issue_id = i.id) as last_returned_at
+    (SELECT MAX(returned_at) FROM returns WHERE issue_id = i.id) as last_returned_at,
+    -- ประวัติการคืนของใบนี้ "วันที่|จำนวน|รอบค่าแรง;..." เรียงตามวันที่ — ใช้บอกในตารางว่าแบ่งคืนกี่ครั้ง วันไหน รอบค่าแรงไหน
+    (SELECT GROUP_CONCAT(x, ';') FROM (
+       SELECT substr(returned_at, 1, 10) || '|' || (COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) || '|' || COALESCE(pay_cycle, '') x
+       FROM returns WHERE issue_id = i.id ORDER BY returned_at, id)) as return_log
     FROM issues i
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
