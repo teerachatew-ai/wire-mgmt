@@ -289,8 +289,20 @@ export default function Dashboard() {
         <HeroCard theme="violet" icon={Sparkles} label="กำไรสุทธิ" value={thb2(finalNet)}
           sub={`หลังหักทุกรายการ · อัตรากำไร ${margin.toFixed(0)}%`} />
       </div>
+
+      {/* กำไรขั้นต้นแยกตามกลุ่มงาน (pie) — ผู้ใช้ขอให้อยู่ใต้การ์ดกำไรขั้นต้นทันที · เปลี่ยนเดือนได้จากปุ่มด้านบน/คลิกแท่งกราฟแนวโน้ม */}
+      <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+          <span className="p-2 rounded-xl bg-sky-100 text-sky-600"><Landmark size={16} /></span>
+          <h2 className="font-bold text-slate-800">กำไรขั้นต้น แยกตามกลุ่มงาน</h2>
+          <span className="ml-auto text-xs text-slate-400">{isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'}</span>
+        </div>
+        <ProfitPie products={data.products} period={period}
+          periodLabel={isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'} />
+      </div>
+
       {/* กำไรสุทธิสุดท้าย — หักครบทุกอย่าง */}
-      <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 -mt-2">
+      <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4">
         <p className="text-[11px] font-semibold tracking-wide uppercase text-slate-400 mb-2">สรุปกำไรสุทธิ ({isM ? `เดือน ${monthLabel(data.month)}` : 'สะสม'})</p>
         <div className="space-y-1 text-sm tabular-nums max-w-md">
           {[
@@ -391,11 +403,6 @@ export default function Dashboard() {
           <span className="p-2 rounded-xl bg-emerald-100 text-emerald-600"><Factory size={16} /></span>
           <h2 className="font-bold text-slate-800">รายรับ-กำไร แยกตามรุ่นสายไฟ</h2>
           <span className="ml-auto text-xs text-slate-400">{isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'}</span>
-        </div>
-        {/* pie กำไรขั้นต้นของแต่ละรุ่น + อัตรากำไร — เปลี่ยนเดือนได้จากปุ่มด้านบน/คลิกแท่งกราฟแนวโน้ม */}
-        <div className="border-b border-slate-100">
-          <ProfitPie products={data.products} period={period}
-            periodLabel={isM ? `เดือน ${monthLabel(data.month)}` : 'สะสมทั้งหมด'} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[640px]">
