@@ -940,6 +940,17 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const updateLine = (id: number, field: string, val: any) => setLines(l => ({ ...l, [id]: { ...l[id], [field]: val } }));
   const toggleOn = (id: number, on: boolean) => setLines(l => ({ ...l, [id]: { ...l[id], on } }));
   const setAllOn = (on: boolean) => setLines(l => Object.fromEntries(Object.entries(l).map(([k, v]: any) => [k, { ...v, on }])));
+  // กรอกจำนวนคืน "เป็นชุด" ครั้งเดียว -> เติมให้ทุกรายการที่ติ๊กไว้ทันที (1 ชุด = 1 เส้นต่อชนิดงาน จึงเท่ากันทุกรายการ)
+  const [bulk, setBulk] = useState('');
+  const applyBulk = (v: string) => {
+    setBulk(v);
+    if (v === '' || !isFinite(Number(v))) return;
+    setLines(l => Object.fromEntries(Object.entries(l).map(([k, x]: any) => [k, x.on ? { ...x, total: v } : x])));
+  };
+  const resetFull = () => {
+    setBulk('');
+    setLines(l => Object.fromEntries(outstanding.map((i: any) => [i.id, lines[i.id]?.on ? { ...l[i.id], total: remainOf(i) } : l[i.id]])));
+  };
   const n = (v: any) => parseFloat(v) || 0;
   const lineTotal = (l: any) => n(l.total);
   const ngOf = (l: any) => n(l.ng_factory) + n(l.ng_cut) + n(l.ng_rope);
@@ -1029,6 +1040,20 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
             <span>เลือกรายการที่จะคืน</span>
             <button type="button" className="text-blue-600 hover:underline" onClick={() => setAllOn(true)}>เลือกทั้งหมด</button>
             <button type="button" className="text-gray-500 hover:underline" onClick={() => setAllOn(false)}>ไม่เลือกเลย</button>
+          </div>
+        )}
+        {outstanding.length > 1 && (
+          // กรอกครั้งเดียว เติมให้ทุกรายการที่ติ๊กอยู่ — แก้รายตัวต่อได้ (เช่นตัวที่คืนไม่เท่ากัน หรือมี NG)
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-blue-200 bg-blue-50/60 px-3 py-2">
+            <label htmlFor="bulk-return" className="text-sm font-medium text-blue-900">คืนเป็นชุด</label>
+            <input id="bulk-return" type="number" min="0" step="1" inputMode="numeric" placeholder="เช่น 500"
+              className="input !min-h-[36px] !py-1 !px-2 w-28 text-right font-semibold"
+              value={bulk} onChange={e => applyBulk(e.target.value)} />
+            <span className="text-sm text-blue-900/80">เส้นต่อรายการ</span>
+            <button type="button" className="text-xs text-blue-700 hover:underline ml-auto" onClick={resetFull}>คืนครบทุกรายการ</button>
+            <p className="basis-full text-[11px] text-blue-900/60 leading-snug">
+              พิมพ์ครั้งเดียว ระบบเติมช่อง "คืนทั้งหมด" ให้ทุกรายการที่ติ๊กไว้ · 1 ชุด = 1 เส้นต่อชนิดงาน จึงเท่ากันทุกรายการ · แก้ทีละรายการต่อได้
+            </p>
           </div>
         )}
 
@@ -1127,24 +1152,27 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   );
 }
 
-/* ── ยืนยันเมื่อยอดคืนไม่เท่ายอดที่เบิก ──
-   ขาด: เลือกเอง (ไม่ตั้งค่าให้ กันกดผ่านๆ) ว่า "คืนบางส่วน" (ค้างส่งส่วนที่เหลือ) หรือ "เบิกไปจริงแค่นี้"
-   เกิน: มีทางเดียวคือแก้ยอดเบิกเพิ่ม (หรือกลับไปแก้ตัวเลข)
-   "แก้ยอดเบิก" = ยอดเบิกใหม่ = ที่คืนแล้วก่อนหน้า + ที่คืนครั้งนี้ และส่วนต่างไปบวก/ลบ "ยอดรับจริง" ของล็อตโรงงานที่ใบนี้เบิกมา
-   (ยอดตามใบส่งของไม่แตะ — ดู server/routes/returns.ts adjustIssueToReturned) */
+/* ── ยืนยันเมื่อยอดคืนไม่เท่ายอดที่เบิก — เลือกครั้งเดียวใช้กับทุกรายการ ──
+   A) คืนบางส่วน: รายการที่คืนขาด ยังค้างส่งส่วนที่เหลือ (ยอดเบิกคงเดิม) · รายการที่คืนเกินจะแก้ยอดเบิกให้เอง (คืนเกินเบิกไม่ได้)
+   B) เบิกไปจริงเท่าที่คืน: ทุกรายการแก้ยอดเบิก = ที่คืนแล้วก่อนหน้า + ที่คืนครั้งนี้
+      และส่วนต่างไปบวก/ลบ "ยอดรับจริง" ของล็อตโรงงานที่ใบนั้นเบิกมา (ยอดตามใบส่งของไม่แตะ — ดู returns.ts adjustIssueToReturned)
+   ถ้าทุกรายการคืนเกิน มีทางเดียว (B) จึงเลือกให้ ไม่ต้องกดเลือก */
 function QtyMismatchDialog({ items, lots, remainOf, totalOf, onCancel, onConfirm }: {
   items: any[]; lots: Record<number, string | null>; remainOf: (i: any) => number; totalOf: (i: any) => number;
   onCancel: () => void; onConfirm: (adjust: Record<number, boolean>) => void;
 }) {
-  const [pick, setPick] = useState<Record<number, 'partial' | 'adjust' | undefined>>(() =>
-    Object.fromEntries(items.map((i: any) => [i.id, totalOf(i) > remainOf(i) ? 'adjust' : undefined])));
   const fmt = (v: number) => Number(v || 0).toLocaleString('th-TH');
   const thDate = (d?: string | null) => d ? new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : '';
-  const ready = items.every((i: any) => pick[i.id]);
-  const opt = (id: number, v: 'partial' | 'adjust', title: React.ReactNode, sub: React.ReactNode) => (
-    <label className={`flex gap-2.5 rounded-lg border px-3 py-2 cursor-pointer ${pick[id] === v ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
-      <input type="radio" className="mt-1 shrink-0" checked={pick[id] === v} onChange={() => setPick(p => ({ ...p, [id]: v }))} />
-      <span className="text-sm"><span className="font-medium text-gray-800">{title}</span><span className="block text-xs text-gray-500">{sub}</span></span>
+  const shorts = items.filter((i: any) => totalOf(i) < remainOf(i));
+  const overs = items.filter((i: any) => totalOf(i) > remainOf(i));
+  const [mode, setMode] = useState<'partial' | 'adjust' | null>(shorts.length === 0 ? 'adjust' : null);
+
+  // รายการไหนจะถูกแก้ยอดเบิกตามตัวเลือกที่เลือก
+  const adjusts = (i: any) => mode === 'adjust' || (mode === 'partial' && totalOf(i) > remainOf(i));
+  const opt = (v: 'partial' | 'adjust', title: React.ReactNode, sub: React.ReactNode) => (
+    <label className={`flex gap-2.5 rounded-xl border px-3.5 py-3 cursor-pointer ${mode === v ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+      <input type="radio" name="qty-mm-mode" className="mt-1 shrink-0" checked={mode === v} onChange={() => setMode(v)} />
+      <span className="text-sm"><span className="font-semibold text-gray-800">{title}</span><span className="block text-xs text-gray-500 mt-0.5">{sub}</span></span>
     </label>
   );
   return (
@@ -1152,41 +1180,51 @@ function QtyMismatchDialog({ items, lots, remainOf, totalOf, onCancel, onConfirm
       <div role="alertdialog" aria-labelledby="qty-mm-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b bg-sky-50">
           <h3 id="qty-mm-title" className="font-bold text-sky-900 text-lg">ยอดคืนไม่เท่ากับยอดที่เบิก</h3>
-          <p className="text-xs text-sky-800/80 mt-0.5">ยืนยันก่อนบันทึก — ถ้าเบิกไปจริงเท่าที่คืน ระบบจะแก้ยอดเบิกและยอดรับจริงของล็อตโรงงานให้</p>
+          <p className="text-xs text-sky-800/80 mt-0.5">
+            {shorts.length > 0 && <>คืนขาด {shorts.length} รายการ</>}{shorts.length > 0 && overs.length > 0 && ' · '}{overs.length > 0 && <>คืนเกิน {overs.length} รายการ</>} — เลือกครั้งเดียวใช้กับทุกรายการ
+          </p>
         </div>
         <div className="overflow-y-auto p-4 space-y-3">
-          {items.map((i: any) => {
-            const rem = remainOf(i), tot = totalOf(i), diff = tot - rem;
-            const before = (Number(i.quantity) || 0) - rem;          // คืนไปแล้วก่อนหน้า
-            const newQty = before + tot;
-            const lot = lots[i.id];
-            const lotText = lot ? <>ยอดรับจริงล็อต {thDate(lot)} {diff > 0 ? `+${fmt(diff)}` : `−${fmt(-diff)}`} เส้น</> : <>ไม่พบล็อตโรงงานของใบนี้ — แก้เฉพาะยอดเบิก</>;
-            return (
-              <div key={i.id} className="border rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2 text-sm">
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
-                    <b className="text-gray-800 truncate">{i.product_name}</b>
-                    <span className="text-[11px] font-mono text-blue-600">{i.code}</span>
-                  </span>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${diff < 0 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
-                    {diff < 0 ? `ขาด ${fmt(-diff)}` : `เกิน ${fmt(diff)}`}
-                  </span>
+          <div className="space-y-2">
+            {shorts.length > 0 && opt('partial', 'คืนบางส่วน — ที่ขาดมาคืนทีหลัง',
+              <>ยอดเบิกคงเดิม รายการที่คืนขาดยังค้างส่ง{overs.length > 0 && <> · รายการที่คืนเกิน ({overs.length}) ระบบแก้ยอดเบิกให้เอง</>}</>)}
+            {opt('adjust', 'เบิกไปจริงเท่าที่คืน — แก้ยอดเบิกอัตโนมัติ',
+              <>แก้ยอดเบิกทุกรายการให้เท่ากับที่คืน และปรับ "ยอดรับจริง" ของล็อตโรงงานที่ใบนั้นเบิกมาให้ตรงกัน</>)}
+          </div>
+          <div className="border rounded-xl divide-y">
+            <div className="px-3 py-1.5 text-[11px] font-medium text-gray-500 bg-gray-50 rounded-t-xl">ผลที่จะเกิดกับแต่ละรายการ</div>
+            {items.map((i: any) => {
+              const rem = remainOf(i), tot = totalOf(i), diff = tot - rem;
+              const before = (Number(i.quantity) || 0) - rem;
+              const newQty = before + tot;
+              const lot = lots[i.id];
+              return (
+                <div key={i.id} className="px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                      <b className="text-gray-800 truncate">{i.product_name}</b>
+                    </span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${diff < 0 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                      {diff < 0 ? `ขาด ${fmt(-diff)}` : `เกิน ${fmt(diff)}`}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    เบิก {fmt(i.quantity)}{before > 0 && <> · คืนแล้ว {fmt(before)}</>} · คืนครั้งนี้ <b className="text-gray-800">{fmt(tot)}</b>
+                    {mode && (adjusts(i)
+                      ? <span className="text-blue-700"> → ยอดเบิก {fmt(i.quantity)} → <b>{fmt(newQty)}</b>{lot ? <> · ล็อต {thDate(lot)} {diff > 0 ? `+${fmt(diff)}` : `−${fmt(-diff)}`}</> : <> · ไม่พบล็อตโรงงาน แก้เฉพาะยอดเบิก</>}</span>
+                      : <span className="text-amber-700"> → ยังค้างส่งอีก <b>{fmt(-diff)}</b> ยอดเบิกคงเดิม</span>)}
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500">
-                  เบิก {fmt(i.quantity)}{before > 0 && <> · คืนแล้ว {fmt(before)}</>} · คืนครั้งนี้ <b className="text-gray-800">{fmt(tot)}</b> {i.unit}
-                </div>
-                {diff < 0 && opt(i.id, 'partial', <>คืนบางส่วน — ยังค้างส่งอีก {fmt(-diff)} เส้น</>, 'ที่เหลือจะมาคืนทีหลัง ยอดเบิกคงเดิม')}
-                {opt(i.id, 'adjust', <>เบิกไปจริง {fmt(newQty)} — แก้ยอดเบิก {fmt(i.quantity)} → {fmt(newQty)}</>, lotText)}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
         <div className="border-t px-5 py-3 flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onCancel}>กลับไปแก้ไข</button>
-          <button type="button" className="btn-primary disabled:opacity-40" disabled={!ready}
-            onClick={() => onConfirm(Object.fromEntries(items.map((i: any) => [i.id, pick[i.id] === 'adjust'])))}>
-            {ready ? 'ยืนยันรับคืน' : 'เลือกให้ครบทุกรายการ'}
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={!mode}
+            onClick={() => onConfirm(Object.fromEntries(items.map((i: any) => [i.id, adjusts(i)])))}>
+            {mode ? 'ยืนยันรับคืน' : 'เลือกก่อนยืนยัน'}
           </button>
         </div>
       </div>
