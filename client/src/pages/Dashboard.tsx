@@ -280,7 +280,8 @@ export default function Dashboard() {
       {/* Hero financial cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <HeroCard theme="mint"   icon={Factory} label="รายรับจาก Amphenol" value={thb2(revenue)}
-          sub={isM ? `สะสม ฿${thb2(data.revenue_all)}` : `เดือนนี้ ฿${thb2(data.revenue_month)}`} />
+          sub={isM ? `สะสม ฿${thb2(data.revenue_all)}` : `เดือนนี้ ฿${thb2(data.revenue_month)}`}
+          sub2="(หลังหักงาน NG ที่โรงงานแจ้งแล้ว)" />
         <HeroCard theme="peach"  icon={Wallet} label="ค่าแรงจ่ายสมาชิก" value={thb2(wage)}
           sub={isM ? `สะสม ฿${thb2(data.wage_all)}` : `เดือนนี้ ฿${thb2(data.wage_month)}`}
           sub2={data.outstanding_wage > 0 ? `(ถ้าคืนครบทั้งหมด ฿${thb2(wage + data.outstanding_wage)})` : undefined} />

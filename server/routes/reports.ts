@@ -14,12 +14,21 @@ const router = Router();
 // Windows ใช้ "python", Linux (cloud) ใช้ "python3"
 const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
 
-// รายได้จาก Amphenol ของเดือน (ยอดรับจริงถ้ามี × ราคาโรงงาน) — อิงเดือนปฏิทิน (วันที่ส่งของ)
+/* จำนวนที่โรงงาน "จ่ายเงินจริง" ต่อรายการส่ง = ยอดรับจริง (หรือที่ส่ง) − NG ที่โรงงานแจ้ง × อัตราหัก NG
+   สูตรเดียวกับใบวางบิล/ใบแจ้งหนี้ (หน้าวางบิล billQty) — ต้องส่งพารามิเตอร์ billNgRate() 1 ตัว
+   ใช้กับยอด "เงิน" (รายรับ) เท่านั้น · ยอดจำนวนส่งออกในสต็อก/ค่าแรงยังใช้ยอดรับจริงเต็มเหมือนเดิม */
+const PAID_QTY_SQL = `MAX(0, COALESCE(si.received_qty, si.good_qty) - COALESCE(si.bill_ng_qty, 0) * ?)`;
+function billNgRate(): number {
+  const v = parseFloat((prepare(`SELECT value FROM settings WHERE key = 'bill_ng_rate'`).get() as any)?.value ?? '100');
+  return (isFinite(v) ? v : 100) / 100;
+}
+
+// รายได้จาก Amphenol ของเดือน (ยอดที่โรงงานจ่ายจริง หลังหักงาน NG × ราคาโรงงาน) — อิงเดือนปฏิทิน (วันที่ส่งของ)
 // ต้องตรงกับใบแจ้งหนี้/ใบวางบิลเป๊ะ (ทั้งสองใช้ shipped_at เดือนปฏิทินเดียวกัน) — ห้ามเปลี่ยนไปอิงรอบ cut-off ของค่าแรง
 function monthRevenueOf(month: string): number {
-  return (prepare(`SELECT COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) * p.factory_price),0) v
+  return (prepare(`SELECT COALESCE(SUM(${PAID_QTY_SQL} * p.factory_price),0) v
     FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id
-    WHERE s.shipped_at LIKE ?`).get(`${month}%`) as any).v || 0;
+    WHERE s.shipped_at LIKE ?`).get(billNgRate(), `${month}%`) as any).v || 0;
 }
 // ค่าตอบแทนผู้บริหารของเดือน — ถ้ากำหนดเองใน manager_month ใช้ค่านั้น มิฉะนั้นคิดอัตโนมัติ
 // ค่าที่กำหนดเองตีความตาม compensation_type ของผู้บริหารคนนั้นเสมอ:
@@ -114,12 +123,17 @@ router.get('/performance', (req, res) => {
   const withholdingTaxPct = parseFloat(cfg.withholding_tax_percent || '3');
 
   // Per-product money performance — รายรับอิงเดือนปฏิทิน (วันส่งของ) ให้ตรงกับใบแจ้งหนี้/ใบวางบิลเป๊ะ
+  const ngRateNow = billNgRate();
   const products = prepare(`
     SELECT p.id, p.code, p.name, p.unit, p.color, p.project, p.factory_price, p.wage_per_unit,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as shipped_good_all,
       COALESCE((SELECT SUM(si.good_qty) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as shipped_good_month,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as recv_good_all,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as recv_good_month,
+      COALESCE((SELECT SUM(${PAID_QTY_SQL}) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as paid_good_all,
+      COALESCE((SELECT SUM(${PAID_QTY_SQL}) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as paid_good_month,
+      COALESCE((SELECT SUM(COALESCE(si.bill_ng_qty, 0)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at LIKE ?),0) as bill_ng_month,
+      COALESCE((SELECT SUM(COALESCE(si.bill_ng_qty, 0)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id),0) as bill_ng_all,
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id),0) as ret_good_all,
       COALESCE((SELECT SUM(r.good_qty + r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_good_month,
       COALESCE((SELECT SUM(r.ng_cut) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at LIKE ?),0) as ret_defect_month,
@@ -127,12 +141,12 @@ router.get('/performance', (req, res) => {
       COALESCE((SELECT SUM(i.quantity - COALESCE((SELECT SUM(good_qty+defect_qty+waste_qty+lost_qty) FROM returns WHERE issue_id=i.id),0))
         FROM issues i WHERE i.product_id=p.id AND i.status!='closed'),0) as with_members
     FROM products p WHERE p.active=1
-  `).all(mk, mk, mk, mk) as any[];
+  `).all(mk, mk, ngRateNow, ngRateNow, mk, mk, mk, mk) as any[];   // ลำดับ: shipped_m, recv_m, paid_all(rate), paid_m(rate, mk), ng_m(mk), ret_good_m, ret_defect_m
 
   const rows = products.map((p: any) => {
-    // รายรับคิดจาก "ยอดที่โรงงานรับจริง" (ถ้ายืนยันแล้ว) ให้ตรงกับใบแจ้งหนี้/ใบวางบิล
-    const revenue_all   = p.recv_good_all * p.factory_price;
-    const revenue_month = p.recv_good_month * p.factory_price;
+    // รายรับ = ยอดที่โรงงานจ่ายจริง (รับจริง − NG ที่โรงงานแจ้ง × อัตราหัก) ให้ตรงกับใบแจ้งหนี้/ใบวางบิล
+    const revenue_all   = p.paid_good_all * p.factory_price;
+    const revenue_month = p.paid_good_month * p.factory_price;
     // ค่าจ้างตัดในภาพรวม คิดจาก "งานที่ส่งออก" (shipped × ค่าจ้าง/หน่วย) — เห็นกำไรขั้นต้นได้แม้ยังไม่บันทึกเบิก/รับคืน
     const wage_all      = p.shipped_good_all * p.wage_per_unit;
     const wage_month    = p.shipped_good_month * p.wage_per_unit;
@@ -1004,13 +1018,7 @@ router.get('/payroll-monthly', (req, res) => {
   const group_deduction = total_wage * groupDeductPct;
 
   // รายได้ที่ได้รับจาก Amphenol ในเดือนนั้น (จากยอดส่งออก/รับจริง × ราคาที่โรงงานจ่าย)
-  const monthRevenue = (prepare(`
-    SELECT COALESCE(SUM(COALESCE(si.received_qty, si.good_qty) * p.factory_price), 0) as revenue
-    FROM shipment_items si
-    JOIN shipments s ON si.shipment_id = s.id
-    JOIN products p ON si.product_id = p.id
-    WHERE s.shipped_at LIKE ?
-  `).get(`${month}%`) as any).revenue || 0;
+  const monthRevenue = monthRevenueOf(String(month));   // หลังหักงาน NG ที่โรงงานแจ้ง (สูตรเดียวกับใบแจ้งหนี้)
 
   // ค่าตอบแทนผู้บริหาร — ใช้ค่ากำหนดรายเดือนถ้ามี ไม่งั้นคิดอัตโนมัติจากรายได้เดือนนั้น
   const managersWithComp = managerCompForMonth(String(month));
