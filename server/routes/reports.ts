@@ -30,6 +30,31 @@ function monthRevenueOf(month: string): number {
     FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id JOIN products p ON si.product_id=p.id
     WHERE s.shipped_at LIKE ?`).get(billNgRate(), `${month}%`) as any).v || 0;
 }
+/* ค่าใช้จ่ายประจำของเดือน (recurring_expenses ที่มีผลในเดือนนั้น)
+   fixed = บาท/เดือน · percent = % ของรายได้เดือนนั้น (monthRevenueOf — หลังหักงาน NG แล้ว) */
+function recurringExpenseLines(month: string): { id: number; name: string; kind: string; value: number; description: string; amount: number }[] {
+  const items = prepare(`SELECT * FROM recurring_expenses WHERE active = 1 AND start_month <= ?
+    AND (end_month IS NULL OR end_month = '' OR end_month >= ?) ORDER BY id`).all(month, month) as any[];
+  if (items.length === 0) return [];
+  const rev = items.some(i => i.kind === 'percent') ? monthRevenueOf(month) : 0;
+  return items.map(i => {
+    const value = Number(i.value) || 0;
+    const amount = i.kind === 'percent' ? rev * value / 100 : value;
+    return { id: i.id, name: i.name, kind: i.kind, value, amount,
+      description: `ค่าใช้จ่ายประจำ: ${i.name}${i.kind === 'percent' ? ` (${value}% ของรายได้)` : ''}` };
+  });
+}
+const recurringTotalOf = (month: string) => recurringExpenseLines(month).reduce((s, l) => s + l.amount, 0);
+// รวมสะสม — ไล่ทุกเดือนปฏิทินตั้งแต่เดือนเริ่มของรายการแรกจนถึงเดือนปัจจุบัน (ค่าเช่า ฯลฯ เกิดทุกเดือนแม้ไม่มีการส่งงาน)
+function recurringTotalAll(): number {
+  const cur = todayThai().slice(0, 7);
+  const first = (prepare(`SELECT MIN(start_month) m FROM recurring_expenses WHERE active = 1`).get() as any)?.m;
+  if (!first || !/^\d{4}-\d{2}$/.test(first)) return 0;
+  let t = 0;
+  for (let m = first; m <= cur; m = nextMonth(m)) t += recurringTotalOf(m);
+  return t;
+}
+
 // ค่าตอบแทนผู้บริหารของเดือน — ถ้ากำหนดเองใน manager_month ใช้ค่านั้น มิฉะนั้นคิดอัตโนมัติ
 // ค่าที่กำหนดเองตีความตาม compensation_type ของผู้บริหารคนนั้นเสมอ:
 //   - แบบ % ของรายรับ (percent)  -> ค่าที่กรอกใน manager_month.amount คือ "% ที่ต่างไปเฉพาะเดือนนี้" (คิดจากรายรับเดือนนี้ใหม่)
@@ -54,7 +79,8 @@ function managerCompForMonth(month: string): any[] {
 function monthlyOverhead(month: string): { manager_comp: number; manager_comp_auto: number; manager_comp_extra: number; general_expenses: number; total: number } {
   // รายการ "เพิ่มเองรายเดือน" ที่จ่ายให้บุคคล (ผู้บริหาร/สมาชิก) — นับรวมในค่าตอบแทนผู้บริหาร ไม่ใช่ค่าบริหารจัดการ
   const expToComp = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager')`).get(month) as any).v;
-  const generalExpenses = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(month) as any).v;
+  const generalExpenses = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(month) as any).v
+    + recurringTotalOf(month);   // รวมค่าใช้จ่ายประจำ
   const managerCompBase = managerCompForMonth(month).reduce((s: number, mg: any) => s + (mg.computed || 0), 0);
   const manager_comp = managerCompBase + expToComp;
   return { manager_comp, manager_comp_auto: managerCompBase, manager_comp_extra: expToComp, general_expenses: generalExpenses, total: manager_comp + generalExpenses };
@@ -174,6 +200,10 @@ router.get('/performance', (req, res) => {
   const expToCompAll   = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE paid_to_type IN ('member','manager')`).get() as any).v;
   const expensesMonth = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general')`).get(thisMonth) as any).v;
   const expensesAll = (prepare(`SELECT COALESCE(SUM(amount),0) v FROM expenses WHERE (paid_to_type IS NULL OR paid_to_type='general')`).get() as any).v;
+  // ค่าใช้จ่ายประจำ (ตั้งในหน้าตั้งค่า) — แยกจากค่าใช้จ่ายบริหารจัดการที่เพิ่มเองรายเดือน
+  const recurringLinesMonth = recurringExpenseLines(thisMonth);
+  const recurringMonth = recurringLinesMonth.reduce((s, l) => s + l.amount, 0);
+  const recurringAll = recurringTotalAll();
 
   // ประมาณการเดือนนี้ = งานที่มีอยู่พร้อมทำ = ยอดยกมาต้นเดือน (คงค้างในระบบจากเดือนก่อน) + รับเข้าในเดือนนี้
   // ยอดยกมา = รับเข้าสะสม − ส่งออกสะสม − สูญเสียสะสม (ก่อนเริ่มเดือน)  [สอดคล้องกับหน้าตรวจสอบสต้อค]
@@ -249,8 +279,8 @@ router.get('/performance', (req, res) => {
   const taxMonth = revMonthVal * taxRate;
   const taxAll = revAllVal * taxRate;
   // กำไรสุทธิสุดท้าย = รายรับ − ภาษี − ค่าแรง − ค่าตอบแทนผู้บริหาร − ค่าบริหารจัดการ
-  const finalNetMonth = revMonthVal - taxMonth - wageMonthVal - managerCompMonth - expensesMonth;
-  const finalNetAll = revAllVal - taxAll - wageAllVal - managerCompAll - expensesAll;
+  const finalNetMonth = revMonthVal - taxMonth - wageMonthVal - managerCompMonth - expensesMonth - recurringMonth;
+  const finalNetAll = revAllVal - taxAll - wageAllVal - managerCompAll - expensesAll - recurringAll;
 
   // 6-month trend: รายรับ + ค่าแรง คิดตามรอบจ่าย (cut-off) เดียวกันทั้งคู่ ให้เทียบช่วงเวลาเดียวกัน
   const trend: any[] = [];
@@ -283,8 +313,11 @@ router.get('/performance', (req, res) => {
     withholding_tax_pct: withholdingTaxPct,
     expenses_month: expensesMonth,
     expenses_all: expensesAll,
-    net_profit_month: (revMonthVal - wageMonthVal) - expensesMonth,
-    net_profit_all: (revAllVal - wageAllVal) - expensesAll,
+    recurring_month: recurringMonth,
+    recurring_all: recurringAll,
+    recurring_lines_month: recurringLinesMonth,
+    net_profit_month: (revMonthVal - wageMonthVal) - expensesMonth - recurringMonth,
+    net_profit_all: (revAllVal - wageAllVal) - expensesAll - recurringAll,
     // ตัวหัก + กำไรสุทธิสุดท้าย
     tax_month: taxMonth,
     tax_all: taxAll,
@@ -1479,7 +1512,10 @@ function buildPL(month: string) {
   const managerBase = managerLines.reduce((s, m) => s + m.computed, 0);
   const compExpLines = prepare(`SELECT description, paid_to_type, paid_to_name, amount FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager') ORDER BY id`).all(month) as any[];
   const compExpTotal = compExpLines.reduce((s, e) => s + (e.amount || 0), 0);
-  const generalExpLines = prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[];
+  const generalExpLines = [
+    ...prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[],
+    ...recurringExpenseLines(month).map(l => ({ description: l.description, amount: l.amount })),   // ค่าใช้จ่ายประจำ
+  ];
   const generalExpTotal = generalExpLines.reduce((s, e) => s + (e.amount || 0), 0);
   const managerComp = managerBase + compExpTotal;
   const net = revenue - tax - wage - managerComp - generalExpTotal;
@@ -1643,7 +1679,10 @@ function buildMatchedPL(month: string) {
   const managerBase = managerLines.reduce((s, m) => s + m.computed, 0);
   const compExpLines = prepare(`SELECT description, paid_to_type, paid_to_name, amount FROM expenses WHERE month = ? AND paid_to_type IN ('member','manager') ORDER BY id`).all(month) as any[];
   const compExpTotal = compExpLines.reduce((s, e) => s + (e.amount || 0), 0);
-  const generalExpLines = prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[];
+  const generalExpLines = [
+    ...prepare(`SELECT description, amount FROM expenses WHERE month = ? AND (paid_to_type IS NULL OR paid_to_type='general') ORDER BY id`).all(month) as any[],
+    ...recurringExpenseLines(month).map(l => ({ description: l.description, amount: l.amount })),   // ค่าใช้จ่ายประจำ
+  ];
   const generalExpTotal = generalExpLines.reduce((s, e) => s + (e.amount || 0), 0);
   const managerComp = managerBase + compExpTotal;
   const netMatched = revenue - tax - cogs - managerComp - generalExpTotal;

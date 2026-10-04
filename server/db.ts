@@ -440,6 +440,19 @@ CREATE TABLE IF NOT EXISTS managers (
   }
 
   // ค่าตอบแทนผู้บริหารรายเดือน (กำหนดเองต่อเดือน — ถ้าไม่กำหนดจะใช้ค่าอัตโนมัติ % ของรายได้)
+  // ค่าใช้จ่ายประจำ — หักอัตโนมัติทุกเดือนในช่วง start_month..end_month (end ว่าง = ไม่มีกำหนด)
+  // kind: 'fixed' = บาทต่อเดือน · 'percent' = % ของรายได้เดือนนั้น (หลังหักงาน NG)
+  db.exec(`CREATE TABLE IF NOT EXISTS recurring_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'fixed',
+    value REAL NOT NULL DEFAULT 0,
+    start_month TEXT NOT NULL,
+    end_month TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   db.exec(`CREATE TABLE IF NOT EXISTS manager_month (
     month TEXT NOT NULL,
     manager_id INTEGER NOT NULL,

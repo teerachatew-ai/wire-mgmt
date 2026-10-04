@@ -176,6 +176,11 @@ export const expenseApi = {
   create: (data: any) => api.post('/expenses', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/expenses/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/expenses/${id}`).then(r => r.data),
+  // ค่าใช้จ่ายประจำ (หักทุกเดือนอัตโนมัติ) — บาท/เดือน หรือ % ของรายได้
+  recurringList: () => api.get('/expenses/recurring').then(r => r.data),
+  recurringCreate: (data: any) => api.post('/expenses/recurring', data).then(r => r.data),
+  recurringUpdate: (id: number, data: any) => api.put(`/expenses/recurring/${id}`, data).then(r => r.data),
+  recurringDelete: (id: number) => api.delete(`/expenses/recurring/${id}`).then(r => r.data),
 };
 
 export const stockAdjustmentApi = {

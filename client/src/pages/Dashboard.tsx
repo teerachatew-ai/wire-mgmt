@@ -352,6 +352,21 @@ export default function Dashboard() {
               )}
             </div>
           ))}
+          {/* ค่าใช้จ่ายประจำ (ตั้งในหน้าตั้งค่า > โครงสร้างค่าตอบแทน) — หักอัตโนมัติทุกเดือน */}
+          {((isM ? data.recurring_month : data.recurring_all) > 0 || (isM && (data.recurring_lines_month || []).length > 0)) && (
+            <>
+              <div className="flex justify-between">
+                <span className="text-slate-600">หัก ค่าใช้จ่ายประจำ</span>
+                <span className="text-rose-600">−฿{thb2(isM ? data.recurring_month : data.recurring_all)}</span>
+              </div>
+              {isM && (data.recurring_lines_month || []).map((l: any) => (
+                <div key={l.id} className="flex justify-between -mt-0.5">
+                  <span className="text-[11px] text-slate-500 pl-3">↳ {l.name}{l.kind === 'percent' ? ` (${l.value}% ของรายได้)` : ''}</span>
+                  <span className="text-[11px] font-medium text-slate-500">฿{thb2(l.amount)}</span>
+                </div>
+              ))}
+            </>
+          )}
           <div className="flex justify-between">
             <span className="text-slate-600">หัก ค่าใช้จ่ายบริหารจัดการ</span>
             <span className="text-rose-600">−฿{thb2(isM ? data.expenses_month : data.expenses_all)}</span>
