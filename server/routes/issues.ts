@@ -255,9 +255,12 @@ router.put('/:id', (req, res) => {
 /* โอนงานที่ยังไม่ได้คืนให้สมาชิกคนอื่น (สมาชิกส่งต่องานกันเอง) — ไม่กระทบยอดรับจากโรงงาน/ล็อต
    ต่อใบ: ลดยอดเบิกของคนเดิมลงเท่าที่โอน (เลื่อน orig_quantity ไปด้วย = ไม่ใช่ส่วนต่างที่สมาชิกแจ้ง)
    แล้วสร้างใบเบิกใหม่ให้คนรับโอน วันที่เบิกเดิม ผูกล็อตเดิม (ใบที่ไม่ได้ติดป้ายล็อต ผูกทั้งสองใบกับล็อตที่ระบบจัดสรรไว้ ก่อนแยก)
-   โอนทั้งใบและยังไม่มีการคืน = ย้ายเจ้าของใบเลย (ไม่ต้องแยกใบ) */
+   โอนทั้งใบและยังไม่มีการคืน = ย้ายเจ้าของใบเลย (ไม่ต้องแยกใบ)
+   issued_at (ไม่บังคับ) = วันที่มีผลของการโอน → วันที่เบิกของใบที่คนรับได้ (ไม่ส่งมา = วันที่เบิกเดิม)
+   ผูกล็อตก่อนเปลี่ยนวันที่เสมอ ล็อตที่ของมาจริงจึงไม่เลื่อน */
 router.post('/transfer', (req, res) => {
   const toId = Number(req.body?.to_member_id);
+  const effDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.issued_at || '')) ? String(req.body.issued_at) : '';
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const to = prepare(`SELECT * FROM members WHERE id = ?`).get(toId) as any;
   if (!to) return res.status(400).json({ error: 'เลือกสมาชิกที่จะรับโอน' });
@@ -273,19 +276,20 @@ router.post('/transfer', (req, res) => {
     if (!(qty > 0) || qty > outstanding + 0.0001) { failed.push({ code: issue.code, error: `โอนได้ไม่เกินยอดค้าง ${outstanding}` }); continue; }
     const from = prepare(`SELECT code, name FROM members WHERE id = ?`).get(issue.member_id) as any;
     const note = `รับโอนจาก ${from?.code || ''} ${from?.name || ''} (${issue.code})`.trim();
+    const lot = issue.lot_date || issueLotOf(issue.id);
+    if (lot && !issue.lot_date) prepare(`UPDATE issues SET lot_date = ? WHERE id = ?`).run(lot, issue.id);
+    const newDate = effDate || issue.issued_at;
     if (returned <= 0.0001 && Math.abs(qty - Number(issue.quantity)) < 0.0001) {
-      prepare(`UPDATE issues SET member_id = ?, notes = TRIM(COALESCE(notes, '') || ' ' || ?) WHERE id = ?`).run(toId, note, issue.id);
+      prepare(`UPDATE issues SET member_id = ?, issued_at = ?, notes = TRIM(COALESCE(notes, '') || ' ' || ?) WHERE id = ?`).run(toId, newDate, note, issue.id);
       done.push({ code: issue.code, quantity: qty, moved: true });
       continue;
     }
-    const lot = issue.lot_date || issueLotOf(issue.id);
-    if (lot && !issue.lot_date) prepare(`UPDATE issues SET lot_date = ? WHERE id = ?`).run(lot, issue.id);
     const newQty = Number(issue.quantity) - qty;
     setIssueQuantity(issue.id, Number(issue.quantity), newQty, 'correction');
     prepare(`UPDATE issues SET status = ? WHERE id = ?`).run(statusFor(returned, newQty), issue.id);
-    const code = nextDateCode('IS', 'issues', issue.issued_at);
+    const code = nextDateCode('IS', 'issues', newDate);
     const r = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date, orig_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(code, issue.issued_at, toId, issue.product_id, qty, issue.due_date || null, note, by, lot || null, qty);
+      .run(code, newDate, toId, issue.product_id, qty, issue.due_date || null, note, by, lot || null, qty);
     done.push({ code: issue.code, new_code: code, new_id: r.lastInsertRowid, quantity: qty });
   }
   res.json({ done, failed, to: { id: to.id, code: to.code, name: to.name } });

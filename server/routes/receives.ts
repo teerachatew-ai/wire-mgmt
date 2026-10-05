@@ -113,6 +113,31 @@ router.post('/lot-reset', (req, res) => {
   res.json({ ok: true, issues_cleared: ids.length, counts_cleared: countsCleared, before: before?.actual, after: after?.actual, note: after?.note });
 });
 
+/* กำหนด "ยอดรับจริง" ของล็อตเอง (นับแล้ว / ใช้ยอดตามใบส่งของ) — ล็อตที่กำหนดเองระบบไม่ปรับอัตโนมัติทับ
+   ยอดรับจริงของล็อต = ยอดนับเองที่ใบรับ + ส่วนต่างที่ผูกจากใบเบิก (สมาชิกแจ้ง) → ตั้งยอดนับเอง = เป้าหมาย − ส่วนต่างจากใบเบิก
+   ล็อตที่มีหลายใบรับ: ใบอื่นใช้ยอดตามใบส่งของ ใบสุดท้ายรับส่วนต่างทั้งหมด */
+router.post('/lot-set-actual', (req, res) => {
+  const pid = Number(req.body?.product_id);
+  const d = String(req.body?.lot_date || '').slice(0, 10);
+  const target = Number(req.body?.actual);
+  if (!pid || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !Number.isFinite(target) || target < 0) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  const recs = prepare(`SELECT id, quantity FROM receives WHERE product_id = ? AND substr(received_at, 1, 10) = ? ORDER BY id`).all(pid, d) as any[];
+  if (recs.length === 0) return res.status(404).json({ error: 'ไม่พบใบรับของล็อตนี้' });
+  const before = computeLots(pid).find(l => l.lot_date === d);
+  const reported = before?.reported || 0;
+  const countedTotal = target - reported;
+  const note = recs.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
+  const by = userOf(req);
+  recs.forEach((r, k) => {
+    const last = k === recs.length - 1;
+    const v = last ? (Number(r.quantity) || 0) + (countedTotal - note) : (Number(r.quantity) || 0);
+    prepare(`UPDATE receives SET actual_qty = ?, actual_note = ?, actual_by = ?, actual_at = datetime('now') WHERE id = ?`)
+      .run(Math.max(0, v), 'กำหนดยอดรับจริงของล็อต', by, r.id);
+  });
+  const after = computeLots(pid).find(l => l.lot_date === d);
+  res.json({ ok: true, before: before?.actual, after: after?.actual, note });
+});
+
 router.get('/lots', (req, res) => {
   const productId = req.query.product_id ? parseInt(req.query.product_id as string, 10) : 0;
   res.json(lotsOf(productId || undefined));

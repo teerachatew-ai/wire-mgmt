@@ -605,6 +605,7 @@ function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; mem
   const items = sortByColorGroup(row.items.filter((i: any) => i.quantity - returnedOf(i) > 0.0001),
     (i: any) => i.product_name || '', (i: any) => i.color);
   const [to, setTo] = useState<number | ''>('');
+  const [effDate, setEffDate] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));   // วันที่มีผล (วันที่เบิกของคนรับ)
   const [qty, setQty] = useState<Record<number, string>>(() => Object.fromEntries(items.map((i: any) => [i.id, String(i.quantity - returnedOf(i))])));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -616,7 +617,7 @@ function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; mem
     if (!to) { setError('เลือกสมาชิกที่จะรับโอน'); return; }
     setBusy(true); setError('');
     try {
-      const r = await issueApi.transfer(Number(to), lines.map(x => ({ issue_id: x.i.id, quantity: x.q })));
+      const r = await issueApi.transfer(Number(to), lines.map(x => ({ issue_id: x.i.id, quantity: x.q })), effDate);
       onDone();
       if (r.failed?.length) setError(r.failed.map((f: any) => `${f.code || f.issue_id}: ${f.error}`).join('\n'));
       else onClose();
@@ -630,9 +631,15 @@ function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; mem
           จาก <span className="font-mono text-xs text-gray-400 mx-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b>
           <span className="text-gray-400 text-xs ml-2">เบิกวันที่ {row.date}</span>
         </div>
-        <div>
-          <label className="label">โอนให้</label>
-          <MemberSelect members={members.filter((m: any) => m.id !== fromMemberId)} value={to} onChange={setTo} activeOnly />
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+          <div>
+            <label className="label">โอนให้</label>
+            <MemberSelect members={members.filter((m: any) => m.id !== fromMemberId)} value={to} onChange={setTo} activeOnly />
+          </div>
+          <div>
+            <label className="label" htmlFor="transfer-date">วันที่มีผล</label>
+            <input id="transfer-date" type="date" className="input sm:w-40" value={effDate} onChange={e => setEffDate(e.target.value)} />
+          </div>
         </div>
         {items.length === 0 ? <p className="text-sm text-gray-500">ไม่มีงานค้างให้โอน (คืนครบแล้ว)</p> : (
           <div className="border rounded-xl divide-y">
@@ -657,7 +664,7 @@ function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; mem
           </div>
         )}
         <p className="text-[11px] text-gray-500 leading-relaxed">
-          ยอดเบิกของคนเดิมลดลงเท่าที่โอน และสร้างใบเบิกใหม่ให้คนรับ (วันที่เบิกเดิม ล็อตเดิม) · <b>ไม่กระทบยอดรับจากโรงงาน</b> · ค่าแรงเป็นของคนที่คืนงานจริง · ใส่ 0 = ไม่โอนรายการนั้น
+          ยอดเบิกของคนเดิมลดลงเท่าที่โอน และสร้างใบเบิกใหม่ให้คนรับ โดยใช้ "วันที่มีผล" เป็นวันที่เบิก (ล็อตเดิม) · <b>ไม่กระทบยอดรับจากโรงงาน</b> · ค่าแรงเป็นของคนที่คืนงานจริง · ใส่ 0 = ไม่โอนรายการนั้น
         </p>
         {over.length > 0 && <p className="text-xs text-rose-600">มีรายการที่โอนเกินยอดค้าง</p>}
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}

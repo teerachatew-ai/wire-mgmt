@@ -41,6 +41,9 @@ export const receiveApi = {
   lots: (productId?: number) => api.get('/receives/lots', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
   // ที่มาของส่วนต่างรับจริง − ใบส่งของ ของล็อตหนึ่ง + ล้างกลับเป็นยอดตามใบส่งของ
   lotDetail: (productId: number, lotDate: string) => api.get('/receives/lot-detail', { params: { product_id: productId, lot_date: lotDate } }).then(r => r.data),
+  // กำหนดยอดรับจริงของล็อตเอง (นับแล้ว) — ล็อตนี้ระบบจะไม่ปรับอัตโนมัติทับ
+  lotSetActual: (productId: number, lotDate: string, actual: number) =>
+    api.post('/receives/lot-set-actual', { product_id: productId, lot_date: lotDate, actual }).then(r => r.data),
   lotReset: (productId: number, lotDate: string, issueIds: number[], clearCounted: boolean) =>
     api.post('/receives/lot-reset', { product_id: productId, lot_date: lotDate, issue_ids: issueIds, clear_counted: clearCounted }).then(r => r.data),
 };
@@ -58,8 +61,8 @@ export const issueApi = {
   updateQuantity: (id: number, quantity: number, force = false, adjustReturns = false, reason: 'correction' | 'count' = 'correction') =>
     api.patch(`/issues/${id}/quantity`, { quantity, force, adjust_returns: adjustReturns, reason }).then(r => r.data),
   // โอนงานที่ยังไม่คืนให้สมาชิกคนอื่น (ไม่กระทบยอดรับจากโรงงาน)
-  transfer: (toMemberId: number, lines: { issue_id: number; quantity: number }[]) =>
-    api.post('/issues/transfer', { to_member_id: toMemberId, lines }).then(r => r.data),
+  transfer: (toMemberId: number, lines: { issue_id: number; quantity: number }[], issuedAt?: string) =>
+    api.post('/issues/transfer', { to_member_id: toMemberId, lines, issued_at: issuedAt }).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/issues/${id}${force ? '?force=1' : ''}`).then(r => r.data),
 };
 

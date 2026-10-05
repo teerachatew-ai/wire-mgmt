@@ -407,8 +407,22 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
   const [clearCounted, setClearCounted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [target, setTarget] = useState('');   // ยอดรับจริงที่กำหนดเอง (ค่าเริ่มต้น = ยอดตามใบส่งของ)
   const fmtN = (n: any) => Number(n || 0).toLocaleString('th-TH');
   const lot = data?.lot;
+  const targetVal = target === '' ? Number(lot?.note || 0) : Number(target);
+  const setActual = async () => {
+    if (!lot || !Number.isFinite(targetVal) || targetVal < 0) return;
+    setBusy(true); setMsg('');
+    try {
+      const r = await receiveApi.lotSetActual(productId, date, targetVal);
+      setMsg(`บันทึกแล้ว · ยอดรับจริง ${fmtN(r.before)} → ${fmtN(r.after)} (ใบส่งของ ${fmtN(r.note)})`);
+      setTarget('');
+      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports']) qc.invalidateQueries({ queryKey: [k] });
+      refetch();
+    } catch (e: any) { setMsg(e?.response?.data?.error || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  };
   const issues: any[] = data?.issues || [];
   const counted: any[] = (data?.receives || []).filter((r: any) => r.actual_qty != null);
   const countDiff = counted.reduce((s: number, r: any) => s + (Number(r.actual_qty) - Number(r.quantity)), 0);
@@ -476,6 +490,22 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
               <p className="text-[11px] text-gray-500 rounded-lg bg-gray-50 px-3 py-2">
                 ระบบปรับอัตโนมัติ {diffTxt(lot.auto)} เส้น (ปิดล็อตที่คลาดไม่กี่เส้นให้เอง) — ส่วนนี้คิดใหม่เองหลังล้างรายการอื่น
               </p>
+            )}
+            {/* กำหนดยอดรับจริงเอง — ใช้เมื่อส่วนต่างมาจากการปรับอัตโนมัติ หรือรู้ยอดจริงจากการนับแล้ว */}
+            {lot && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 space-y-2">
+                <div className="text-xs font-semibold text-blue-900">กำหนดยอดรับจริงของล็อตนี้เอง</div>
+                <div className="flex items-center gap-2">
+                  <input type="number" min="0" step="1" aria-label="ยอดรับจริงที่ต้องการ"
+                    className="input !min-h-[38px] !py-1.5 w-36 text-right font-semibold" placeholder={String(lot.note)}
+                    value={target} onChange={e => setTarget(e.target.value)} />
+                  <span className="text-sm text-gray-600">เส้น</span>
+                  {targetVal !== lot.note && <span className={`text-xs font-semibold ${targetVal - lot.note > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>({diffTxt(targetVal - lot.note)} จากใบส่งของ)</span>}
+                  <button type="button" className="btn-primary !min-h-[38px] !py-1.5 ml-auto whitespace-nowrap" disabled={busy || targetVal === lot.actual}
+                    onClick={setActual}>ใช้ยอดนี้</button>
+                </div>
+                <p className="text-[11px] text-gray-500">เว้นว่าง = ใช้ยอดตามใบส่งของ ({fmtN(lot.note)}) · ล็อตที่กำหนดเองแล้วระบบจะไม่ปรับอัตโนมัติทับ</p>
+              </div>
             )}
             {msg && <p className="text-sm text-emerald-700">{msg}</p>}
           </div>
