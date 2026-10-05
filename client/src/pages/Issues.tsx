@@ -5,7 +5,7 @@ import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2 } from 'lucide-react';
+import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2, ArrowRightLeft } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
 import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import { useNgGate } from '../components/NgWarning';
@@ -578,6 +578,100 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
    ช่องหนึ่งอาจมีหลายใบ (คนเดียวกันเบิกงานชนิดเดียวกันหลายรอบในวันเดียว) จึงให้แก้ได้ทีละใบในกล่องเดียว
    แก้ให้น้อยกว่าที่คืนไปแล้วได้ — เซิร์ฟเวอร์ตอบ 409 กลับมาให้ถามยืนยันก่อน แล้วค่อยส่งซ้ำแบบ force
    (ใช้ยอดคืนจากเซิร์ฟเวอร์เป็นหลัก เพราะรวมยอดสูญหายที่รายการในตารางไม่ได้ดึงมาด้วย) */
+/* เหตุผลที่แก้จำนวนเบิก — ค่าเริ่มต้น "ลงผิด" ไม่แตะยอดรับของล็อตโรงงาน (ดู server/routes/issues.ts setIssueQuantity)
+   เลือก "นับในมัดได้จริงไม่ตรง" เฉพาะเมื่อของที่ได้จากโรงงานขาด/เกินจริง → ส่วนต่างไปปรับยอดรับจริงของล็อต */
+type QtyReason = 'correction' | 'count';
+function QtyReasonPicker({ value, onChange }: { value: QtyReason; onChange: (v: QtyReason) => void }) {
+  const opt = (v: QtyReason, title: string, sub: string) => (
+    <label className={`flex gap-2 rounded-lg border px-3 py-2 cursor-pointer text-sm ${value === v ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+      <input type="radio" name="qty-reason" className="mt-0.5 shrink-0" checked={value === v} onChange={() => onChange(v)} />
+      <span><span className="font-medium text-gray-800">{title}</span><span className="block text-[11px] text-gray-500">{sub}</span></span>
+    </label>
+  );
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="text-xs font-medium text-gray-600 mb-1">แก้จำนวนเพราะอะไร</legend>
+      {opt('correction', 'ลงผิด / พิมพ์ผิด', 'แก้ให้ถูก — ไม่กระทบยอดรับจากโรงงาน')}
+      {opt('count', 'นับในมัดได้จริงไม่ตรงกับที่เบิก', 'ของที่ได้จากโรงงานขาด/เกินจริง — ระบบปรับยอดรับจริงของล็อตให้ด้วย')}
+    </fieldset>
+  );
+}
+
+/* ── โอนงานที่ยังไม่คืนให้สมาชิกคนอื่น (สมาชิกส่งต่องานกันเอง) ──
+   ลดยอดเบิกของคนเดิมเท่าที่โอน แล้วสร้างใบเบิกให้คนรับ (วันที่เบิกเดิม ล็อตเดิม) — ไม่กระทบยอดรับจากโรงงาน
+   ค่าแรงจะไปเป็นของคนที่คืนงานนั้นจริง */
+function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; members: any[]; onClose: () => void; onDone: () => void }) {
+  const returnedOf = (i: any) => (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
+  const items = sortByColorGroup(row.items.filter((i: any) => i.quantity - returnedOf(i) > 0.0001),
+    (i: any) => i.product_name || '', (i: any) => i.color);
+  const [to, setTo] = useState<number | ''>('');
+  const [qty, setQty] = useState<Record<number, string>>(() => Object.fromEntries(items.map((i: any) => [i.id, String(i.quantity - returnedOf(i))])));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const fromMemberId = row.items[0]?.member_id;
+  const lines = items.map((i: any) => ({ i, q: parseFloat(qty[i.id]) || 0, max: i.quantity - returnedOf(i) })).filter(x => x.q > 0);
+  const over = lines.filter(x => x.q > x.max + 0.0001);
+  const total = lines.reduce((s, x) => s + x.q, 0);
+  const submit = async () => {
+    if (!to) { setError('เลือกสมาชิกที่จะรับโอน'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await issueApi.transfer(Number(to), lines.map(x => ({ issue_id: x.i.id, quantity: x.q })));
+      onDone();
+      if (r.failed?.length) setError(r.failed.map((f: any) => `${f.code || f.issue_id}: ${f.error}`).join('\n'));
+      else onClose();
+    } catch (e: any) { setError(e?.response?.data?.error || 'โอนไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <Modal title="โอนงานให้สมาชิกคนอื่น" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5">
+          จาก <span className="font-mono text-xs text-gray-400 mx-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b>
+          <span className="text-gray-400 text-xs ml-2">เบิกวันที่ {row.date}</span>
+        </div>
+        <div>
+          <label className="label">โอนให้</label>
+          <MemberSelect members={members.filter((m: any) => m.id !== fromMemberId)} value={to} onChange={setTo} activeOnly />
+        </div>
+        {items.length === 0 ? <p className="text-sm text-gray-500">ไม่มีงานค้างให้โอน (คืนครบแล้ว)</p> : (
+          <div className="border rounded-xl divide-y">
+            {items.map((i: any) => {
+              const max = i.quantity - returnedOf(i);
+              const v = qty[i.id];
+              return (
+                <div key={i.id} className="flex items-center gap-3 px-3 py-2">
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-1.5 text-sm">
+                      {i.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: i.color }} />}
+                      <span className="truncate">{i.product_name}</span>
+                    </span>
+                    <span className="text-[11px] text-gray-400">ค้าง {max.toLocaleString('th-TH')} {i.unit}</span>
+                  </span>
+                  <input type="number" min="0" max={max} step="1" aria-label={`จำนวนโอน ${i.product_name}`}
+                    className={`input !w-28 !min-h-[36px] !py-1 text-right font-semibold ${(parseFloat(v) || 0) > max + 0.0001 ? '!border-rose-400 !bg-rose-50' : ''}`}
+                    value={v} onChange={e => setQty(q => ({ ...q, [i.id]: e.target.value }))} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-[11px] text-gray-500 leading-relaxed">
+          ยอดเบิกของคนเดิมลดลงเท่าที่โอน และสร้างใบเบิกใหม่ให้คนรับ (วันที่เบิกเดิม ล็อตเดิม) · <b>ไม่กระทบยอดรับจากโรงงาน</b> · ค่าแรงเป็นของคนที่คืนงานจริง · ใส่ 0 = ไม่โอนรายการนั้น
+        </p>
+        {over.length > 0 && <p className="text-xs text-rose-600">มีรายการที่โอนเกินยอดค้าง</p>}
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary" disabled={busy || !to || lines.length === 0 || over.length > 0} onClick={submit}>
+            {busy ? 'กำลังโอน...' : `โอน ${total.toLocaleString('th-TH')} เส้น`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
   cell: MatrixCell; onClose: () => void; onSaved: () => void; onOpenDetail: (id: number) => void;
 }) {
@@ -587,6 +681,7 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmList, setConfirmList] = useState<any[] | null>(null);   // ใบที่แก้ให้น้อยกว่าที่คืน รอยืนยัน
+  const [reason, setReason] = useState<QtyReason>('correction');
   const firstInput = useRef<HTMLInputElement>(null);
   useEffect(() => { firstInput.current?.select(); }, []);
 
@@ -607,7 +702,7 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
     let savedAny = false;
     for (const i of changed) {
       const qty = Number(draft[i.id]);
-      try { await issueApi.updateQuantity(i.id, qty); savedAny = true; }
+      try { await issueApi.updateQuantity(i.id, qty, false, false, reason); savedAny = true; }
       catch (e: any) {
         const d = e.response?.data;
         if (e.response?.status === 409 && d?.confirm_required) needConfirm.push({ ...i, newQty: qty, returnedTotal: d.returned_total });
@@ -622,7 +717,7 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
   const confirmSave = async (adjustReturns: boolean) => {
     setSaving(true); setError('');
     for (const i of confirmList || []) {
-      try { await issueApi.updateQuantity(i.id, i.newQty, true, adjustReturns); }
+      try { await issueApi.updateQuantity(i.id, i.newQty, true, adjustReturns, reason); }
       catch (e: any) { setError(`ใบ ${i.code}: ${e.response?.data?.error || 'บันทึกไม่สำเร็จ'}`); setSaving(false); onSaved(); return; }
     }
     setSaving(false);
@@ -720,6 +815,8 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
           </div>
         )}
 
+        {changed.length > 0 && <QtyReasonPicker value={reason} onChange={setReason} />}
+
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
 
         <div className="flex gap-2 justify-end">
@@ -738,8 +835,8 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
    และแก้ "วันที่" ได้ด้วย — เปลี่ยนวันที่ = ย้ายใบเบิกทุกใบในแถวนี้ไปวันใหม่พร้อมกันทั้งหมด (ใช้ PUT เต็มฟอร์ม
    เพราะ endpoint แก้เฉพาะจำนวนไม่รองรับวันที่) ส่วนแก้แค่จำนวนอย่างเดียวยังใช้ PATCH เดิม
    แก้ให้น้อยกว่าที่คืนไปแล้วได้เหมือนกัน — เซิร์ฟเวอร์ตอบ 409 ให้ถามยืนยันก่อน */
-function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
-  row: MatrixRow; onClose: () => void; onSaved: () => void; onOpenDetail: (id: number) => void;
+function QuickRowEditor({ row, members = [], onClose, onSaved, onOpenDetail }: {
+  row: MatrixRow; members?: any[]; onClose: () => void; onSaved: () => void; onOpenDetail: (id: number) => void;
 }) {
   // เรียงตามกลุ่มสีงาน (สีเดียวกันอยู่ติดกัน) — ลำดับเดียวกับคอลัมน์ในตารางสรุปรายวัน
   const items = useMemo(() => sortByColorGroup(row.items, (i: any) => i.product_name || '', (i: any) => i.color), [row.items]);
@@ -749,6 +846,8 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [confirmList, setConfirmList] = useState<any[] | null>(null);
+  const [reason, setReason] = useState<QtyReason>('correction');
+  const [transfer, setTransfer] = useState(false);
 
   const returnedOf = (i: any) => (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
   const dateChanged = date !== row.date;
@@ -764,10 +863,10 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
     if (dateChanged) {
       return issueApi.update(i.id, {
         issued_at: date, due_date: i.due_date || '', member_id: i.member_id, product_id: i.product_id,
-        quantity: qty, notes: i.notes || '', ...(force ? { force: true, adjust_returns: adjustReturns } : {}),
+        quantity: qty, notes: i.notes || '', reason, ...(force ? { force: true, adjust_returns: adjustReturns } : {}),
       });
     }
-    return issueApi.updateQuantity(i.id, qty, force, adjustReturns);
+    return issueApi.updateQuantity(i.id, qty, force, adjustReturns, reason);
   };
 
   const save = async () => {
@@ -902,15 +1001,22 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
           </span>
         </div>
 
+        {items.some((i: any) => draft[i.id] !== '' && Number(draft[i.id]) !== Number(i.quantity)) && <QtyReasonPicker value={reason} onChange={setReason} />}
+
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
 
         <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary mr-auto flex items-center gap-1.5" onClick={() => setTransfer(true)}
+            title="สมาชิกส่งต่องานให้กัน — ย้ายงานที่ยังไม่คืนไปเป็นของอีกคน (ไม่กระทบยอดรับจากโรงงาน)">
+            <ArrowRightLeft size={14} /> โอนงาน
+          </button>
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
           <button type="submit" className="btn-primary" disabled={saving || changed.length === 0}>
             {saving ? 'กำลังบันทึก...' : `บันทึก${changed.length > 0 ? ` (${changed.length} ใบ)` : ''}`}
           </button>
         </div>
       </form>
+      {transfer && <TransferDialog row={row} members={members} onClose={() => setTransfer(false)} onDone={() => { onSaved(); onClose(); }} />}
     </Modal>
   );
 }
@@ -2130,7 +2236,7 @@ export default function Issues() {
       )}
 
       {rowCell && (
-        <QuickRowEditor row={rowCell} onClose={() => setRowCell(null)} onSaved={handleQtySaved} onOpenDetail={openDetail} />
+        <QuickRowEditor row={rowCell} members={members as any[]} onClose={() => setRowCell(null)} onSaved={handleQtySaved} onOpenDetail={openDetail} />
       )}
 
       {deleteRow && (

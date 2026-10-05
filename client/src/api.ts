@@ -39,6 +39,10 @@ export const receiveApi = {
     api.post('/receives/count-waiting', { product_id, counted_qty, note }).then(r => r.data),
   // ล็อตรับเข้าของสินค้าหนึ่ง แยกตามวันที่ พร้อมยอดคงเหลือที่ยังไม่ได้แจก (ใช้ตอนเลือกล็อตในหน้าเบิกงาน)
   lots: (productId?: number) => api.get('/receives/lots', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
+  // ที่มาของส่วนต่างรับจริง − ใบส่งของ ของล็อตหนึ่ง + ล้างกลับเป็นยอดตามใบส่งของ
+  lotDetail: (productId: number, lotDate: string) => api.get('/receives/lot-detail', { params: { product_id: productId, lot_date: lotDate } }).then(r => r.data),
+  lotReset: (productId: number, lotDate: string, issueIds: number[], clearCounted: boolean) =>
+    api.post('/receives/lot-reset', { product_id: productId, lot_date: lotDate, issue_ids: issueIds, clear_counted: clearCounted }).then(r => r.data),
 };
 
 export const issueApi = {
@@ -50,8 +54,12 @@ export const issueApi = {
   update: (id: number, data: any) => api.put(`/issues/${id}`, data).then(r => r.data),
   // แก้เฉพาะจำนวนเบิก (ตารางสรุปรายวัน) — force = ยืนยันแล้วว่าแก้ให้น้อยกว่าที่คืนไปแล้วได้
   // adjustReturns = ให้ตัดยอดรับคืนลงมาให้เท่ากับจำนวนเบิกใหม่ด้วยเลย (ไม่ต้องไปแก้ยอดคืนแยกต่างหาก)
-  updateQuantity: (id: number, quantity: number, force = false, adjustReturns = false) =>
-    api.patch(`/issues/${id}/quantity`, { quantity, force, adjust_returns: adjustReturns }).then(r => r.data),
+  // reason: 'correction' (ค่าเริ่มต้น = ลงผิด ไม่กระทบยอดรับของล็อต) | 'count' (นับในมัดได้จริงไม่ตรง → ปรับยอดรับจริงของล็อต)
+  updateQuantity: (id: number, quantity: number, force = false, adjustReturns = false, reason: 'correction' | 'count' = 'correction') =>
+    api.patch(`/issues/${id}/quantity`, { quantity, force, adjust_returns: adjustReturns, reason }).then(r => r.data),
+  // โอนงานที่ยังไม่คืนให้สมาชิกคนอื่น (ไม่กระทบยอดรับจากโรงงาน)
+  transfer: (toMemberId: number, lines: { issue_id: number; quantity: number }[]) =>
+    api.post('/issues/transfer', { to_member_id: toMemberId, lines }).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/issues/${id}${force ? '?force=1' : ''}`).then(r => r.data),
 };
 

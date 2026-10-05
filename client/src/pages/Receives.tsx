@@ -393,6 +393,104 @@ function EditDayModal({ date, products, onClose }: { date: string; products: any
   );
 }
 
+/* ── ที่มาของส่วนต่าง "รับจริง − ใบส่งของ" ของล็อตหนึ่ง + ล้างกลับเป็นยอดตามใบส่งของ ──
+   เปิดจากการคลิกช่อง ▲/▼ ในตารางสรุปรายวัน
+   ส่วนต่างมาได้ 3 ทาง: (1) แก้ยอดเบิกแบบ "นับในมัดได้จริงไม่ตรง" (2) นับเองที่ใบรับ (3) ระบบปิดล็อตที่คลาดไม่กี่เส้นให้เอง
+   ล้างได้เฉพาะ (1)(2) — (3) ระบบคิดใหม่เองทุกครั้ง ล้างรายการที่เลือกแล้วยอดเบิก/ค่าแรงไม่เปลี่ยน */
+function LotDetailDialog({ date, productId, productName, onClose }: { date: string; productId: number; productName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['lot-detail', productId, date],
+    queryFn: () => receiveApi.lotDetail(productId, date),
+  });
+  const [pick, setPick] = useState<Record<number, boolean>>({});
+  const [clearCounted, setClearCounted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const fmtN = (n: any) => Number(n || 0).toLocaleString('th-TH');
+  const lot = data?.lot;
+  const issues: any[] = data?.issues || [];
+  const counted: any[] = (data?.receives || []).filter((r: any) => r.actual_qty != null);
+  const countDiff = counted.reduce((s: number, r: any) => s + (Number(r.actual_qty) - Number(r.quantity)), 0);
+  const chosen = issues.filter(i => pick[i.id]);
+  const reset = async () => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await receiveApi.lotReset(productId, date, chosen.map(i => i.id), clearCounted);
+      setMsg(`ล้างแล้ว · ยอดรับจริง ${fmtN(r.before)} → ${fmtN(r.after)} (ใบส่งของ ${fmtN(r.note)})`);
+      setPick({}); setClearCounted(false);
+      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports']) qc.invalidateQueries({ queryKey: [k] });
+      refetch();
+    } catch (e: any) { setMsg(e?.response?.data?.error || 'ล้างไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  };
+  const diffTxt = (n: number) => `${n > 0 ? '+' : ''}${fmtN(n)}`;
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div role="dialog" aria-labelledby="lot-detail-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b bg-amber-50 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <h3 id="lot-detail-title" className="font-bold text-amber-900">ส่วนต่างยอดรับ — ล็อต {date}</h3>
+            <p className="text-xs text-amber-800/80 mt-0.5 truncate">{productName}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="text-amber-700/60 hover:text-amber-900"><X size={18} /></button>
+        </div>
+        {isLoading ? <div className="py-10 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" size={20} /></div> : (
+          <div className="overflow-y-auto p-4 space-y-4 text-sm">
+            {lot && (
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-gray-50 p-2"><div className="text-[11px] text-gray-500">ตามใบส่งของ</div><div className="font-bold tabular-nums">{fmtN(lot.note)}</div></div>
+                <div className="rounded-xl bg-blue-50 p-2"><div className="text-[11px] text-blue-700">รับจริง (ที่ระบบใช้)</div><div className="font-bold tabular-nums text-blue-800">{fmtN(lot.actual)}</div></div>
+                <div className={`rounded-xl p-2 ${lot.actual - lot.note > 0 ? 'bg-emerald-50' : lot.actual - lot.note < 0 ? 'bg-rose-50' : 'bg-gray-50'}`}>
+                  <div className="text-[11px] text-gray-500">ส่วนต่าง</div>
+                  <div className={`font-bold tabular-nums ${lot.actual - lot.note > 0 ? 'text-emerald-700' : lot.actual - lot.note < 0 ? 'text-rose-700' : ''}`}>{diffTxt(lot.actual - lot.note)}</div>
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="text-xs font-semibold text-gray-600 mb-1.5">มาจากใบเบิกที่แก้ยอด (สมาชิกนับในมัดได้ไม่ตรง)</div>
+              {issues.length === 0 ? <p className="text-xs text-gray-400">ไม่มี</p> : (
+                <div className="border rounded-xl divide-y">
+                  {issues.map(i => (
+                    <label key={i.id} className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer ${pick[i.id] ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
+                      <input type="checkbox" className="w-4 h-4" checked={!!pick[i.id]} onChange={e => setPick(p => ({ ...p, [i.id]: e.target.checked }))} />
+                      <span className="flex-1 min-w-0">
+                        <span className="font-mono text-[11px] text-gray-400 mr-1">{i.member_code}</span>{i.member_name}
+                        <span className="block text-[11px] text-gray-500">{i.code} · เบิก {i.issued_at} · ยอดเดิม {fmtN(i.orig_quantity)} → ตอนนี้ {fmtN(i.quantity)}</span>
+                      </span>
+                      <span className={`font-semibold tabular-nums ${i.diff > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{diffTxt(i.diff)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {issues.length > 0 && <p className="text-[11px] text-gray-500 mt-1">ติ๊กรายการที่ "ลงผิด/พิมพ์ผิด" — ระบบจะถือว่ายอดเบิกปัจจุบันถูกแล้ว และเลิกนำส่วนต่างไปปรับยอดรับ (ยอดเบิก/ค่าแรงไม่เปลี่ยน)</p>}
+            </div>
+            {counted.length > 0 && (
+              <label className="flex items-center gap-2.5 rounded-xl border px-3 py-2 cursor-pointer hover:bg-gray-50">
+                <input type="checkbox" className="w-4 h-4" checked={clearCounted} onChange={e => setClearCounted(e.target.checked)} />
+                <span className="flex-1">ยอดที่นับเองตอนรับของ <span className="text-[11px] text-gray-500">({counted.map(r => `${r.code}: ${fmtN(r.quantity)} → ${fmtN(r.actual_qty)}`).join(', ')})</span></span>
+                <span className={`font-semibold tabular-nums ${countDiff > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{diffTxt(countDiff)}</span>
+              </label>
+            )}
+            {lot && lot.auto !== 0 && (
+              <p className="text-[11px] text-gray-500 rounded-lg bg-gray-50 px-3 py-2">
+                ระบบปรับอัตโนมัติ {diffTxt(lot.auto)} เส้น (ปิดล็อตที่คลาดไม่กี่เส้นให้เอง) — ส่วนนี้คิดใหม่เองหลังล้างรายการอื่น
+              </p>
+            )}
+            {msg && <p className="text-sm text-emerald-700">{msg}</p>}
+          </div>
+        )}
+        <div className="border-t px-5 py-3 flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ปิด</button>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || (chosen.length === 0 && !clearCounted)} onClick={reset}>
+            {busy ? 'กำลังล้าง...' : 'ย้อนกลับเป็นยอดตามใบส่งของ'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Receives() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -419,7 +517,9 @@ export default function Receives() {
     product_name: r.product_name, color: r.color, unit: r.unit,
     qty: Number(r.actual_qty ?? r.quantity) || 0,
     variance: Number(r.variance_qty) || 0,
+    product_id: r.product_id,
   }));
+  const [lotDetail, setLotDetail] = useState<{ date: string; productId: number; productName: string } | null>(null);
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => receiveApi.delete(id),
@@ -495,8 +595,11 @@ export default function Receives() {
           ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
           : <DateProductMatrix entries={matrixEntries} accent="blue"
               emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`}
-              onDateClick={setEditingDay} />
+              onDateClick={setEditingDay}
+              onVarianceClick={(date, productId, productName) => setLotDetail({ date, productId, productName })} />
       )}
+
+      {lotDetail && <LotDetailDialog {...lotDetail} onClose={() => setLotDetail(null)} />}
 
       {view === 'list' && <>
       <BulkActionBar count={selected.size} onDelete={handleBulkDelete} onClear={clear} deleting={bulkDeleting} />

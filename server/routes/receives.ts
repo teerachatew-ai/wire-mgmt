@@ -73,6 +73,46 @@ function lotsOf(productId?: number) {
   }));
 }
 
+/* ── ที่มาของส่วนต่าง "ยอดรับจริง − ใบส่งของ" ของล็อตหนึ่ง (คลิกช่อง ▲/▼ ในตารางรับของ) ──
+   ส่วนประกอบ: นับเองที่ใบรับ (actual_qty) · ใบเบิกที่ส่วนต่าง quantity − orig_quantity ผูกล็อตนี้ (สมาชิกแจ้ง/แก้ยอดเบิก)
+   · ระบบปรับอัตโนมัติ (ปิดล็อตที่คลาดไม่กี่เส้น — ไม่ใช่สิ่งที่ล้างได้ จะคิดใหม่เองหลังล้างส่วนอื่น) */
+router.get('/lot-detail', (req, res) => {
+  const pid = Number(req.query.product_id);
+  const d = String(req.query.lot_date || '').slice(0, 10);
+  if (!pid || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  const lot = computeLots(pid).find(l => l.lot_date === d) || null;
+  const receives = prepare(`SELECT id, code, quantity, actual_qty, actual_note, actual_by, actual_at FROM receives
+    WHERE product_id = ? AND substr(received_at, 1, 10) = ? ORDER BY id`).all(pid, d);
+  const issues = prepare(`SELECT i.id, i.code, substr(i.issued_at, 1, 10) issued_at, i.quantity, i.orig_quantity,
+      i.quantity - i.orig_quantity diff, m.code member_code, m.name member_name, i.notes
+    FROM issues i JOIN members m ON i.member_id = m.id
+    WHERE i.product_id = ? AND i.lot_date = ? AND i.orig_quantity IS NOT NULL AND i.quantity != i.orig_quantity
+    ORDER BY i.issued_at, i.id`).all(pid, d);
+  res.json({ lot, receives, issues });
+});
+
+/* ล้างส่วนต่างที่เลือก ให้ยอดรับจริงกลับไปตามใบส่งของ
+   • issue_ids: ถือว่ายอดเบิกปัจจุบันถูกต้องแล้ว (แก้เพราะพิมพ์ผิด) → orig_quantity = quantity (ไม่แตะยอดเบิก/ค่าแรง)
+   • clear_counted: ล้างยอดนับเองที่ใบรับของล็อตนี้ (กลับไปใช้ยอดตามใบส่งของ) */
+router.post('/lot-reset', (req, res) => {
+  const pid = Number(req.body?.product_id);
+  const d = String(req.body?.lot_date || '').slice(0, 10);
+  if (!pid || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  const ids: number[] = Array.isArray(req.body?.issue_ids) ? req.body.issue_ids.map(Number).filter(Boolean) : [];
+  const before = computeLots(pid).find(l => l.lot_date === d);
+  let issuesCleared = 0, countsCleared = 0;
+  for (const id of ids) {
+    const r = prepare(`UPDATE issues SET orig_quantity = quantity WHERE id = ? AND product_id = ? AND lot_date = ?`).run(id, pid, d);
+    issuesCleared += Number((r as any)?.changes ?? 1);
+  }
+  if (req.body?.clear_counted === true) {
+    prepare(`UPDATE receives SET actual_qty = NULL, actual_note = NULL, actual_by = NULL, actual_at = NULL WHERE product_id = ? AND substr(received_at, 1, 10) = ?`).run(pid, d);
+    countsCleared = 1;
+  }
+  const after = computeLots(pid).find(l => l.lot_date === d);
+  res.json({ ok: true, issues_cleared: ids.length, counts_cleared: countsCleared, before: before?.actual, after: after?.actual, note: after?.note });
+});
+
 router.get('/lots', (req, res) => {
   const productId = req.query.product_id ? parseInt(req.query.product_id as string, 10) : 0;
   res.json(lotsOf(productId || undefined));

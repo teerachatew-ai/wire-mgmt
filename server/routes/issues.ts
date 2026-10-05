@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
+import { issueLotOf } from '../receivedActual';
 import { deliveryCutoffRange } from '../payCycle';
 
 const router = Router();
@@ -179,6 +180,18 @@ function trimReturnsTo(issueId: number | string, targetQty: number) {
   }
 }
 
+/* เหตุผลที่แก้จำนวนเบิก — กันไม่ให้การแก้ "พิมพ์ผิด" ไปเพิ่ม/ลดยอดรับจริงของล็อตโรงงานโดยไม่ตั้งใจ
+   ระบบล็อต (receivedActual) ถือว่า quantity − orig_quantity = "สมาชิกนับในมัดได้ไม่ตรง" และบวก/ลบเข้ายอดรับจริงของล็อต
+   • 'correction' (ค่าเริ่มต้น) = ลงผิด/พิมพ์ผิด → เลื่อน orig_quantity ไปพร้อมกัน ส่วนต่างเดิม (ถ้ามี) คงไว้ ล็อตไม่เปลี่ยน
+   • 'count' = นับในมัดได้จริงไม่ตรงกับที่เบิก → เปลี่ยนเฉพาะ quantity ส่วนต่างไปปรับยอดรับจริงของล็อต */
+function setIssueQuantity(id: number | string, oldQty: number, newQty: number, reason: any) {
+  if (reason === 'count') {
+    prepare(`UPDATE issues SET orig_quantity = COALESCE(orig_quantity, quantity), quantity = ? WHERE id = ?`).run(newQty, id);
+  } else {
+    prepare(`UPDATE issues SET orig_quantity = COALESCE(orig_quantity, quantity) + ?, quantity = ? WHERE id = ?`).run(newQty - oldQty, newQty, id);
+  }
+}
+
 // แก้เฉพาะจำนวนเบิก — ใช้จากตารางสรุปรายวัน (คลิกที่ตัวเลขแล้วแก้ได้ทันที ไม่ต้องไปค้นหาใบ)
 router.patch('/:id/quantity', (req, res) => {
   const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(req.params.id) as any;
@@ -193,7 +206,8 @@ router.patch('/:id/quantity', (req, res) => {
     returned = returnedTotal(req.params.id);
   }
 
-  prepare(`UPDATE issues SET quantity = ?, status = ? WHERE id = ?`).run(qty, statusFor(returned, qty), req.params.id);
+  setIssueQuantity(req.params.id, Number(issue.quantity) || 0, qty, req.body?.reason);
+  prepare(`UPDATE issues SET status = ? WHERE id = ?`).run(statusFor(returned, qty), req.params.id);
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id));
 });
 
@@ -224,8 +238,9 @@ router.put('/:id', (req, res) => {
     WHERE i.member_id = ? AND i.issued_at = ? AND i.quantity = ? AND i.id != ?
   `).all(issue.member_id, issue.issued_at, issue.quantity, req.params.id) : [];
 
-  prepare(`UPDATE issues SET issued_at=?, member_id=?, product_id=?, quantity=?, due_date=?, notes=? WHERE id=?`)
-    .run(issued_at, member_id, product_id, quantity, due_date || null, notes || null, req.params.id);
+  prepare(`UPDATE issues SET issued_at=?, member_id=?, product_id=?, due_date=?, notes=? WHERE id=?`)
+    .run(issued_at, member_id, product_id, due_date || null, notes || null, req.params.id);
+  if (qtyChanged) setIssueQuantity(req.params.id, Number(issue.quantity) || 0, parseFloat(quantity), req.body?.reason);
 
   // คำนวณสถานะใหม่ตามจำนวนเบิกที่เปลี่ยน
   const newStatus = (ret.total || 0) >= parseFloat(quantity) ? 'closed' : (ret.total || 0) > 0 ? 'partial' : 'pending';
@@ -235,6 +250,45 @@ router.put('/:id', (req, res) => {
     ...prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id) as any,
     siblings,
   });
+});
+
+/* โอนงานที่ยังไม่ได้คืนให้สมาชิกคนอื่น (สมาชิกส่งต่องานกันเอง) — ไม่กระทบยอดรับจากโรงงาน/ล็อต
+   ต่อใบ: ลดยอดเบิกของคนเดิมลงเท่าที่โอน (เลื่อน orig_quantity ไปด้วย = ไม่ใช่ส่วนต่างที่สมาชิกแจ้ง)
+   แล้วสร้างใบเบิกใหม่ให้คนรับโอน วันที่เบิกเดิม ผูกล็อตเดิม (ใบที่ไม่ได้ติดป้ายล็อต ผูกทั้งสองใบกับล็อตที่ระบบจัดสรรไว้ ก่อนแยก)
+   โอนทั้งใบและยังไม่มีการคืน = ย้ายเจ้าของใบเลย (ไม่ต้องแยกใบ) */
+router.post('/transfer', (req, res) => {
+  const toId = Number(req.body?.to_member_id);
+  const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  const to = prepare(`SELECT * FROM members WHERE id = ?`).get(toId) as any;
+  if (!to) return res.status(400).json({ error: 'เลือกสมาชิกที่จะรับโอน' });
+  const by = userOf(req);
+  const done: any[] = [], failed: any[] = [];
+  for (const l of lines) {
+    const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(l.issue_id) as any;
+    const qty = Number(l.quantity);
+    if (!issue) { failed.push({ issue_id: l.issue_id, error: 'ไม่พบใบเบิก' }); continue; }
+    if (issue.member_id === toId) { failed.push({ code: issue.code, error: 'เป็นคนเดียวกัน' }); continue; }
+    const returned = returnedTotal(issue.id);
+    const outstanding = (Number(issue.quantity) || 0) - returned;
+    if (!(qty > 0) || qty > outstanding + 0.0001) { failed.push({ code: issue.code, error: `โอนได้ไม่เกินยอดค้าง ${outstanding}` }); continue; }
+    const from = prepare(`SELECT code, name FROM members WHERE id = ?`).get(issue.member_id) as any;
+    const note = `รับโอนจาก ${from?.code || ''} ${from?.name || ''} (${issue.code})`.trim();
+    if (returned <= 0.0001 && Math.abs(qty - Number(issue.quantity)) < 0.0001) {
+      prepare(`UPDATE issues SET member_id = ?, notes = TRIM(COALESCE(notes, '') || ' ' || ?) WHERE id = ?`).run(toId, note, issue.id);
+      done.push({ code: issue.code, quantity: qty, moved: true });
+      continue;
+    }
+    const lot = issue.lot_date || issueLotOf(issue.id);
+    if (lot && !issue.lot_date) prepare(`UPDATE issues SET lot_date = ? WHERE id = ?`).run(lot, issue.id);
+    const newQty = Number(issue.quantity) - qty;
+    setIssueQuantity(issue.id, Number(issue.quantity), newQty, 'correction');
+    prepare(`UPDATE issues SET status = ? WHERE id = ?`).run(statusFor(returned, newQty), issue.id);
+    const code = nextDateCode('IS', 'issues', issue.issued_at);
+    const r = prepare(`INSERT INTO issues (code, issued_at, member_id, product_id, quantity, due_date, notes, created_by, lot_date, orig_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(code, issue.issued_at, toId, issue.product_id, qty, issue.due_date || null, note, by, lot || null, qty);
+    done.push({ code: issue.code, new_code: code, new_id: r.lastInsertRowid, quantity: qty });
+  }
+  res.json({ done, failed, to: { id: to.id, code: to.code, name: to.name } });
 });
 
 router.delete('/:id', (req, res) => {

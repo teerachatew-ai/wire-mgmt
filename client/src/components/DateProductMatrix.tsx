@@ -13,6 +13,7 @@ export interface MatrixEntry {
   qty: number;
   // ส่วนต่างระหว่างยอดจริงกับยอดที่บันทึกไว้ตอนแรก (qty = ยอดจริงแล้ว) — ไม่ใส่มาก็ได้ ถือว่าไม่มีส่วนต่าง
   variance?: number;
+  product_id?: number;
 }
 
 const THDAY = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
@@ -27,7 +28,7 @@ function thDate(iso: string) {
    ใช้ร่วมกันทั้งหน้า "รับของจากโรงงาน" และ "ส่งงานออกโรงงาน"
    คอลัมน์วันที่กับหัวตารางตรึงไว้ (sticky) เลื่อนดูงานหลายชนิดแล้วยังรู้ว่าแถวไหนวันไหน */
 function DateProductMatrix({
-  entries, accent = 'blue', unitLabel = 'เส้น', emptyText = 'ไม่มีรายการ', onDateClick,
+  entries, accent = 'blue', unitLabel = 'เส้น', emptyText = 'ไม่มีรายการ', onDateClick, onVarianceClick,
 }: {
   entries: MatrixEntry[];
   accent?: 'blue' | 'emerald';
@@ -35,6 +36,8 @@ function DateProductMatrix({
   emptyText?: string;
   // คลิกที่วันที่เพื่อไปแก้ไขยอดของวันนั้น (สลับไปมุมมองรายการทีละใบ + กรองเหลือวันนั้นวันเดียว)
   onDateClick?: (date: string) => void;
+  // คลิกช่องที่มีส่วนต่าง (▲/▼) เพื่อดูว่าส่วนต่างมาจากอะไร และล้างกลับเป็นยอดตามใบส่งของ
+  onVarianceClick?: (date: string, productId: number, productName: string) => void;
 }) {
   if (entries.length === 0) {
     return <div className="card text-center text-gray-400 py-8">{emptyText}</div>;
@@ -43,6 +46,8 @@ function DateProductMatrix({
   // คอลัมน์: ประเภทงานทั้งหมดที่พบ จัดกลุ่มให้สีเดียวกันอยู่ติดกัน (ขาว -> ชมพู/แดง -> เขียว -> อื่นๆ)
   const prodMap: Record<string, { name: string; color?: string | null; unit?: string | null }> = {};
   for (const e of entries) prodMap[e.product_name] ??= { name: e.product_name, color: e.color, unit: e.unit };
+  const pidOf: Record<string, number | undefined> = {};
+  for (const e of entries) if (e.product_id) pidOf[e.product_name] ??= e.product_id;
   const products = sortByColorGroup(Object.values(prodMap), p => p.name, p => p.color);
 
   // แถว: วันที่ (ใหม่อยู่บน)
@@ -119,7 +124,13 @@ function DateProductMatrix({
                     return (
                       <td key={p.name} className={`border-b px-2 py-2 text-center ${idx % 2 ? 'bg-gray-50/60' : ''} group-hover:bg-blue-50/60`}>
                         {v > 0 || diff ? (
-                          <span title={diff ? `ตามใบส่งของ ${fmt(v - diff)} · รับจริง ${fmt(v)} (${diff > 0 ? 'เกิน' : 'ขาด'} ${fmt(Math.abs(diff))})` : undefined}>
+                          <span title={diff ? `ตามใบส่งของ ${fmt(v - diff)} · รับจริง ${fmt(v)} (${diff > 0 ? 'เกิน' : 'ขาด'} ${fmt(Math.abs(diff))})${onVarianceClick ? ' — คลิกดูที่มา/ล้างส่วนต่าง' : ''}` : undefined}
+                            {...(diff && onVarianceClick && pidOf[p.name] ? {
+                              role: 'button', tabIndex: 0,
+                              className: 'inline-block cursor-pointer rounded px-1 -mx-1 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300',
+                              onClick: () => onVarianceClick(d, pidOf[p.name]!, p.name),
+                              onKeyDown: (e: any) => { if (e.key === 'Enter') onVarianceClick(d, pidOf[p.name]!, p.name); },
+                            } : {})}>
                             <span className={`font-semibold ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-gray-800'}`}>
                               {diff !== 0 && <span className="text-[10px] mr-0.5">{diff > 0 ? '▲' : '▼'}</span>}
                               {fmt(v)}
@@ -158,6 +169,7 @@ function DateProductMatrix({
             <br />ตัวเลขคือ<b>ยอดรับจริง</b> ·{' '}
             <span className="text-emerald-600 font-semibold">▲ เขียว</span> = ได้เกินใบส่งของ ·{' '}
             <span className="text-rose-600 font-semibold">▼ แดง</span> = ได้ขาดจากใบส่งของ (ระบบปรับให้เองจากยอดที่แก้ในใบเบิก)
+            {onVarianceClick && <> · <b>คลิกที่ตัวเลข</b> เพื่อดูที่มาของส่วนต่าง และย้อนกลับเป็นยอดตามใบส่งของ</>}
           </>
         )}
       </p>
