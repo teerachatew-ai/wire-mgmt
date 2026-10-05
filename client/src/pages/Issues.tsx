@@ -9,6 +9,7 @@ import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edi
 import InOutCompare from '../components/InOutCompare';
 import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import { useNgGate } from '../components/NgWarning';
+import { sortByColorGroup } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
@@ -740,8 +741,8 @@ function QuickQtyEditor({ cell, onClose, onSaved, onOpenDetail }: {
 function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
   row: MatrixRow; onClose: () => void; onSaved: () => void; onOpenDetail: (id: number) => void;
 }) {
-  const items = useMemo(() => [...row.items].sort((a: any, b: any) =>
-    String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th')), [row.items]);
+  // เรียงตามกลุ่มสีงาน (สีเดียวกันอยู่ติดกัน) — ลำดับเดียวกับคอลัมน์ในตารางสรุปรายวัน
+  const items = useMemo(() => sortByColorGroup(row.items, (i: any) => i.product_name || '', (i: any) => i.color), [row.items]);
   const [date, setDate] = useState(row.date);
   const [draft, setDraft] = useState<Record<number, string>>(
     () => Object.fromEntries(items.map((i: any) => [i.id, String(i.quantity)])));
@@ -923,9 +924,9 @@ function QuickRowEditor({ row, onClose, onSaved, onOpenDetail }: {
    สอดคล้องกับยอด "ค้างส่ง" ที่เห็นในตาราง ตัวเลขจะได้ตรงกัน) */
 function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: () => void; onSaved: () => void }) {
   const remainOf = (i: any) => i.quantity - (Number(i.returned_good) || 0) - (Number(i.returned_defect) || 0) - (Number(i.returned_waste) || 0);
-  const outstanding = useMemo(() => row.items
-    .filter((i: any) => remainOf(i) > 0.0001)
-    .sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th')), [row.items]);
+  // เรียงตามกลุ่มสีงาน (ขาวติดขาว เขียวติดเขียว) — ลำดับเดียวกับคอลัมน์ในตารางสรุปรายวัน
+  const outstanding = useMemo(() => sortByColorGroup(row.items.filter((i: any) => remainOf(i) > 0.0001),
+    (i: any) => i.product_name || '', (i: any) => i.color), [row.items]);
 
   // วันที่คืน = วันที่ทำรายการรับคืน (วันนี้ตามเวลาเครื่อง) ไม่ใช่วันที่เบิก — แก้เองได้ถ้ารับคืนย้อนหลัง
   const [returnedAt, setReturnedAt] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));
@@ -1257,7 +1258,7 @@ function QtyMismatchDialog({ items, lots, remainOf, totalOf, onCancel, onConfirm
 function DeleteRowDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const all = [...row.items].sort((a: any, b: any) => String(a.product_name || '').localeCompare(String(b.product_name || ''), 'th'));
+  const all = sortByColorGroup(row.items, (i: any) => i.product_name || '', (i: any) => i.color);   // สีเดียวกันอยู่ติดกัน
   // มีใบเดียว = ติ๊กให้เลย (ไม่มีอะไรให้เลือก) · หลายใบ = เริ่มจากยังไม่ติ๊ก ให้เลือกเองว่าจะลบใบไหน
   const [picked, setPicked] = useState<Record<number, boolean>>(() => all.length === 1 ? { [all[0].id]: true } : {});
   const items = all.filter((i: any) => picked[i.id]);
