@@ -504,6 +504,21 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
                   <button type="button" className="btn-primary !min-h-[38px] !py-1.5 ml-auto whitespace-nowrap" disabled={busy || targetVal === lot.actual}
                     onClick={setActual}>ใช้ยอดนี้</button>
                 </div>
+                {/* ผลต่อ "คงเหลือรอเบิก" ของล็อต — กันกดแล้วเกิดยอดผีรอเบิกโดยไม่รู้ตัว */}
+                {(() => {
+                  const issued = Number(lot.actual) - Number(lot.remaining);
+                  const after = targetVal - issued;
+                  return (
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
+                      <span className="text-gray-600">เบิกจากล็อตนี้แล้ว {fmtN(issued)} → คงเหลือรอเบิกหลังบันทึก</span>
+                      <b className={`tabular-nums ${after > 0 ? 'text-violet-700' : after < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmtN(after)}</b>
+                      {after !== 0 && (
+                        <button type="button" className="ml-auto text-[11px] font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                          onClick={() => setTarget(String(issued))}>ไม่มีของเหลือหน้างาน (= ยอดเบิก {fmtN(issued)})</button>
+                      )}
+                    </div>
+                  );
+                })()}
                 <p className="text-[11px] text-gray-500">เว้นว่าง = ใช้ยอดตามใบส่งของ ({fmtN(lot.note)}) · ล็อตที่กำหนดเองแล้วระบบจะไม่ปรับอัตโนมัติทับ</p>
               </div>
             )}
