@@ -22,6 +22,7 @@ import MemberPortal from './pages/MemberPortal';
 import Login from './pages/Login';
 import Assets from './pages/Assets';
 import FinancialStatements from './pages/FinancialStatements';
+import AuditLog from './pages/AuditLog';
 import { AuthProvider, useAuth, canAccess, homePath } from './auth';
 
 // จำกัดสิทธิ์ตาม role — ถ้าเข้าไม่ได้ ส่งกลับหน้าแรกของ role นั้น
@@ -55,6 +56,7 @@ function AppRoutes() {
         <Route path="/assets" element={<Guard path="/assets"><Assets /></Guard>} />
         <Route path="/billing" element={<Guard path="/billing"><Billing /></Guard>} />
         <Route path="/ocr" element={<Guard path="/ocr"><OCR /></Guard>} />
+        <Route path="/audit-log" element={<Guard path="/audit-log"><AuditLog /></Guard>} />
         <Route path="/settings" element={<Guard path="/settings"><SettingsPage /></Guard>} />
         <Route path="*" element={<Navigate to={homePath(user.role)} replace />} />
       </Routes>

@@ -194,6 +194,13 @@ export const expenseApi = {
   recurringDelete: (id: number) => api.delete(`/expenses/recurring/${id}`).then(r => r.data),
 };
 
+// ประวัติการแก้ไข (audit log) — วันที่เป็นเวลาไทย
+export const auditApi = {
+  list: (params: { from?: string; to?: string; user?: string; category?: string; q?: string; limit?: number }) =>
+    api.get('/audit', { params }).then(r => r.data),
+  meta: () => api.get('/audit/meta').then(r => r.data),
+};
+
 export const stockAdjustmentApi = {
   list: (productId?: number) => api.get('/stock-adjustments', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
   create: (data: any) => api.post('/stock-adjustments', data).then(r => r.data),

@@ -84,6 +84,11 @@ function bootDb(attempt = 1): void {
   const stockAdjustmentsRouter = require('./routes/stockAdjustments').default;
   const exportRouter = require('./routes/export').default;
 
+  // ประวัติการแก้ไข — ต้องอยู่ก่อน router อื่นทั้งหมด เพื่อถ่ายภาพข้อมูลก่อน-หลังทุกการบันทึก
+  const { auditMiddleware, auditRouter } = require('./audit');
+  require('./audit').installAuditTriggers();
+  app.use('/api', auditMiddleware);
+  app.use('/api/audit', auditRouter);
   app.use('/api/members', membersRouter);
   app.use('/api/products', productsRouter);
   app.use('/api/receives', receivesRouter);

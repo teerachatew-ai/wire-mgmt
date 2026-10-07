@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, ArrowDownToLine,
   ArrowUpFromLine, RotateCcw, DollarSign,
-  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck, ClipboardList, Wrench
+  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck, ClipboardList, Wrench, History
 } from 'lucide-react';
 import { useAuth, canAccess } from '../auth';
 
@@ -25,6 +25,7 @@ const nav = [
   { to: '/assets',   icon: Boxes,           label: 'สินทรัพย์/ลงทุน',     short: 'สินทรัพย์' },
   { to: '/billing',  icon: FileText,        label: 'ใบแจ้งหนี้/วางบิล',  short: 'วางบิล' },
   { to: '/ocr',      icon: ScanLine,        label: 'สแกนฟอร์ม (OCR)',    short: 'สแกน' },
+  { to: '/audit-log', icon: History,        label: 'ประวัติการแก้ไข',     short: 'ประวัติ' },
   { to: '/settings', icon: Settings,        label: 'ตั้งค่าระบบ',         short: 'ตั้งค่า' },
 ];
 

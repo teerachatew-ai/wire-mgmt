@@ -181,6 +181,12 @@ function prepare(sql: string) {
   };
 }
 
+// อ่านแบบดิบ (คอลัมน์ + แถวเป็น array) — เร็วกว่า prepare().all ใช้กับงานที่อ่านทั้งตาราง เช่น audit snapshot
+export function rawQuery(sql: string, params: any[] = []): { columns: string[]; values: any[][] } {
+  const r = db.exec(sql, params)[0];
+  return r ? { columns: r.columns, values: r.values } : { columns: [], values: [] };
+}
+
 function exec(sql: string) {
   db.exec(sql);
   save();
@@ -479,7 +485,25 @@ CREATE TABLE IF NOT EXISTS managers (
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  const returnCols = db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
+  // ประวัติการแก้ไข — 1 แถว = 1 การกดบันทึก (ดู server/audit.ts) · changes = JSON รายการแถวที่เปลี่ยน (ค่าเดิม → ค่าใหม่)
+  db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    user TEXT,
+    method TEXT,
+    path TEXT,
+    action TEXT,
+    category TEXT,
+    status INTEGER,
+    body TEXT,
+    changes TEXT,
+    n_changes INTEGER DEFAULT 0,
+    search TEXT
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)`);
+  db.run(`DELETE FROM audit_log WHERE at < datetime('now', '-400 days')`);
+
+  const returnCols =db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
   if (!returnCols.includes('pay_cycle')) {
     db.exec(`ALTER TABLE returns ADD COLUMN pay_cycle TEXT`);
   }
