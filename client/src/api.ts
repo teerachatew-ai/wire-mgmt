@@ -199,6 +199,8 @@ export const auditApi = {
   list: (params: { from?: string; to?: string; user?: string; category?: string; q?: string; limit?: number }) =>
     api.get('/audit', { params }).then(r => r.data),
   meta: () => api.get('/audit/meta').then(r => r.data),
+  // ย้อนการกระทำ — 409 + conflicts = มีข้อมูลถูกแก้ต่อหลังจากรายการนี้ (ไม่ย้อนเลยสักแถว)
+  revert: (id: number) => api.post(`/audit/${id}/revert`).then(r => r.data),
 };
 
 export const stockAdjustmentApi = {

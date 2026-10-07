@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { auditApi } from '../api';
-import { History, Search, ChevronDown, ChevronUp, AlertTriangle, Loader2 } from 'lucide-react';
+import { History, Search, ChevronDown, ChevronUp, AlertTriangle, Loader2, Undo2 } from 'lucide-react';
 
 /* ประวัติการแก้ไข — ทุกการกดบันทึกที่เปลี่ยนข้อมูล: ใคร เวลาไหน ทำอะไร แถวไหน ค่าเดิม → ค่าใหม่
    ข้อมูลมาจาก server/audit.ts (trigger จับทุกการเพิ่ม/แก้/ลบ) — เริ่มเก็บตั้งแต่วันที่เปิดใช้เมนูนี้ */
@@ -113,25 +113,94 @@ function ChangeRow({ c }: { c: any }) {
   );
 }
 
+const OP_UNDO: Record<string, string> = { insert: 'ลบรายการที่เพิ่ม', update: 'คืนค่าเดิม', delete: 'กู้คืนรายการที่ถูกลบ' };
+
+function RevertDialog({ e, onClose }: { e: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<{ error: string; conflicts?: string[] } | null>(null);
+  const counts: Record<string, number> = {};
+  for (const c of e.changes || []) counts[c.op] = (counts[c.op] || 0) + 1;
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try {
+      await auditApi.revert(e.id);
+      qc.invalidateQueries();   // ข้อมูลหลายหน้าเปลี่ยน (เบิก/สต็อก/ค่าแรง) — โหลดใหม่ทั้งหมด
+      onClose();
+    } catch (x: any) { setErr(x?.response?.data || { error: 'ย้อนไม่สำเร็จ' }); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div role="dialog" aria-labelledby="revert-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden" onClick={x => x.stopPropagation()}>
+        <div className="px-5 py-4 border-b bg-rose-50">
+          <h3 id="revert-title" className="font-bold text-rose-900 flex items-center gap-2"><Undo2 size={18} /> ย้อนการกระทำนี้?</h3>
+          <p className="text-xs text-rose-800/80 mt-0.5">{e.action} · {String(e.at_th).slice(11, 16)} น. {thDate(e.at_th)} · โดย {e.user || '-'}</p>
+        </div>
+        <div className="p-5 space-y-3 text-sm overflow-y-auto">
+          <p className="text-gray-700">ระบบจะทำให้ข้อมูลกลับไปเหมือนก่อนกดบันทึกครั้งนี้:</p>
+          <ul className="space-y-1">
+            {Object.entries(counts).map(([op, n]) => (
+              <li key={op} className="flex items-center gap-2">
+                <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${OP[op]?.[1] || ''}`}>{OP[op]?.[0] || op}</span>
+                <span>{OP_UNDO[op]} <b>{n}</b> รายการ</span>
+              </li>
+            ))}
+          </ul>
+          {e.source === 'backfill' && (
+            <p className="rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-900">
+              รายการนี้เป็นข้อมูลเก่า การย้อน = <b>ลบรายการที่สร้างไว้ทิ้ง</b> ยอดสต็อก/ค่าแรงที่เกี่ยวข้องจะเปลี่ยนตาม
+            </p>
+          )}
+          <p className="text-xs text-gray-500">ถ้ามีแถวไหนถูกแก้ต่อหลังจากรายการนี้ ระบบจะไม่ย้อนเลยสักแถวและบอกว่าติดตรงไหน · การย้อนจะถูกบันทึกในประวัติด้วย</p>
+          {err && (
+            <div className="rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-xs text-rose-800 space-y-1">
+              <b>{err.error}</b>
+              {(err.conflicts || []).map((c, i) => <div key={i}>• {c}</div>)}
+            </div>
+          )}
+        </div>
+        <div className="border-t px-5 py-3 flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary !bg-rose-600 hover:!bg-rose-700 disabled:opacity-40" disabled={busy} onClick={go}>
+            {busy ? 'กำลังย้อน...' : 'ย้อนเลย'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EntryCard({ e }: { e: any }) {
   const [open, setOpen] = useState(false);
+  const [asking, setAsking] = useState(false);
   const changes: any[] = e.changes || [];
   const shown = open ? changes : changes.slice(0, 4);
   const reasons = reasonOf(e);
   const time = String(e.at_th || '').slice(11, 16);
   return (
-    <div className="card !p-0 overflow-hidden">
+    <div className={`card !p-0 overflow-hidden ${e.reverted_at ? 'opacity-60' : ''}`}>
       <div className="px-4 py-3 flex items-start gap-3 border-b border-gray-100">
         <div className="text-lg font-bold tabular-nums text-gray-900 w-14 shrink-0">{time}</div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-gray-900">{e.action}</span>
+            <span className={`font-semibold text-gray-900 ${e.reverted_at ? 'line-through decoration-gray-400' : ''}`}>{e.action}</span>
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${CAT_STYLE[e.category] || CAT_STYLE['อื่นๆ']}`}>{e.category}</span>
+            {e.source === 'backfill' && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-600 ring-1 ring-slate-200">ย้อนหลัง</span>}
+            {e.revert_of && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-rose-100 text-rose-700">ย้อนรายการก่อนหน้า</span>}
+            {e.reverted_at && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-gray-200 text-gray-700">ย้อนแล้ว · {e.reverted_by || '-'} {String(e.reverted_at).slice(11, 16)} น.</span>}
             {e.status >= 400 && <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-rose-100 text-rose-700">ไม่สำเร็จ ({e.status})</span>}
           </div>
-          <div className="text-xs text-gray-500 mt-0.5">โดย <b className="text-gray-700">{e.user || 'ไม่ระบุ (สมาชิก/ระบบ)'}</b> · {thDate(e.at_th)} · {e.n_changes} รายการเปลี่ยน</div>
+          <div className="text-xs text-gray-500 mt-0.5">โดย <b className="text-gray-700">{e.user || 'ไม่ระบุ'}</b> · {thDate(e.at_th)} · {e.n_changes} รายการเปลี่ยน</div>
+          {e.approx_note && <div className="text-xs text-amber-800 mt-0.5">ⓘ {e.approx_note}</div>}
           {reasons.map((r, i) => <div key={i} className="text-xs text-blue-800 mt-0.5">{r}</div>)}
         </div>
+        {e.revertable && (
+          <button type="button" onClick={() => setAsking(true)} title="ย้อนการกระทำนี้"
+            className="shrink-0 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50">
+            <Undo2 size={14} /> ย้อน
+          </button>
+        )}
       </div>
       <ul className="px-4 divide-y divide-gray-100">
         {shown.map((c, i) => <ChangeRow key={i} c={c} />)}
@@ -145,6 +214,7 @@ function EntryCard({ e }: { e: any }) {
       {e.n_changes > changes.length && open && (
         <p className="px-4 pb-2 text-[11px] text-gray-400">แสดง {changes.length} จาก {e.n_changes} รายการ (เก็บรายละเอียดสูงสุด 300 รายการต่อครั้ง)</p>
       )}
+      {asking && <RevertDialog e={e} onClose={() => setAsking(false)} />}
     </div>
   );
 }
@@ -188,7 +258,8 @@ export default function AuditLog() {
       </div>
       <p className="text-xs text-gray-500 leading-relaxed">
         ทุกครั้งที่มีการบันทึก แก้ไข หรือลบข้อมูล จะถูกเก็บไว้ที่นี่: ใครทำ เวลาไหน และค่าเดิม → ค่าใหม่
-        {meta?.since ? <> · เริ่มเก็บตั้งแต่ <b>{thDate(meta.since)} {String(meta.since).slice(11, 16)} น.</b> (ก่อนหน้านั้นไม่มีบันทึก)</> : <> · เริ่มเก็บตั้งแต่วันนี้เป็นต้นไป</>}
+        {meta?.since ? <> · บันทึกจริงเริ่ม <b>{thDate(meta.since)} {String(meta.since).slice(11, 16)} น.</b></> : <> · บันทึกจริงเริ่มวันนี้</>}
+        {meta?.backfill_since && <> · ก่อนหน้านั้นเป็น<b>ข้อมูลย้อนหลัง</b>ที่สร้างจากข้อมูลในระบบ (ตั้งแต่ {thDate(meta.backfill_since)}) — มีเฉพาะการสร้างรายการและยอดที่มีเวลาบันทึกไว้ การแก้/ลบในอดีตที่ไม่มีร่องรอยกู้ไม่ได้</>}
       </p>
 
       <div className="card space-y-3">

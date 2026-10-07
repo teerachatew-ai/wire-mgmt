@@ -501,6 +501,11 @@ CREATE TABLE IF NOT EXISTS managers (
     search TEXT
   )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at)`);
+  const auditCols = db.exec(`PRAGMA table_info(audit_log)`)[0]?.values.map(r => r[1]) ?? [];
+  // source: 'live' = บันทึกจริงตอนกด · 'backfill' = สร้างย้อนหลังจากข้อมูลเดิม · approx_note = ข้อจำกัดของรายการย้อนหลัง
+  for (const [c, def] of [['source', `TEXT DEFAULT 'live'`], ['approx_note', 'TEXT'], ['reverted_at', 'TEXT'], ['reverted_by', 'TEXT'], ['revert_of', 'INTEGER']]) {
+    if (!auditCols.includes(c)) db.exec(`ALTER TABLE audit_log ADD COLUMN ${c} ${def}`);
+  }
   db.run(`DELETE FROM audit_log WHERE at < datetime('now', '-400 days')`);
 
   const returnCols =db.exec(`PRAGMA table_info(returns)`)[0]?.values.map(r => r[1]) ?? [];
