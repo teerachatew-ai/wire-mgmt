@@ -300,7 +300,9 @@ auditRouter.get('/meta', (_req, res) => {
   const users = (prepare(`SELECT DISTINCT user FROM audit_log WHERE user IS NOT NULL ORDER BY user`).all() as any[]).map(r => r.user);
   const first = prepare(`SELECT MIN(${TH('at')}) AS first FROM audit_log WHERE source = 'live'`).get() as any;
   const back = prepare(`SELECT MIN(${TH('at')}) AS first FROM audit_log WHERE source = 'backfill'`).get() as any;
-  res.json({ users, categories: AUDIT_CATEGORIES, since: first?.first || null, backfill_since: back?.first || null });
+  // จำนวน trigger ที่ติดตั้งอยู่ (ควร = ตาราง x 4) — 0 = ระบบไม่ได้จับประวัติ ต้องตรวจ log ตอนบูต
+  const triggers = Number(rawQuery(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name LIKE '_aud_%'`).values[0]?.[0] || 0);
+  res.json({ users, categories: AUDIT_CATEGORIES, since: first?.first || null, backfill_since: back?.first || null, triggers });
 });
 
 // ── ย้อนการกระทำ ──
