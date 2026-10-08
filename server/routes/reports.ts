@@ -1773,7 +1773,7 @@ router.post('/financial-statement-export', (req, res) => {
 function buildIssueDaily(filters: { date?: string; from?: string; to?: string; status?: string }) {
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
 
-  let sql = `SELECT i.issued_at, i.quantity, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
+  let sql = `SELECT i.id, i.code, i.issued_at, i.quantity, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
     p.name as product_name, p.color, p.unit
     FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE 1=1`;
   const params: any[] = [];
@@ -1817,9 +1817,30 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
     day[r.product_name] = (day[r.product_name] || 0) + r.quantity;
   }
 
+  // รายการทีละใบ + การคืนงาน (แยกตามวันที่คืน) — ใช้กับ PDF ใบคุมเบิก-คืนงาน (A4 แนวตั้ง) ช่องคืนครั้งที่ 1/2
+  const retByIssue = new Map<number, { date: string; qty: number; ng_factory: number; ng_group: number }[]>();
+  const ids = issueRows.map(r => r.id);
+  for (let k = 0; k < ids.length; k += 500) {
+    const chunk = ids.slice(k, k + 500);
+    for (const r of prepare(`SELECT issue_id, substr(returned_at, 1, 10) d,
+        SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) q,
+        SUM(COALESCE(ng_factory,0)) ngf, SUM(COALESCE(ng_cut,0) + COALESCE(ng_rope,0)) ngg
+        FROM returns WHERE issue_id IN (${chunk.map(() => '?').join(',')}) GROUP BY issue_id, d ORDER BY d`).all(...chunk) as any[]) {
+      if (!retByIssue.has(r.issue_id)) retByIssue.set(r.issue_id, []);
+      retByIssue.get(r.issue_id)!.push({ date: r.d, qty: Number(r.q) || 0, ng_factory: Number(r.ngf) || 0, ng_group: Number(r.ngg) || 0 });
+    }
+  }
+  const linesByDay: Record<string, any[]> = {};
+  for (const r of issueRows) {
+    (linesByDay[r.issued_at] ??= []).push({
+      code: r.code, member_code: r.member_code, member_name: r.member_name, member_nickname: r.member_nickname,
+      product_name: r.product_name, color: r.color, quantity: r.quantity, returns: retByIssue.get(r.id) || [],
+    });
+  }
+
   const days = Object.keys(dayMap).sort().map(dt => {
     const members = Object.values(dayMap[dt].memberMap).sort((a: any, b: any) => a.member_code.localeCompare(b.member_code));
-    return { date: dt, members, member_count: members.length, receives: receiveByDay[dt] || {} };
+    return { date: dt, members, member_count: members.length, receives: receiveByDay[dt] || {}, lines: linesByDay[dt] || [] };
   });
 
   return {
@@ -1839,7 +1860,8 @@ router.post('/issue-daily-export', (req, res) => {
   const data = buildIssueDaily(filters);
   if (data.days.length === 0) return res.status(400).json({ error: 'ไม่มีข้อมูลใบเบิกในช่วงที่เลือก' });
   const root = process.cwd();
-  const script = path.join(root, 'server', 'scripts', 'issue_daily_export.py');
+  // PDF = ใบคุมเบิก-คืนงานสำหรับพิมพ์ (A4 แนวตั้ง มีช่องเขียนวันที่คืน) · Excel = ตารางสรุปรายวันแบบเดิม
+  const script = path.join(root, 'server', 'scripts', wantPdf ? 'issue_daily_print.py' : 'issue_daily_export.py');
   const pdfScript = path.join(root, 'server', 'scripts', 'xlsx_to_pdf.ps1');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'issue-daily-'));
   const dataFile = path.join(tmpDir, 'data.json');

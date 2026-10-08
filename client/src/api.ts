@@ -40,6 +40,8 @@ export const receiveApi = {
   // ล็อตรับเข้าของสินค้าหนึ่ง แยกตามวันที่ พร้อมยอดคงเหลือที่ยังไม่ได้แจก (ใช้ตอนเลือกล็อตในหน้าเบิกงาน)
   lots: (productId?: number) => api.get('/receives/lots', { params: productId ? { product_id: productId } : {} }).then(r => r.data),
   // ที่มาของส่วนต่างรับจริง − ใบส่งของ ของล็อตหนึ่ง + ล้างกลับเป็นยอดตามใบส่งของ
+  // ยกมา / รับเข้า / เบิกออก / คงเหลือ ต่อชนิดงาน ของช่วงวันที่ (ตารางเทียบรับเข้า-เบิกออก)
+  balance: (params: any) => api.get('/receives/balance', { params }).then(r => r.data),
   lotDetail: (productId: number, lotDate: string) => api.get('/receives/lot-detail', { params: { product_id: productId, lot_date: lotDate } }).then(r => r.data),
   // กำหนดยอดรับจริงของล็อตเอง (นับแล้ว) — ล็อตนี้ระบบจะไม่ปรับอัตโนมัติทับ
   lotSetActual: (productId: number, lotDate: string, actual: number) =>

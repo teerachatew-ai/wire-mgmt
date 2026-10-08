@@ -563,6 +563,13 @@ export default function Receives() {
     qty: Number(r.actual_qty ?? r.quantity) || 0,
     variance: Number(r.variance_qty) || 0,
     product_id: r.product_id,
+    note: Number(r.quantity) || 0,
+    // ที่มาของส่วนต่าง: นับ/กำหนดเองที่ใบรับ · ระบบปิดล็อต · ที่เหลือ = จากใบเบิก (สมาชิกนับในมัดได้ไม่ตรง)
+    adjust: (() => {
+      const counted = r.counted_qty != null ? Number(r.counted_qty) - (Number(r.quantity) || 0) : 0;
+      const auto = Number(r.variance_auto) || 0;
+      return { counted, auto, member: (Number(r.variance_qty) || 0) - counted - auto };
+    })(),
   }));
   const [lotDetail, setLotDetail] = useState<{ date: string; productId: number; productName: string } | null>(null);
 
@@ -638,7 +645,7 @@ export default function Receives() {
       {view === 'matrix' && (
         isLoading
           ? <div className="card text-center text-gray-400 py-8">กำลังโหลด...</div>
-          : <DateProductMatrix entries={matrixEntries} accent="blue"
+          : <DateProductMatrix entries={matrixEntries} accent="blue" split
               emptyText={rq ? 'ไม่พบที่ค้นหา' : `ไม่มีรายการรับของใน${dateFilterLabel(dateFilter)}`}
               onDateClick={setEditingDay}
               onVarianceClick={(date, productId, productName) => setLotDetail({ date, productId, productName })} />

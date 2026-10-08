@@ -28,7 +28,11 @@ router.get('/', (req, res) => {
   if (from) { sql += ` AND r.received_at >= ?`; params.push(from); }
   if (to) { sql += ` AND r.received_at <= ?`; params.push(to); }
   sql += ` ORDER BY r.received_at DESC, r.id DESC`;
-  const rows = prepare(sql).all(...params) as any[];
+  res.json(withActual(prepare(sql).all(...params) as any[]));
+});
+
+/* แถวใบรับ + จำนวนรับจริง (เดิมอยู่ใน GET / — แยกออกมาให้ /balance ใช้สูตรเดียวกันเป๊ะ) */
+function withActual(rows: any[]) {
 
   /* จำนวนรับจริง — ดูคำอธิบายเต็มที่ server/receivedActual.ts
      ล็อตหนึ่ง (สินค้า + วันที่รับ) อาจมีใบรับหลายใบ เช่นรอบเช้า/รอบบ่ายของวันเดียวกัน
@@ -45,7 +49,7 @@ router.get('/', (req, res) => {
       countedOf.set(k, (countedOf.get(k) || 0) + (Number(r.actual_qty) - (Number(r.quantity) || 0)));
     }
   }
-  res.json(rows.map(r => {
+  return rows.map(r => {
     const k = lotKey(r.product_id, r.received_at);
     const counted = r.actual_qty !== null && r.actual_qty !== undefined
       ? Number(r.actual_qty) - (Number(r.quantity) || 0) : 0;
@@ -57,7 +61,71 @@ router.get('/', (req, res) => {
     const variance_auto = lastIdOf.get(k) === r.id ? (autoOf.get(k) || 0) : 0;
     return { ...r, counted_qty: r.actual_qty ?? null, variance_qty, variance_auto,
              actual_qty: (Number(r.quantity) || 0) + variance_qty };
-  }));
+  });
+}
+
+/* ช่วงวันที่จากตัวกรอง (date = วัน/เดือน, from/to) — กติกาเดียวกับ GET / และรายการใบเบิก
+   เดือน = รอบส่งของจริงของโรงงาน (deliveryCutoffRange) ไม่ใช่ปฏิทิน 1–สิ้นเดือน */
+function periodOf(q: any): { start: string | null; end: string | null } {
+  let start: string | null = null, end: string | null = null;
+  const d = q.date ? String(q.date) : '';
+  if (/^\d{4}-\d{2}$/.test(d)) {
+    const lastRecvRows = prepare(`SELECT substr(received_at,1,7) as ym, MAX(received_at) as last FROM receives GROUP BY ym`).all() as any[];
+    const r = deliveryCutoffRange(d, Object.fromEntries(lastRecvRows.map((x: any) => [x.ym, x.last])));
+    start = r.start; end = r.end;
+  } else if (d) { start = d; end = d + '\uffff'; }
+  if (q.from) start = String(q.from);
+  if (q.to) end = String(q.to);
+  return { start, end };
+}
+
+/* ยอดยกมา / รับเข้า / เบิกออก / คงเหลือ ต่อชนิดงาน ของช่วงที่เลือก — ตารางเทียบรับเข้า-เบิกออก (หน้าใบเบิก)
+   ยกมา/คงเหลือ = "ของรอแจกจ่าย" ตามระบบล็อต (นับตั้งแต่ STOCK_CUTOFF เหมือนหน้าสต็อก) ณ ต้นช่วง / ท้ายช่วง
+     = รับจริงของล็อตที่รับถึงวันนั้น − ยอดเบิกที่หักจากล็อตเหล่านั้น (ใบเบิกถึงวันนั้น) · รวมล็อตที่ติดลบด้วย (เบิกเกินโผล่ให้เห็น)
+   รับเข้า/เบิกออก = ยอดเคลื่อนไหวในช่วง (ตัวเลขเดิมของตาราง)
+   ปกติ ยกมา + รับเข้า − เบิกออก = คงเหลือ · ไม่ลงตัว (outside) = ส่วนที่เป็นของก่อนเริ่มนับสต็อก
+   (รับก่อน STOCK_CUTOFF หรือใบเบิกที่หักของก่อน STOCK_CUTOFF) — ถ้าเป็นลบมาก = เบิกเกินของที่มีก่อนเริ่มนับ ต้องตรวจ */
+router.get('/balance', (req, res) => {
+  const { start, end } = periodOf(req.query);
+  const before = (x: string, edge: string | null) => !edge || x < edge;          // ก่อนต้นช่วง
+  const upTo = (x: string, edge: string | null) => !edge || x <= edge;           // ถึงท้ายช่วง
+  const inP = (x: string) => (!start || x >= start) && (!end || x <= end);
+  const out = new Map<number, any>();
+  const row = (pid: number) => {
+    if (!out.has(pid)) out.set(pid, { product_id: pid, received: 0, issued: 0, opening: 0, closing: 0, now: 0 });
+    return out.get(pid);
+  };
+  for (const r of withActual(prepare(`SELECT * FROM receives`).all() as any[])) {
+    const x = String(r.received_at || ''), q = Number(r.actual_qty) || 0, w = row(r.product_id);
+    if (inP(x)) w.received += q;
+    if (x.slice(0, 10) < STOCK_CUTOFF) continue;   // ของก่อนเริ่มนับสต็อก ไม่อยู่ในระบบล็อต
+    if (start && before(x, start)) w.opening += q;
+    if (upTo(x, end)) w.closing += q;
+    if (!start) { /* ไม่มีต้นช่วง = ยกมา 0 */ }
+  }
+  // ยอดเบิกที่หักจากล็อตในระบบ: ใบที่ผูกล็อตแล้ว = ทั้งใบ · ใบเก่าที่ไม่ผูกล็อต = เท่าที่ระบบจัดสรรให้ล็อต (FIFO)
+  const alloc = new Map<number, Map<string, number>>();
+  const lots = computeLots(undefined, alloc);
+  for (const i of prepare(`SELECT id, product_id, issued_at, quantity, lot_date FROM issues`).all() as any[]) {
+    const x = String(i.issued_at || ''), q = Number(i.quantity) || 0, w = row(i.product_id);
+    if (inP(x)) w.issued += q;
+    const tracked = i.lot_date ? (String(i.lot_date) >= STOCK_CUTOFF ? q : 0)
+      : [...(alloc.get(i.id)?.values() || [])].reduce((s, v) => s + v, 0);
+    if (!tracked) continue;
+    if (start && before(x, start)) w.opening -= tracked;
+    if (upTo(x, end)) w.closing -= tracked;
+  }
+  for (const l of lots) row(l.product_id).now += l.remaining;
+  const names = new Map((prepare(`SELECT id, name, color, unit FROM products`).all() as any[]).map((p: any) => [p.id, p]));
+  res.json({
+    start, end, stock_cutoff: STOCK_CUTOFF,
+    products: [...out.values()].filter(r => names.has(r.product_id)).map(r => {
+      const p: any = names.get(r.product_id);
+      return { product_id: r.product_id, name: p.name, color: p.color, unit: p.unit,
+        opening: r.opening, received: r.received, issued: r.issued, closing: r.closing, now: r.now,
+        outside: r.closing - (r.opening + r.received - r.issued) };
+    }),
+  });
 });
 
 /* ยอดคงเหลือรายล็อต (สินค้า + วันที่รับ) ตั้งแต่ STOCK_CUTOFF เรียงเก่า -> ใหม่

@@ -1806,13 +1806,13 @@ export default function Issues() {
     }
     for (const l of allLots as any[]) {
       const q = Number(l.remaining_qty) || 0;
-      if (q <= 0) continue;
+      if (q === 0) continue;   // ล็อตติดลบ (เบิกเกิน) ต้องนับด้วย ไม่งั้นยอดรวมสูงเกินจริงและมองไม่เห็นว่าเบิกเกิน
       const p: any = byId.get(l.product_id);
       if (!p) continue;
       const w = (out[p.name] ??= { qty: 0, lots: [], color: p.color, unit: p.unit, suspect: false });
       w.qty += q;
       w.lots.push({ date: l.lot_date, qty: q });
-      if (l.lot_date < (newestStarted.get(l.product_id) || '')) w.suspect = true;
+      if (q > 0 && l.lot_date < (newestStarted.get(l.product_id) || '')) w.suspect = true;
     }
     return out;
   }, [allLots, products]);
@@ -1841,6 +1841,15 @@ export default function Issues() {
     queryKey: ['receives', 'issues-page', dateFilter],
     queryFn: () => receiveApi.list(dateFilter),
   });
+  // ยอดยกมา/คงเหลือของช่วงที่เลือก (server คิดจากระบบล็อตเดียวกับหน้าสต็อก) — ทำให้ ยกมา + รับเข้า − เบิกออก = คงเหลือ
+  const { data: balanceData } = useQuery({
+    queryKey: ['receive-lots', 'balance', dateFilter],
+    queryFn: () => receiveApi.balance(dateFilter),
+  });
+  const balanceByName = useMemo(() => {
+    if (!balanceData) return undefined;
+    return Object.fromEntries((balanceData.products as any[]).map((p: any) => [p.name, p]));
+  }, [balanceData]);
   const receiveSummaryOfPeriod = useMemo(() => Object.values((receivesOfPeriod as any[]).reduce((a: any, r: any) => {
     // ใช้ยอด "รับจริง" (ใบส่งของ ± ของที่นับได้จริง/สมาชิกแจ้งขาด-เกิน) ให้คงเหลือรอเบิกตรงกับของจริงหน้างาน
     const k = r.product_name; (a[k] ??= { name: k, unit: r.unit, color: r.color, qty: 0 }).qty += Number(r.actual_qty ?? r.quantity) || 0; return a;
@@ -2006,7 +2015,8 @@ export default function Issues() {
       )}
 
       {/* เทียบรับเข้า vs เบิกออก ในตารางเดียว — อ่านทีละแถวได้เลย ไม่ต้องกวาดสายตาขึ้นลงระหว่าง 2 การ์ด */}
-      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} waiting={waitingByName} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
+      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} waiting={waitingByName} balance={balanceByName}
+        stockCutoff={balanceData?.stock_cutoff} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
 
       <div className="card overflow-x-auto">
         <button type="button" className="w-full flex items-center justify-between flex-wrap gap-2 mb-0 text-left" onClick={() => setLedgerOpen(o => !o)}>
