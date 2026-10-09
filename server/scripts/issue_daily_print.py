@@ -158,26 +158,27 @@ for day in d["days"]:
     for r, h in ((1, 15), (2, 26), (3, 15), (4, 5)):
         ws.row_dimensions[r].height = h
 
-    # ── หัวตาราง ──
-    H = 5
+    # ── หัวตาราง ── (เขียนซ้ำเองทุกครั้งที่ตัดหน้า — LibreOffice บนเซิร์ฟเวอร์ไม่พิมพ์ "แถวหัวซ้ำทุกหน้า" ให้)
     hb = Border(left=thin, right=thin, top=thin, bottom=thin)
-    put(ws, H, cN, "#", f=font(9, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
-    ws.merge_cells(start_row=H, start_column=cM, end_row=H, end_column=cT)
-    put(ws, H, cM, "สมาชิก", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
-    put(ws, H, cT, fill=HEAD_FILL, border=hb)
-    for i, pn in enumerate(prods):
-        hexc = hexcolor(pcolor[pn])
-        dot = "D1D5DB" if (not hexc or color_priority(hexc) == 0) else hexc
-        lbl = label(pn)
-        parts = lbl.rsplit(" ", 1)
-        c = put(ws, H, cP0 + i, None, fill=HEAD_FILL, al=C, border=hb, f=font(8, True, "FFFFFF"))
-        c.value = rich([(11, False, dot, "●\n"), (8, True, "FFFFFF", parts[0]),
-                        (7.5, False, "CBD5E1", ("\n" + parts[1]) if len(parts) > 1 else "")])
-    put(ws, H, cSum, "รวม", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
-    put(ws, H, cNgF, "NG\nโรงงาน", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
-    put(ws, H, cNgG, "NG โดย\nสมาชิก", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
-    put(ws, H, cDate, "วันที่คืน", f=font(9.5, True, "FFFFFF"), fill=RET_HEAD, al=C, border=hb)
-    ws.row_dimensions[H].height = 44
+    def table_header(H):
+        put(ws, H, cN, "#", f=font(9, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
+        ws.merge_cells(start_row=H, start_column=cM, end_row=H, end_column=cT)
+        put(ws, H, cM, "สมาชิก", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
+        put(ws, H, cT, fill=HEAD_FILL, border=hb)
+        for i, pn in enumerate(prods):
+            hexc = hexcolor(pcolor[pn])
+            dot = "D1D5DB" if (not hexc or color_priority(hexc) == 0) else hexc
+            parts = label(pn).rsplit(" ", 1)
+            c = put(ws, H, cP0 + i, None, fill=HEAD_FILL, al=C, border=hb, f=font(8, True, "FFFFFF"))
+            c.value = rich([(11, False, dot, "●\n"), (8, True, "FFFFFF", parts[0]),
+                            (7.5, False, "CBD5E1", ("\n" + parts[1]) if len(parts) > 1 else "")])
+        put(ws, H, cSum, "รวม", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
+        put(ws, H, cNgF, "NG\nโรงงาน", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
+        put(ws, H, cNgG, "NG โดย\nสมาชิก", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
+        put(ws, H, cDate, "วันที่คืน", f=font(9.5, True, "FFFFFF"), fill=RET_HEAD, al=C, border=hb)
+        ws.row_dimensions[H].height = 44
+    H = 5
+    table_header(H)
 
     # ── สมาชิก ──
     by_member = {}
@@ -234,6 +235,8 @@ for day in d["days"]:
         r0 = row
         if used_h + BLOCK_H > PAGE_H:
             ws.row_breaks.append(Break(id=r0 - 1))
+            table_header(r0)          # หน้าใหม่เริ่มด้วยหัวตาราง
+            r0 = row = r0 + 1
             used_h = 44
         used_h += BLOCK_H
         bg_issue = DONE_FILL if done else ("F1F5F9" if gi % 2 else "FFFFFF")
@@ -320,7 +323,6 @@ for day in d["days"]:
     ws.row_dimensions[row].height = 26
 
     ws.print_area = f"A1:{COL(NCOL)}{row}"
-    ws.print_title_rows = f"{H}:{H}"
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_setup.orientation = "portrait"
     ws.page_setup.fitToWidth = 1
