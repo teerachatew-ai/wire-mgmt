@@ -88,10 +88,7 @@ export default function InOutCompare({
           {rows.map(r => {
             const w = waiting?.[r.name];
             const b = balance?.[r.name];
-            const lots = (w?.lots || []).slice().sort((a, b2) => a.date.localeCompare(b2.date));
-            const hasGhost = !!w?.suspect;
             const closing = b ? b.closing : (w?.qty || 0);
-            const showLots = (!b || endsNow) && (lots.length > 1 || lots.some(l => l.qty < 0));
             return (
               <tr key={r.name} className="border-b border-gray-50 align-top">
                 <td className="px-2 py-1.5">
@@ -116,32 +113,6 @@ export default function InOutCompare({
                           {closing < 0 && '⚠ '}{fmt(closing)}
                         </span>
                       : <span className="text-gray-300">0</span>}
-                  {b && !endsNow && b.now !== b.closing && (
-                    <div className="text-[10px] text-gray-400 leading-tight mt-0.5">ณ ตอนนี้ {fmt(b.now)}</div>
-                  )}
-                  {showLots && (
-                    <div className={`text-[10px] leading-tight mt-0.5 ${hasGhost ? 'text-amber-600' : 'text-gray-400'}`}
-                      title={hasGhost ? 'ล็อตเก่ายังเหลือค้าง ทั้งที่เริ่มแจกล็อตใหม่แล้ว — ถ้าของจริงไม่มีแล้ว ไปที่หน้าสต็อก กด "นับของหน้างาน"' : undefined}>
-                      {lots.map((l, i) => (
-                        <span key={l.date}>{i > 0 && ' · '}<span className={l.qty < 0 ? 'text-rose-600 font-semibold' : ''}>{lotTH(l.date)} {fmt(l.qty)}</span></span>
-                      ))}
-                      {hasGhost && ' ⚠'}
-                    </div>
-                  )}
-                  {b && !!b.adjusted && (
-                    <div className="text-[10px] leading-tight mt-0.5 text-gray-500"
-                      title="ส่วนต่างจากการนับของหน้างาน (ของออกไปโดยไม่มีใบเบิก / ลงเบิกเกิน) — ยอดรับจากโรงงานไม่เปลี่ยน ดูรายล็อตได้ที่หน้ารับของ">
-                      รวมปรับยอดนับหน้างาน {b.adjusted > 0 ? '+' : ''}{fmt(b.adjusted)}
-                    </div>
-                  )}
-                  {b && b.outside !== 0 && (
-                    <div className={`text-[10px] leading-tight mt-0.5 ${b.outside > 0 ? 'text-amber-600' : 'text-gray-400'}`}
-                      title={`ยกมา + รับเข้า − เบิกออก ไม่เท่าคงเหลือ เพราะมีของก่อนวันเริ่มนับสต็อก (${cutoffTH}) เข้ามาเกี่ยว`}>
-                      {b.outside > 0
-                        ? <>เบิกของก่อน {cutoffTH} เกินที่รับ {fmt(b.outside)} ⚠</>
-                        : <>รับก่อน {cutoffTH} {fmt(-b.outside)} (นอกระบบล็อต)</>}
-                    </div>
-                  )}
                 </td>
               </tr>
             );
@@ -161,21 +132,10 @@ export default function InOutCompare({
       </table>
 
       <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-        {balance ? (
-          <>
-            อ่านแต่ละแถว: <b className="text-gray-500">ยอดยกมา + รับเข้า − เบิกออก (± ปรับยอดนับหน้างาน) = คงเหลือรอเบิก</b> ·
-            ยกมา/คงเหลือ = ของที่ยังไม่ได้แจกตามระบบล็อต (นับตั้งแต่ {cutoffTH} เหมือนหน้าสต็อก) ·{' '}
-            <span className="text-rose-600 font-semibold">ตัวแดง ⚠</span> = ติดลบ คือเบิกเกินของที่รับจริง ต้องตรวจ ·
-            ตัวเลขเล็กใต้ยอด = แยกตามล็อตวันที่รับของ
-          </>
-        ) : (
-          <>
-            <b className="text-gray-500">รับเข้า / เบิกออก</b> = ยอดในช่วงวันที่ที่เลือกด้านบน ·{' '}
-            <b className="text-violet-600">คงเหลือรอเบิก</b> = ของที่ยังไม่ได้แจก ณ ตอนนี้ · ตัวเลขเล็กใต้ยอด = แยกตามล็อตวันที่รับของ
-          </>
-        )}
-        {' '}· ล็อตเก่าที่คลาดไม่กี่เส้น (โรงงานนับไม่ละเอียด) ระบบปิดให้เองอัตโนมัติ
-        {' '}<span className="text-amber-600">สีส้ม ⚠</span> = ล็อตเก่ายังค้างทั้งที่เริ่มแจกล็อตใหม่แล้ว ควรตรวจของจริง
+        {balance
+          ? <>อ่านแต่ละแถว: <b className="text-gray-500">ยอดยกมา + รับเข้า − เบิกออก = คงเหลือรอเบิก</b></>
+          : <><b className="text-gray-500">รับเข้า / เบิกออก</b> = ยอดในช่วงวันที่ที่เลือกด้านบน · <b className="text-violet-600">คงเหลือรอเบิก</b> = ของที่ยังไม่ได้แจก ณ ตอนนี้</>}
+        {' '}· <span className="text-rose-600 font-semibold">ตัวแดง ⚠</span> = ติดลบ คือเบิกเกินของที่รับจริง ต้องตรวจ
       </p>
     </div>
   );
