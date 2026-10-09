@@ -319,8 +319,11 @@ router.post('/waiting-adjustments', (req, res) => {
   if (!pid || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !Number.isFinite(q) || q === 0) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
   if (!prepare(`SELECT 1 FROM receives WHERE product_id = ? AND substr(received_at, 1, 10) = ? LIMIT 1`).get(pid, d))
     return res.status(404).json({ error: 'ไม่พบล็อตนี้' });
+  // วันที่มีผล: ปกติ = วันรับของล็อต · ระบุเองได้ (ไม่ก่อนวันรับของ) เช่น ย้ายยอดระหว่างล็อตตามวันที่ใบเบิกที่ติดป้ายผิด
+  const at = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.adjusted_at || '')) ? String(req.body.adjusted_at) : d;
+  if (at < d) return res.status(400).json({ error: 'วันที่ปรับต้องไม่ก่อนวันรับของของล็อต' });
   const r = prepare(`INSERT INTO waiting_adjustments (product_id, lot_date, adjusted_at, quantity, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(pid, d, d, q, req.body?.reason ? String(req.body.reason).trim() : null, userOf(req));
+    .run(pid, d, at, q, req.body?.reason ? String(req.body.reason).trim() : null, userOf(req));
   res.json({ id: r.lastInsertRowid });
 });
 
