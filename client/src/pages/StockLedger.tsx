@@ -83,7 +83,17 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
     : { head: 'bg-amber-50 border-amber-200', title: 'text-amber-800', bar: 'bg-amber-400', num: 'text-amber-700' };
   const { num, label } = parseProductLabel(product.name);
   const members: any[] = data?.members || [];
-  const max = Math.max(1, ...members.map(m => m.qty));
+  // รอรับกลับ: ใบเบิกค้างหลายวัน → แบ่งหัวข้อตาม "วันที่เบิก" (เก่า→ใหม่) แล้วไล่รายคนในวันนั้น
+  const issueDates = isReady ? [] : [...new Set(members.flatMap(m => m.items.map((it: any) => String(it.date))))].sort();
+  const byDate = issueDates.length > 1;
+  const rows: any[] = byDate
+    ? issueDates.flatMap(d => members
+        .map(m => { const items = m.items.filter((it: any) => String(it.date) === d);
+          return items.length ? { ...m, section: d, items, qty: items.reduce((t: number, it: any) => t + (Number(it.qty) || 0), 0) } : null; })
+        .filter(Boolean)
+        .sort((a: any, b: any) => b.qty - a.qty || String(a.code).localeCompare(String(b.code))))
+    : members;
+  const max = Math.max(1, ...rows.map(m => m.qty));
   const unit = product.unit || 'เส้น';
   const shortDate = (d: string) => { const [y, m, dd] = String(d).split('-').map(Number); return `${dd} ${TH_M[m - 1]}`; };
   return (
@@ -117,17 +127,20 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
             <div className="py-10 text-center text-sm text-gray-400">{isReady && data?.last_ship ? `ไม่มีงานคืนเข้ามาหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})` : 'ไม่มีรายการ'}</div>
           ) : (
             <ul className="divide-y">
-              {members.map((m, idx) => {
+              {rows.map((m, idx) => {
                 const mk = `${m.section || ''}-${m.member_id}`;
-                // พร้อมส่ง: หัวข้อแบ่ง "คืนหลังส่งครั้งล่าสุด" / "ค้างจากการส่งงานครั้งก่อน" (โชว์เมื่อมีของค้างจากรอบก่อน)
-                const secHead = isReady && m.section && (idx === 0 || members[idx - 1].section !== m.section)
-                  && members.some(x => x.section === 'carried');
-                const secQty = members.filter(x => x.section === m.section).reduce((t, x) => t + x.qty, 0);
+                // หัวข้อแบ่งกลุ่ม — พร้อมส่ง: "คืนหลังส่งครั้งล่าสุด" / "ค้างจากการส่งงานครั้งก่อน" · รอรับกลับ: วันที่เบิก
+                const secHead = !!m.section && (idx === 0 || rows[idx - 1].section !== m.section)
+                  && (byDate || rows.some(x => x.section === 'carried'));
+                const secRows = rows.filter(x => x.section === m.section);
+                const secQty = secRows.reduce((t, x) => t + x.qty, 0);
                 return (
                 <Fragment key={mk}>
                 {secHead && (
                   <li className="px-5 pt-2.5 pb-1 flex items-baseline gap-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-t first:border-t-0">
-                    <span>{m.section === 'carried'
+                    <span>{byDate
+                      ? `เบิก ${shortDate(m.section)} · ${secRows.length} คน`
+                      : m.section === 'carried'
                       ? `ค้างจากการส่งงานครั้งก่อน (คืนถึง ${shortDate(data.last_ship)} แต่ยังไม่ได้ส่ง)`
                       : `คืนหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})`}</span>
                     <span className="ml-auto tabular-nums text-gray-600">{fmt(secQty)}</span>
