@@ -725,8 +725,25 @@ export default function StockLedger() {
         const carryOut = (pid: number) => ledger.closing[pid] || 0;
         const carryIn = (pid: number) => carryOut(pid) - sumIn(pid) + sumOut(pid);
         const gCarryIn = g.items.reduce((s: number, p: any) => s + carryIn(p.id), 0);
-        const gCarryOut = g.items.reduce((s: number, p: any) => s + carryOut(p.id), 0);
         const showCarry = mode === 'factory' && !!fromDate;
+        // แถว "ยกมาจากรอบก่อน" — งานที่รับจากโรงงานแล้วยังค้างส่งคืน ณ ต้นช่วง (ไล่สายตาจากบนลงล่าง: ยกมา → รายวัน → รวม)
+        const carryRow = (
+          <tr className="border-b border-gray-200 bg-slate-50/70">
+            <td className="sticky left-0 bg-slate-50 z-10 px-3 py-1.5 border-r whitespace-nowrap leading-tight">
+              <span className="text-gray-700 font-medium">ยกมาจากรอบก่อน</span>
+              <div className="text-[10px] text-gray-400">ค้างส่งคืนโรงงาน ณ {fromDate ? dateTH(fromDate) : ''}</div>
+            </td>
+            {g.items.map((p: any, i: number) => {
+              const v = carryIn(p.id);
+              return (
+                <td key={'ci' + p.id} className={`px-2 py-1.5 text-right tabular-nums font-medium ${v < 0 ? 'text-rose-600' : 'text-slate-600'} ${i === g.items.length - 1 ? 'border-r' : ''}`}>
+                  {v ? fmt(v) : <span className="text-gray-300">–</span>}
+                </td>
+              );
+            })}
+            {g.items.map((p: any) => <td key={'co' + p.id} />)}
+          </tr>
+        );
 
         return (
           <div key={g.key} className="card !p-0 overflow-hidden">
@@ -739,7 +756,7 @@ export default function StockLedger() {
                 <span className="text-emerald-700">{useLots && '+ '}รับเข้า <b>{fmt(gIn)}</b></span>
                 <span className="text-blue-700">{useLots && '− '}{outLabel} <b>{fmt(gOut)}</b></span>
                 <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{useLots && '= '}{balLabel} <b>{fmt(gFinal)}</b></span>
-                {showCarry && <span className="text-gray-500">· ยกมา <b>{fmt(gCarryIn)}</b> → ยกไป <b className="text-slate-800">{fmt(gCarryOut)}</b></span>}
+                {showCarry && <span className="text-gray-500">· ยกมา <b>{fmt(gCarryIn)}</b></span>}
               </span>
             </div>
 
@@ -769,6 +786,7 @@ export default function StockLedger() {
                     </tr>
                   </thead>
                   <tbody>
+                    {showCarry && !newestFirst && carryRow}
                     {view.map((r: any) => (
                       <tr key={r.date} className="border-b border-gray-50 hover:bg-blue-50/30">
                         <td className="sticky left-0 bg-white z-10 px-3 py-1.5 border-r whitespace-nowrap text-gray-700" title={r.date}>{dateTH(r.date)}</td>
@@ -780,6 +798,7 @@ export default function StockLedger() {
                         {g.items.map((p: any) => <td key={'o' + p.id} className="px-2 py-1.5 text-right bg-blue-50/20"><Cell v={r.out[p.id] || 0} cls="text-blue-700 font-medium" /></td>)}
                       </tr>
                     ))}
+                    {showCarry && newestFirst && carryRow}
                   </tbody>
                   <tfoot>
                     {/* แถว Total — ยอดรวมของเข้า/ของออกในช่วง */}
@@ -816,27 +835,6 @@ export default function StockLedger() {
                         );
                       })}
                     </tr>
-                    {/* ยอดยกมาจากรอบก่อน + ยอดความต่างช่วงนี้ = ยกไปรอบถัดไป (งานที่รับจากโรงงานแล้วยังไม่ได้ส่งคืน) */}
-                    {showCarry && ([['ยกมาจากรอบก่อน', 'งานที่ค้างส่งคืนโรงงาน ณ ต้นช่วง', carryIn, false],
-                                   ['ยกไปรอบถัดไป', 'ยกมา + ยอดความต่าง', carryOut, true]] as const).map(([lbl, sub, fn, strong]) => (
-                      <tr key={lbl} className="border-t border-gray-100">
-                        <td className="sticky left-0 bg-white z-10 px-3 py-2 border-r text-gray-700 leading-tight">
-                          <span className={strong ? 'font-semibold text-gray-800' : ''}>{lbl}</span>
-                          <div className="text-[10px] font-normal text-gray-400">{sub}</div>
-                        </td>
-                        {g.items.map((p: any, i: number) => (
-                          <td key={'ci' + p.id} className={i === g.items.length - 1 ? 'border-r' : ''} />
-                        ))}
-                        {g.items.map((p: any) => {
-                          const v = (fn as (pid: number) => number)(p.id);
-                          return (
-                            <td key={'cv' + p.id} className={`px-2 py-2 text-right tabular-nums ${strong ? 'font-bold' : 'text-gray-600'} ${v < 0 ? 'text-rose-600' : ''}`}>
-                              {fmt(v)}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
                   </tfoot>
                 </table>
               </div>
