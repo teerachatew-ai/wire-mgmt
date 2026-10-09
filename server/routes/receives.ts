@@ -224,7 +224,13 @@ router.get('/lots', (req, res) => {
        ตัดได้ไม่เกินยอดที่ล็อตนั้นเหลืออยู่ (ตัดจนติดลบไม่ได้) แล้วไล่ไปล็อตถัดไป
      • นับได้มากกว่าระบบ → ของเกินมากับล็อตใหม่สุด (โรงงานส่งเกินใบส่งของ) บวกเข้าที่ล็อตนั้น
    ผลคือยอดรอแจกจ่าย/พร้อมส่ง/บัตรคุมสต็อก/ตารางเทียบรับเข้า-เบิกออก ตรงกันหมดโดยอัตโนมัติ
-   ไม่แตะยอดตามใบส่งของ และไม่กระทบค่าแรง/วางบิล */
+   ไม่แตะยอดตามใบส่งของ และไม่กระทบค่าแรง/วางบิล
+   ล็อตที่คนกรอกยอดรับจริงเองแล้ว (หน้ารับของ / ช่องนับที่ใบรับ) = ล็อก ไม่แตะเด็ดขาด — ปรับได้เฉพาะล็อตที่ยังไม่เคยกรอก
+   หรือที่ปุ่มนี้เคยปรับไว้เอง ส่วนต่างที่ปรับไม่ได้แจ้งกลับ (unapplied) = ต้องไปตรวจใบเบิก ไม่ใช่ยอดรับ
+   (เดิมไล่ตัดทุกล็อต — 9 ต.ค. 69 กดนับ 0 แล้วยอดรับจริงที่กรอกไว้ 11 ล็อตโดนทับ) */
+const COUNT_NOTE = 'นับของหน้างาน';
+const lockedLots = (productId: number) => new Set((prepare(`SELECT DISTINCT substr(received_at, 1, 10) d FROM receives
+  WHERE product_id = ? AND actual_qty IS NOT NULL AND (actual_note IS NULL OR actual_note NOT LIKE '${COUNT_NOTE}%')`).all(productId) as any[]).map(r => r.d));
 router.post('/count-waiting', (req, res) => {
   const productId = Number(req.body?.product_id);
   const counted = Number(req.body?.counted_qty);
@@ -234,7 +240,9 @@ router.post('/count-waiting', (req, res) => {
   const lots = lotsOf(productId);
   if (lots.length === 0) return res.status(400).json({ error: 'สินค้านี้ยังไม่มีล็อตรับเข้าตั้งแต่วันเริ่มนับสต็อก' });
   const current = lots.reduce((s, l) => s + l.remaining_qty, 0);
-  const note = req.body?.note ? String(req.body.note).trim() : `นับของหน้างาน ${new Date().toISOString().slice(0, 10)}`;
+  const note = `${COUNT_NOTE} ${new Date().toISOString().slice(0, 10)}${req.body?.note ? ` · ${String(req.body.note).trim()}` : ''}`;
+  const locked = lockedLots(productId);
+  const open = lots.filter(l => !locked.has(l.lot_date));
   let delta = counted - current;
   const changed: any[] = [];
 
@@ -253,20 +261,22 @@ router.post('/count-waiting', (req, res) => {
     changed.push({ receive_id: target.id, code: target.code, lot_date: lotDate, from: before, to: after, delta: amount });
   };
 
+  const want = delta;
   if (delta < 0) {
     let left = -delta;
-    for (const lot of lots) {
+    for (const lot of open) {
       if (left <= 0) break;
       const take = Math.min(lot.remaining_qty, left);
       if (take > 0) { applyToLot(lot, -take); left -= take; }
     }
-    delta = -(-delta - left);   // ตัดได้จริงเท่าไหร่ (ปกติได้ครบ เพราะผลรวมล็อต = ยอดรอแจกจ่าย)
+    delta = -(-delta - left);   // ตัดได้จริงเท่าไหร่ (ล็อตที่ล็อกไว้ไม่แตะ จึงอาจไม่ครบ)
   } else if (delta > 0) {
-    applyToLot(lots[lots.length - 1], delta);
+    if (open.length) applyToLot(open[open.length - 1], delta); else delta = 0;
   }
 
   const after = lotsOf(productId).reduce((s, l) => s + l.remaining_qty, 0);
-  res.json({ before: current, counted, after, applied: delta, changed });
+  res.json({ before: current, counted, after, applied: delta, changed,
+    unapplied: want - delta, locked_lots: [...locked].sort() });
 });
 
 router.post('/', (req, res) => {
@@ -302,9 +312,9 @@ router.patch('/:id/counted', (req, res) => {
   }
   const issuedFromLot = (prepare(`SELECT COALESCE(SUM(quantity), 0) v FROM issues WHERE product_id = ? AND lot_date = ?`)
     .get(rec.product_id, String(rec.received_at).slice(0, 10)) as any).v || 0;
-  // เตือนไว้เฉยๆ ไม่บล็อก — ยอดรับจริงมีพื้นล่างเป็นยอดที่แจกออกไปแล้วอยู่แล้ว (ดู receivedActual.ts)
+  // เตือนไว้เฉยๆ ไม่บล็อก — ยอดที่กรอกเองใช้ตามจริง ล็อตจะติดลบให้เห็น (ดู receivedActual.ts)
   const warn = !clear && (qty as number) < issuedFromLot
-    ? `ยอดที่นับได้ (${qty}) น้อยกว่าที่แจกออกจากล็อตนี้ไปแล้ว (${issuedFromLot}) — ระบบจะใช้ยอดที่แจกออกเป็นขั้นต่ำ`
+    ? `ยอดที่นับได้ (${qty}) น้อยกว่าที่แจกออกจากล็อตนี้ไปแล้ว (${issuedFromLot}) — ล็อตนี้จะติดลบ`
     : null;
   prepare(`UPDATE receives SET actual_qty = ?, actual_note = ?, actual_by = ?, actual_at = datetime('now') WHERE id = ?`)
     .run(qty, clear ? null : (req.body?.note ? String(req.body.note).trim() : null), clear ? null : userOf(req), req.params.id);

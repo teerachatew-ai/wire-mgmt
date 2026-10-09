@@ -267,9 +267,12 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
       const lines = list.map(({ id, res }) => {
         const name = String(items.find(p => p.id === id)?.name || id);
         const lots = (res.changed || []).map((c: any) => `ล็อต ${c.lot_date} ${c.delta > 0 ? '+' : ''}${fmt(c.delta)}`).join(', ');
-        return `• ${parseProductLabel(name).num}: ${fmt(res.before)} -> ${fmt(res.after)}${lots ? ` (${lots})` : ''}`;
+        // ล็อตที่กรอกยอดรับจริงเองไว้ถูกล็อก ระบบไม่แตะ → ส่วนต่างที่เหลือแจ้งให้ไปตรวจใบเบิก
+        const left = Number(res.unapplied) || 0;
+        const lockNote = left ? `\n   ยังต่างจากที่นับ ${left > 0 ? '+' : ''}${fmt(left)} เส้น — ยอดรับจริงที่กรอกไว้ถูกล็อก ไม่ได้แก้ให้ (ตรวจยอดในใบเบิก)` : '';
+        return `• ${parseProductLabel(name).num}: ${fmt(res.before)} -> ${fmt(res.after)}${lots ? ` (${lots})` : ''}${lockNote}`;
       }).join('\n');
-      alert(`ปรับยอดรอแจกจ่ายให้ตรงกับที่นับได้แล้ว\n${lines}`);
+      alert(`บันทึกยอดที่นับได้แล้ว\n${lines}\n\n(ไม่แก้ยอดรับจริงของล็อตที่กรอกไว้เอง)`);
     },
     onError: (e: any) => alert(e?.response?.data?.error || 'บันทึกยอดที่นับได้ไม่สำเร็จ'),
   });
@@ -318,7 +321,7 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
       {counting && (
         <div className="px-4 pb-1.5 text-xs text-violet-700">
           กรอกยอดที่ <b>นับได้จริงหน้างาน</b> ในแถว "รอแจกจ่ายสมาชิก" เฉพาะชนิดที่ไม่ตรง แล้วกด "บันทึกยอดที่นับได้"
-          — ระบบจะไล่แก้ยอดรับจริงของล็อต (ตัดล็อตเก่าที่ปิดไม่ลงก่อน) ให้ทุกหน้าตรงกันเอง
+          — ระบบจะไล่แก้ยอดรับจริงของล็อตที่ยังไม่เคยกรอกยอดเอง (ล็อตที่กรอกยอดรับจริงไว้แล้วไม่แตะ)
         </div>
       )}
       <div className="overflow-x-auto">
