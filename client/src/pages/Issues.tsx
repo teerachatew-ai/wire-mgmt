@@ -1074,7 +1074,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const goodOf = (l: any) => lineTotal(l) - ngOf(l) - n(l.uncut_qty);
   // ช่องงานเสีย — ลำดับ/ชื่อตามที่หน้างานใช้ + คำใบ้สั้นๆ ว่าคิดเงินยังไง
   const NG_FIELDS = [
-    ['ng_factory', 'งาน NG โรงงาน', 'ไม่ปรับ'],
+    ['ng_factory', 'NG โรงงาน', 'ไม่ปรับ'],
     ['ng_cut', 'NG โดยสมาชิก', 'มีค่าปรับ'],
     ['ng_rope', 'NG ดึงเชือก', 'มีค่าปรับ'],
     ['rework_qty', 'งานแก้ไข', 'หักค่าแรง %'],
@@ -1211,14 +1211,16 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
                       )}
                       {lineTotal(l) > rem + 0.0001 && <span className="text-[11px] text-sky-700">เกินยอดเบิก {(lineTotal(l) - rem).toLocaleString('th-TH')} (จะถามยืนยันแก้ยอดเบิก)</span>}
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 items-end">
+                    {/* หัวช่อง 2 บรรทัดคงที่ (ชื่อ / คำใบ้) ทุกช่องสูงเท่ากัน ไม่ตัดคำครึ่งๆ */}
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-2 gap-y-2">
                       {NG_FIELDS.map(([f, label, hint]) => (
-                        <div key={f}>
-                          <label className="block text-[11px] text-gray-600 leading-tight">{label} <span className="text-[10px] text-gray-400">· {hint}</span></label>
+                        <label key={f} className="block min-w-0">
+                          <span className="block text-[11px] font-medium text-gray-700 leading-4 whitespace-nowrap overflow-hidden text-ellipsis">{label}</span>
+                          <span className="block text-[10px] text-gray-400 leading-4 whitespace-nowrap overflow-hidden text-ellipsis">{hint}</span>
                           <input type="number" step="0.01" min="0" placeholder="0" aria-label={label}
-                            className={`input !min-h-[34px] !py-1 !px-1.5 text-sm text-right ${n(l[f]) > 0 ? (f === 'rework_qty' ? '!border-amber-300 bg-amber-50' : f === 'uncut_qty' ? '!border-slate-400 bg-slate-100' : '!border-rose-300 bg-rose-50') : ''}`}
+                            className={`input !min-h-0 !h-9 !py-0 !px-2 mt-0.5 text-sm text-right tabular-nums ${n(l[f]) > 0 ? (f === 'rework_qty' ? '!border-amber-300 bg-amber-50' : f === 'uncut_qty' ? '!border-slate-400 bg-slate-100' : '!border-rose-300 bg-rose-50') : ''}`}
                             value={l[f]} onChange={e => updateLine(i.id, f, e.target.value)} />
-                        </div>
+                        </label>
                       ))}
                     </div>
                     {n(l.ng_cut) > 0 && (
@@ -1775,6 +1777,51 @@ function PendingIssueRequestsPanel() {
   );
 }
 
+/* เลือกวันก่อน export รายงานรายวัน (Excel / PDF ใบคุมการเบิก–คืนงาน) — ติ๊กเฉพาะวันที่ต้องการพิมพ์
+   รายการวัน = วันที่มีใบเบิกในตัวกรองปัจจุบัน (ใหม่อยู่บน) · ค่าเริ่มต้นเลือกวันล่าสุดวันเดียว (ใช้บ่อยสุด: พิมพ์ของวันนี้) */
+function DayPickDialog({ days, format, onClose, onExport }: {
+  days: { date: string; members: Set<number>; qty: number }[]; format?: 'pdf'; onClose: () => void; onExport: (dates: string[]) => void;
+}) {
+  const [sel, setSel] = useState<Record<string, boolean>>(() => (days[0] ? { [days[0].date]: true } : {}));
+  const chosen = days.filter(d => sel[d.date]).map(d => d.date);
+  const setAll = (on: boolean) => setSel(Object.fromEntries(days.map(d => [d.date, on])));
+  const TH_D = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+  const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  const th = (iso: string) => { const d = new Date(iso + 'T00:00:00'); return `${TH_D[d.getDay()]} ${d.getDate()} ${TH_M[d.getMonth()]} ${String(d.getFullYear() + 543).slice(2)}`; };
+  return (
+    <Modal title={format === 'pdf' ? 'พิมพ์ใบคุมการเบิก–คืนงาน (PDF)' : 'รายงานใบเบิกรายวัน (Excel)'} onClose={onClose}>
+      <div className="space-y-3">
+        {days.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-6">ไม่มีใบเบิกในช่วงที่เลือก — เปลี่ยนตัวกรองวันที่ด้านบนก่อน</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-gray-600">เลือกวันที่ต้องการ ({chosen.length}/{days.length})</span>
+              <button type="button" className="text-blue-600 hover:underline ml-auto" onClick={() => setAll(true)}>เลือกทั้งหมด</button>
+              <button type="button" className="text-gray-500 hover:underline" onClick={() => setAll(false)}>ไม่เลือกเลย</button>
+            </div>
+            <div className="border rounded-xl divide-y max-h-[50vh] overflow-y-auto">
+              {days.map(d => (
+                <label key={d.date} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer ${sel[d.date] ? 'bg-blue-50/60' : 'hover:bg-gray-50'}`}>
+                  <input type="checkbox" className="w-4 h-4" checked={!!sel[d.date]} onChange={e => setSel(s => ({ ...s, [d.date]: e.target.checked }))} />
+                  <span className="font-medium text-gray-800">{th(d.date)}</span>
+                  <span className="ml-auto text-xs text-gray-500 tabular-nums">{d.members.size} คน · {d.qty.toLocaleString('th-TH')} เส้น</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={chosen.length === 0} onClick={() => onExport(chosen)}>
+            {format === 'pdf' ? 'สร้าง PDF' : 'สร้าง Excel'} {chosen.length > 0 && `(${chosen.length} วัน)`}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function Issues() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
@@ -1929,13 +1976,24 @@ export default function Issues() {
   };
 
   // รายงานใบเบิกงานรายวัน (Excel/PDF) — matrix แยกวัน: แถว=สมาชิก, คอลัมน์=ชนิดสินค้า + subtotal + จำนวนคนเบิก + ยอดรับเข้าจากโรงงานวันนั้น
-  const downloadIssueDaily = async (format?: 'pdf') => {
-    const noFilter = !dateFilter.date && !dateFilter.from && !dateFilter.to;
-    if (noFilter && !confirm('ยังไม่ได้กรองช่วงวันที่ — จะสร้างรายงานทุกวันที่มีข้อมูลทั้งหมด (อาจมีหลายสิบหน้า) ดำเนินการต่อหรือไม่?')) return;
+  // กดปุ่ม Excel/PDF รายวัน → เปิดหน้าต่างเลือกวันก่อน (ติ๊กเฉพาะวันที่ต้องการ)
+  const [dayPick, setDayPick] = useState<{ format?: 'pdf' } | null>(null);
+  const issueDays = useMemo(() => {
+    const m = new Map<string, { date: string; members: Set<number>; qty: number }>();
+    for (const i of issues as any[]) {
+      const d = String(i.issued_at || '').slice(0, 10);
+      if (!d) continue;
+      if (!m.has(d)) m.set(d, { date: d, members: new Set(), qty: 0 });
+      const x = m.get(d)!; x.members.add(i.member_id); x.qty += Number(i.quantity) || 0;
+    }
+    return [...m.values()].sort((a, b) => b.date.localeCompare(a.date));
+  }, [issues]);
+  const downloadIssueDaily = async (format: 'pdf' | undefined, dates: string[]) => {
+    setDayPick(null);
     const tab = openDownloadTab();
     setDailyBusy(format === 'pdf' ? 'pdf' : 'xlsx');
     try {
-      const blob = await reportApi.issueDailyExport({ ...dateFilter, status: statusFilter || undefined }, format);
+      const blob = await reportApi.issueDailyExport({ ...dateFilter, status: statusFilter || undefined, dates }, format);
       downloadBlob(blob, `ใบเบิกงานรายวัน-${dateFilterLabel(dateFilter)}.${format === 'pdf' ? 'pdf' : 'xlsx'}`, tab);
     } catch {
       tab?.close();
@@ -1991,13 +2049,15 @@ export default function Issues() {
             'สถานะ': statusLabel[i.status] || i.status, 'ผู้บันทึก': i.created_by || '',
           }))} />
           <button type="button" className="btn-secondary btn-sm flex items-center gap-1.5" disabled={dailyBusy === 'xlsx'}
-            onClick={() => downloadIssueDaily()} title="รายงานใบเบิกงานรายวัน แยกเป็นวันๆ (Excel)">
+            onClick={() => setDayPick({})} title="รายงานใบเบิกงานรายวัน แยกเป็นวันๆ (Excel) — เลือกวันได้">
             {dailyBusy === 'xlsx' ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />} Excel รายวัน
           </button>
           <button type="button" className="btn-secondary btn-sm flex items-center gap-1.5" disabled={dailyBusy === 'pdf'}
-            onClick={() => downloadIssueDaily('pdf')} title="รายงานใบเบิกงานรายวัน แยกเป็นวันๆ (PDF)">
+            onClick={() => setDayPick({ format: 'pdf' })} title="ใบคุมการเบิก–คืนงาน A4 สำหรับพิมพ์ (PDF) — เลือกวันได้">
             {dailyBusy === 'pdf' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} PDF รายวัน
           </button>
+          {dayPick && <DayPickDialog days={issueDays} format={dayPick.format} onClose={() => setDayPick(null)}
+            onExport={dates => downloadIssueDaily(dayPick.format, dates)} />}
           <button className="btn-primary btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={18} /> สร้างใบเบิก
           </button>

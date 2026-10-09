@@ -1808,7 +1808,10 @@ router.post('/financial-statement-export', (req, res) => {
 
 // ── รายงานใบเบิกงานรายวัน (Issue Daily) — matrix: แถว=สมาชิก, คอลัมน์=ชนิดสินค้า, 1 หน้า/วัน ─────
 // แยกต่างหากจาก ExportExcelButton เดิมในหน้า "เบิกงาน" โดยสิ้นเชิง (ปุ่ม Excel เดิมยังอยู่ ไม่แตะ)
-function buildIssueDaily(filters: { date?: string; from?: string; to?: string; status?: string }) {
+function buildIssueDaily(filters: { date?: string; from?: string; to?: string; status?: string; dates?: string[] }) {
+  // dates = เลือกเฉพาะบางวัน (จากหน้าต่างเลือกวันก่อน export) — ไม่ส่งมา = ทุกวันในช่วง
+  const pick = (filters.dates || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  const pickSql = (col: string) => (pick.length ? ` AND substr(${col}, 1, 10) IN (${pick.map(() => '?').join(',')})` : '');
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
 
   let sql = `SELECT i.id, i.code, i.issued_at, i.quantity, m.code as member_code, m.name as member_name, m.nickname as member_nickname,
@@ -1819,6 +1822,7 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
   if (filters.date) { sql += ` AND i.issued_at LIKE ?`; params.push(`${filters.date}%`); }
   if (filters.from) { sql += ` AND i.issued_at >= ?`; params.push(filters.from); }
   if (filters.to) { sql += ` AND i.issued_at <= ?`; params.push(filters.to); }
+  sql += pickSql('i.issued_at'); params.push(...pick);
   sql += ` ORDER BY i.issued_at, m.code`;
   const issueRows = prepare(sql).all(...params) as any[];
 
@@ -1828,6 +1832,7 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
   if (filters.date) { rsql += ` AND r.received_at LIKE ?`; rparams.push(`${filters.date}%`); }
   if (filters.from) { rsql += ` AND r.received_at >= ?`; rparams.push(filters.from); }
   if (filters.to) { rsql += ` AND r.received_at <= ?`; rparams.push(filters.to); }
+  rsql += pickSql('r.received_at'); rparams.push(...pick);
   rsql += ` ORDER BY r.received_at`;
   const receiveRows = prepare(rsql).all(...rparams) as any[];
 
@@ -1893,6 +1898,7 @@ router.post('/issue-daily-export', (req, res) => {
     from: typeof req.body?.from === 'string' ? req.body.from : undefined,
     to: typeof req.body?.to === 'string' ? req.body.to : undefined,
     status: typeof req.body?.status === 'string' ? req.body.status : undefined,
+    dates: Array.isArray(req.body?.dates) ? req.body.dates.map(String) : undefined,
   };
   const wantPdf = req.query.format === 'pdf';
   const data = buildIssueDaily(filters);
