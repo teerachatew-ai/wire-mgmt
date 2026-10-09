@@ -175,11 +175,11 @@ for day in d["days"]:
             fg = text_on(hexc)
             parts = label(pn).rsplit(" ", 1)
             c = put(ws, H, cP0 + i, None, fill=hexc, al=C, border=Border(left=thin, right=thin, top=thin, bottom=Side(style="medium", color=HEAD_FILL)),
-                    f=font(8.5, True, fg))
-            c.value = rich([(8.5, True, fg, parts[0]), (8, False, fg, ("\n" + parts[1]) if len(parts) > 1 else "")])
+                    f=font(8, True, fg))
+            c.value = rich([(8, True, fg, parts[0]), (7.5, False, fg, ("\n" + parts[1]) if len(parts) > 1 else "")])
         put(ws, H, cSum, "รวม", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
         put(ws, H, cDate, "วันที่คืน", f=font(9.5, True, "FFFFFF"), fill=RET_HEAD, al=C, border=hb)
-        ws.row_dimensions[H].height = 48
+        ws.row_dimensions[H].height = 64   # หัวชนิดงาน 2–3 บรรทัด เว้นที่ไม่ให้ชิดขอบ
     H = 5
     table_header(H)
 
@@ -196,7 +196,7 @@ for day in d["days"]:
     # ตัดหน้าเองก่อนกลุ่มสมาชิกที่จะล้นหน้า — 5 แถวของคนเดียวกันต้องอยู่หน้าเดียวกันเสมอ
     # หน้า A4 ≈ 777pt ÷ อัตราย่อบนเซิร์ฟเวอร์ ~0.8 ≈ 970pt (เผื่อไว้ 950) · สมาชิก 1 คน = 22+24+24+20+20 = 110pt
     ROW_H = (22, 24, 24, 20, 20)
-    PAGE_H, BLOCK_H, used_h = 1060, sum(ROW_H), 15 + 26 + 15 + 5 + 48
+    PAGE_H, BLOCK_H, used_h = 1080, sum(ROW_H), 15 + 26 + 15 + 5 + 64
     for gi, code in enumerate(sorted(by_member)):
         group = by_member[code]
         issued, rets, ngf, ngm = {}, {}, {}, {}    # rets: date -> {product: qty} · ngf/ngm: product -> NG รวมทุกงวด
@@ -241,7 +241,7 @@ for day in d["days"]:
             ws.row_breaks.append(Break(id=r0 - 1))
             table_header(r0)          # หน้าใหม่เริ่มด้วยหัวตาราง
             r0 = row = r0 + 1
-            used_h = 48
+            used_h = 64
         used_h += BLOCK_H
         bg_issue = DONE_FILL if done else ("F1F5F9" if gi % 2 else "FFFFFF")
         bg_ret = DONE_FILL if done else None
