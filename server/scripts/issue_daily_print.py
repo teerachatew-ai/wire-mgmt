@@ -243,10 +243,11 @@ for day in d["days"]:
             r0 = row = r0 + 1
             used_h = 64
         used_h += BLOCK_H
-        bg_issue = DONE_FILL if done else ("F1F5F9" if gi % 2 else "FFFFFF")
-        bg_ret = DONE_FILL if done else None
+        # ตัวตาราง (ไม่ใช่หัวคอลัมน์) ไม่ใส่สีพื้น — ดูสะอาด อ่านง่าย เขียนทับได้ · แยกสถานะด้วยสีตัวอักษรอย่างเดียว
+        bg_issue = None
+        bg_ret = None
         b = Border(left=thin, right=thin, top=thin, bottom=thin)
-        shade = "E5E7EB"
+        shade = None
 
         # แถว "เบิก"
         put(ws, r0, cT, "เบิก", f=font(8.5, True, NAVY), fill=bg_issue, al=C, border=b)
@@ -273,14 +274,14 @@ for day in d["days"]:
         # แถว NG แยกชนิดงาน — NG โรงงาน / NG สมาชิก (ตัดโดนสายไฟ + ดึงเชือก)
         for k, (lbl, vals) in enumerate((("NG โรงงาน", ngf), ("NG สมาชิก", ngm))):
             rr = r0 + 3 + k
-            put(ws, rr, cT, lbl, f=font(8, True, RED), fill=NG_FILL, al=C, border=b)
+            put(ws, rr, cT, lbl, f=font(8, True, RED), al=C, border=b)
             for i, p in enumerate(prods):
                 q = vals.get(p)
                 put(ws, rr, cP0 + i, q if q else None, f=font(10, True, RED, italic=True),
-                    fill=(NG_FILL if issued.get(p) else shade), al=C, fmt=NUM, border=b)
+                    al=C, fmt=NUM, border=b)
             s = sum(vals.values())
-            put(ws, rr, cSum, s or None, f=font(10, True, RED, italic=True), fill=NG_FILL, al=C, fmt=NUM, border=b)
-            put(ws, rr, cDate, fill=shade, border=b)
+            put(ws, rr, cSum, s or None, f=font(10, True, RED, italic=True), al=C, fmt=NUM, border=b)
+            put(ws, rr, cDate, border=b)
 
         for k, h in enumerate(ROW_H):
             ws.row_dimensions[r0 + k].height = h
@@ -302,11 +303,11 @@ for day in d["days"]:
     # ── รวมท้ายตาราง ──
     if used_h + 170 > PAGE_H:   # รวมท้ายตาราง + ลายเซ็น ไม่ให้แยกไปอยู่หน้าใหม่ครึ่งๆ
         ws.row_breaks.append(Break(id=row - 1))
-    for label_txt, vals, fill_c, txt_c in (("รวมเบิก", tot_issue, HEAD_FILL, "FFFFFF"),
-                                           ("คืนแล้ว", tot_ret, "D1FAE5", GREEN),
-                                           ("ค้างคืน", {p: tot_issue.get(p, 0) - tot_ret.get(p, 0) for p in prods}, "FEF3C7", AMBER),
-                                           ("NG โรงงาน", tot_ngf, NG_FILL, RED),
-                                           ("NG สมาชิก", tot_ngm, NG_FILL, RED)):
+    for label_txt, vals, fill_c, txt_c in (("รวมเบิก", tot_issue, None, NAVY),
+                                           ("คืนแล้ว", tot_ret, None, GREEN),
+                                           ("ค้างคืน", {p: tot_issue.get(p, 0) - tot_ret.get(p, 0) for p in prods}, None, AMBER),
+                                           ("NG โรงงาน", tot_ngf, None, RED),
+                                           ("NG สมาชิก", tot_ngm, None, RED)):
         tb = Border(left=thin, right=thin, top=thin, bottom=thin)
         ws.merge_cells(start_row=row, start_column=cN, end_row=row, end_column=cT)
         put(ws, row, cN, label_txt, f=font(9.5, True, txt_c), fill=fill_c, al=Alignment(horizontal="right", vertical="center", indent=1), border=tb)
@@ -331,7 +332,7 @@ for day in d["days"]:
     row += 1
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=NCOL)
     put(ws, row, 1, "วิธีกรอก: สมาชิกมาคืนครั้งแรก เขียนจำนวนที่คืนของแต่ละชนิดในแถว \"คืน 1\" และวันที่ในช่องขวาสุด · มาคืนส่วนที่เหลือ เขียนในแถว \"คืน 2\" · "
-                    "งานเสีย เขียนจำนวนในแถว \"NG โรงงาน\" / \"NG สมาชิก\" ใต้ชนิดงานนั้น · ตัวเอียง = บันทึกในระบบแล้ว · ช่องเทา = ไม่ได้เบิกชนิดนั้น · แถวสีเขียว = คืนครบแล้ว",
+                    "งานเสีย เขียนจำนวนในแถว \"NG โรงงาน\" / \"NG สมาชิก\" ใต้ชนิดงานนั้น · ตัวเอียง = บันทึกในระบบแล้ว · ✓ คืนครบ = คืนครบแล้ว",
         f=font(8, color=LIGHT), al=Alignment(horizontal="left", vertical="top", wrap_text=True))
     ws.row_dimensions[row].height = 26
 
