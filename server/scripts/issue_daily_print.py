@@ -61,7 +61,7 @@ def prod_key(name, color):
     return (color_priority(hexc), hexc or "ZZZZZZ", num.group(1) if num else "", name)
 
 FONT = "TH SarabunPSK"   # ติดตั้งบนเซิร์ฟเวอร์จาก fonts/ (Dockerfile) · ตัวเล็กกว่า Tahoma จึงขยายขนาดในฟังก์ชัน font()
-FS = 1.4
+FS = 1.6
 INK = "111827"; GREY = "6B7280"; LIGHT = "9CA3AF"; NAVY = "1E3A5F"; BLUE = "1D4ED8"; GREEN = "047857"; AMBER = "B45309"
 HEAD_FILL = "1E3A5F"; RET_HEAD = "0F766E"; ZEBRA = "F5F7FA"; DONE_FILL = "ECFDF5"
 NG_HEAD = "B91C1C"; NG_FILL = "FEF2F2"; RED = "B91C1C"
@@ -114,7 +114,7 @@ def text_on(hexc):
     if not hexc:
         return INK
     r, g, b = int(hexc[0:2], 16), int(hexc[2:4], 16), int(hexc[4:6], 16)
-    return INK if (0.299 * r + 0.587 * g + 0.114 * b) > 150 else "FFFFFF"
+    return INK if (0.299 * r + 0.587 * g + 0.114 * b) > 125 else "FFFFFF"   # เขียว/ชมพู = ตัวเข้ม · น้ำเงิน = ตัวขาว
 
 wb = Workbook()
 wb.remove(wb.active)
@@ -196,7 +196,7 @@ for day in d["days"]:
     # ตัดหน้าเองก่อนกลุ่มสมาชิกที่จะล้นหน้า — 5 แถวของคนเดียวกันต้องอยู่หน้าเดียวกันเสมอ
     # หน้า A4 ≈ 777pt ÷ อัตราย่อบนเซิร์ฟเวอร์ ~0.8 ≈ 970pt (เผื่อไว้ 950) · สมาชิก 1 คน = 22+24+24+20+20 = 110pt
     ROW_H = (22, 24, 24, 20, 20)
-    PAGE_H, BLOCK_H, used_h = 950, sum(ROW_H), 15 + 26 + 15 + 5 + 40
+    PAGE_H, BLOCK_H, used_h = 1060, sum(ROW_H), 15 + 26 + 15 + 5 + 40
     for gi, code in enumerate(sorted(by_member)):
         group = by_member[code]
         issued, rets, ngf, ngm = {}, {}, {}, {}    # rets: date -> {product: qty} · ngf/ngm: product -> NG รวมทุกงวด
