@@ -484,7 +484,7 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
               {valid && (
                 <p className={`text-xs ${after! < 0 ? 'text-rose-600' : 'text-gray-600'}`}>
                   บันทึกแล้วเหลือรอเบิก <b className={after! > 0 ? 'text-violet-700' : after! < 0 ? 'text-rose-600' : 'text-emerald-700'}>{fmtN(after)}</b> เส้น
-                  {after! < 0 && ' — น้อยกว่าที่เบิกไปแล้ว ตรวจตัวเลขอีกครั้ง'}
+                  {after! < 0 && ' — น้อยกว่าที่เบิกไปแล้ว ล็อตนี้จะติดลบ (บันทึกได้ ถ้านับมาแล้วได้เท่านี้จริง)'}
                 </p>
               )}
               {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{msg.text}</p>}

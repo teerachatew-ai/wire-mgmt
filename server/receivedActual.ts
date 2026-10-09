@@ -82,7 +82,10 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
   for (const r of recv) {
     const t = tagged.get(lotKey(r.product_id, r.d)) || { qty: 0, reported: 0 };
     const counted = Number(r.counted) || 0;
-    const base = Math.max(counted + t.reported, t.qty);
+    // ปกติยอดรับจริงไม่ต่ำกว่ายอดที่เบิกระบุล็อตนี้ (เบิกได้ = ของมีจริง) — แต่ล็อตที่คนกำหนด/นับยอดเองแล้ว
+    // ใช้ตามที่กรอกเป๊ะ แม้น้อยกว่าที่เบิก (ล็อตติดลบ = ใบเบิกระบุล็อตผิด/เบิกเกิน ให้เห็นเป็นสีแดง)
+    // เดิมยกขึ้นเท่ายอดเบิกเงียบๆ → กรอก 6,005 แล้วระบบโชว์ 6,046 เหมือนแก้ไม่ได้
+    const base = r.n_manual > 0 ? counted + t.reported : Math.max(counted + t.reported, t.qty);
     const row: LotRow = {
       product_id: r.product_id, lot_date: r.d, note: Number(r.note) || 0, manual: Number(r.n_manual) > 0,
       counted, reported: t.reported, tagged: t.qty, untagged: 0, auto: 0, actual: base, remaining: 0,
