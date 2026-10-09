@@ -74,6 +74,7 @@ const ACTIONS: [RegExp, string, string][] = [
   [/^POST \/receives\/lot-set-actual$/, 'กำหนดยอดรับจริงของล็อต', 'รับของ/ล็อต'],
   [/^POST \/receives\/count-waiting$/, 'นับของหน้างาน', 'รับของ/ล็อต'],
   [/^DELETE \/receives\/waiting-adjustments\/\d+$/, 'ลบรายการปรับยอดรอแจกจ่าย', 'รับของ/ล็อต'],
+  [/^POST \/receives\/waiting-adjustments$/, 'ปรับยอดรอแจกจ่าย', 'รับของ/ล็อต'],
   [/^POST \/stock-adjustments$/, 'ปรับยอดสต็อก', 'รับของ/ล็อต'],
   [/^DELETE \/stock-adjustments\/\d+$/, 'ลบรายการปรับยอดสต็อก', 'รับของ/ล็อต'],
   [/^POST \/shipments$/, 'ส่งงานออกโรงงาน', 'ส่งออก/วางบิล'],

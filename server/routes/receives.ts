@@ -293,9 +293,10 @@ router.post('/count-waiting', (req, res) => {
   if (Math.abs(left) > 0.0001) {
     const today = todayThai();
     const reason = req.body?.note ? String(req.body.note).trim() : `นับของหน้างาน ${today}`;
+    // ลงวันที่ = วันรับของล็อตนั้น (ส่วนต่างเป็นของล็อตนั้น ไม่ใช่ของวันที่นับ) — ยอดยกมา/คงเหลือรายเดือนจึงไม่ค้างยอดที่ไม่มีอยู่จริง
     const add = (lot: string, q: number) => {
       prepare(`INSERT INTO waiting_adjustments (product_id, lot_date, adjusted_at, quantity, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(productId, lot, today, q, reason, userOf(req));
+        .run(productId, lot, lot, q, reason, userOf(req));
       adjusted.push({ lot_date: lot, qty: q });
     };
     const now = lotsOf(productId).filter(l => locked.has(l.lot_date));
@@ -308,6 +309,19 @@ router.post('/count-waiting', (req, res) => {
   }
   const after = lotsOf(productId).reduce((s, l) => s + l.remaining_qty, 0);
   res.json({ before: current, counted, after, applied: delta, changed, adjusted, locked_lots: [...locked].sort() });
+});
+
+// เพิ่มรายการปรับยอดรอแจกจ่ายของล็อตเอง (เช่น ย้ายยอดระหว่างล็อตเมื่อใบเบิกติดป้ายล็อตผิด) — ลงวันที่ = วันรับของล็อต
+router.post('/waiting-adjustments', (req, res) => {
+  const pid = Number(req.body?.product_id);
+  const d = String(req.body?.lot_date || '').slice(0, 10);
+  const q = Number(req.body?.quantity);
+  if (!pid || !/^\d{4}-\d{2}-\d{2}$/.test(d) || !Number.isFinite(q) || q === 0) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  if (!prepare(`SELECT 1 FROM receives WHERE product_id = ? AND substr(received_at, 1, 10) = ? LIMIT 1`).get(pid, d))
+    return res.status(404).json({ error: 'ไม่พบล็อตนี้' });
+  const r = prepare(`INSERT INTO waiting_adjustments (product_id, lot_date, adjusted_at, quantity, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(pid, d, d, q, req.body?.reason ? String(req.body.reason).trim() : null, userOf(req));
+  res.json({ id: r.lastInsertRowid });
 });
 
 // ลบรายการปรับยอดรอแจกจ่าย (เช่น เจอใบเบิกที่ลงตกแล้ว แก้ที่ใบเบิกแทน)
