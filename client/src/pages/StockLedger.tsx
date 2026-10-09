@@ -301,13 +301,17 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                 {items.map(p => {
                   const s = statusOf.get(p.id);
                   if (!s) return <td key={p.id} className="px-3 py-1.5 text-right text-gray-300">–</td>;
-                  const v = val(p, r.key);
-                  // ยอดคำนวณติดลบ (ปัดเป็น 0 แล้ว) = บันทึกไม่สมดุล — ติดเครื่องหมายไว้ให้ตรวจสอบ ไม่ซ่อนเงียบๆ
-                  const raw = r.key === 'in_warehouse' ? Number(s.wait_raw) : r.key === 'stock_ready' ? Number(s.ready_raw) : v;
+                  // โชว์ยอดจริง ไม่ปัดติดลบเป็น 0 — 3 แถวจึงบวกกันได้เท่า "รวมของที่อยู่ที่กลุ่ม" เสมอ
+                  // ติดลบ = บันทึกไม่สมดุล (สีแดง + ⚠ + บอกสาเหตุ) ให้เห็นและแก้ได้ ไม่ซ่อนเงียบๆ
+                  const raw = r.key === 'in_warehouse' ? Number(s.wait_raw ?? val(p, r.key))
+                    : r.key === 'stock_ready' ? Number(s.ready_raw ?? val(p, r.key)) : val(p, r.key);
+                  const v = raw;
                   const upb = Number(p.units_per_box) || 0;
                   return (
                     <td key={p.id} className="px-3 py-1.5 text-right align-top"
-                      title={raw < 0 ? `คำนวณได้ ${fmt(raw)} — ${r.key === 'in_warehouse' ? 'บันทึกเบิกเกินกว่ารับเข้า' : 'ยอดบันทึกไม่สมดุล'} แสดงเป็น 0` : undefined}>
+                      title={raw < 0 ? (r.key === 'in_warehouse'
+                        ? 'ติดลบ = เบิกให้สมาชิกเกินของที่รับจริง — ตรวจยอดรับของ/ใบเบิกในหน้ารับของจากโรงงาน'
+                        : 'ติดลบ = ส่งออกโรงงานมากกว่าของที่บันทึกรับคืน — มักเกิดจากลงรับคืนไม่ครบ หรือลงวันที่รับคืนช้ากว่าวันส่ง') : undefined}>
                       {r.key === 'in_warehouse' && counting
                         ? <input type="number" inputMode="numeric" className="input w-24 text-right py-0.5 px-1.5 text-sm"
                             placeholder={String(v)} value={draft[p.id] ?? ''}
@@ -317,10 +321,10 @@ function StatusBlock({ items, statusOf }: { items: any[]; statusOf: Map<number, 
                             // คลิกตัวเลข -> เปิดรายชื่อสมาชิกที่ประกอบเป็นยอดนี้
                             ? <button type="button" onClick={() => setDetail({ product: p, kind: r.key === 'stock_ready' ? 'ready' : 'with_members' })}
                                 title="คลิกเพื่อดูว่าเป็นงานของสมาชิกคนไหนบ้าง"
-                                className={`font-semibold underline decoration-dotted underline-offset-4 decoration-current/50 rounded px-1 -mx-1 hover:bg-white hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 cursor-pointer ${r.cls}`}>
+                                className={`font-semibold underline decoration-dotted underline-offset-4 decoration-current/50 rounded px-1 -mx-1 hover:bg-white hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 cursor-pointer ${v < 0 ? 'text-rose-600' : r.cls}`}>
                                 {fmt(v)}
                               </button>
-                            : v ? <span className={`font-semibold ${r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
+                            : v ? <span className={`font-semibold ${v < 0 ? 'text-rose-600' : r.cls}`}>{fmt(v)}</span> : <span className="text-gray-300">–</span>)}
                       {raw < 0 && <span className="text-rose-500 text-[10px] ml-0.5">⚠</span>}
                       {r.key === 'stock_ready' && v > 0 && upb > 0 && (
                         <div className="text-[10px] text-gray-400 whitespace-nowrap">
@@ -451,7 +455,9 @@ export default function StockLedger() {
     };
     for (const r of (receives as any[])) {
       const m = at(String(r.received_at).slice(0, 10));
-      m.in[r.product_id] = (m.in[r.product_id] || 0) + (Number(r.quantity) || 0);
+      // สต็อกหน้างานใช้ "ยอดรับจริง" (ใบส่งของ ± ส่วนต่างที่นับได้/สมาชิกแจ้ง/ปิดล็อต) ให้ตรงกับระบบล็อตและ "รอแจกจ่าย"
+      const q = mode === 'site' ? Number(r.actual_qty ?? r.quantity) : Number(r.quantity);
+      m.in[r.product_id] = (m.in[r.product_id] || 0) + (q || 0);
     }
     for (const i of (issues as any[])) {
       const m = at(String(i.issued_at).slice(0, 10));
@@ -466,7 +472,7 @@ export default function StockLedger() {
       }
     }
     return { dates: [...moves.keys()].sort(), moves };
-  }, [receives, issues, shipments]);
+  }, [receives, issues, shipments, mode]);
 
   // ── จัดสินค้าเป็นกลุ่มงาน เรียงสีเดียวกันติดกัน (กติกาเดียวกับรายงานค่าแรง/ตาราง matrix) ──
   const groups = useMemo(() => {
@@ -521,16 +527,32 @@ export default function StockLedger() {
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
+  /* สต็อกหน้างาน: ยอดยกมา/คงเหลือ = "ของรอแจกจ่าย" ตามระบบล็อต (เลขเดียวกับแถว "รอแจกจ่ายสมาชิก" และหน้าใบเบิก)
+     เดิมเดินยอดเองจากยอดใบส่งของ − ใบเบิก จึงได้ "คงเหลือหน้างาน" เท่ากับส่วนต่างใบส่งของ−รับจริง ไม่ใช่ของจริง
+     วันปิดรอบที่รับ/เบิกเป็นของรอบถัดไป → ตัดวันนั้นออกจากท้ายช่วงให้ตรงกับตาราง */
+  const balTo = toDate && inBelongsToNext
+    ? (() => { const d = new Date(toDate + 'T00:00:00'); d.setDate(d.getDate() - 1); return isoOf(d); })()
+    : toDate;
+  const { data: siteBal } = useQuery({
+    queryKey: ['receive-lots', 'balance', 'ledger', fromDate, balTo],
+    queryFn: () => receiveApi.balance({ from: fromDate || undefined, to: balTo || undefined }),
+    enabled: mode === 'site' && !!countFrom,
+  });
+  const siteBalOf = useMemo(() => new Map<number, any>(((siteBal?.products || []) as any[]).map(p => [p.product_id, p])), [siteBal]);
+  const useLots = mode === 'site' && !!countFrom && !!siteBal;
+  const closingOf = (pid: number) => (useLots ? Number(siteBalOf.get(pid)?.closing) || 0 : (ledger.closing[pid] || 0));
+  const openingOf = (pid: number) => (useLots ? Number(siteBalOf.get(pid)?.opening) || 0 : 0);
+
   const summary = useMemo(() => {
     let tin = 0, tout = 0, closing = 0;
     for (const g of shownGroups) {
       for (const r of (ledger.rows.get(g.key) || [])) {
         for (const p of g.items) { tin += r.in[p.id] || 0; tout += r.out[p.id] || 0; }
       }
-      for (const p of g.items) closing += ledger.closing[p.id] || 0;
+      for (const p of g.items) closing += closingOf(p.id);
     }
     return { tin, tout, closing };
-  }, [shownGroups, ledger]);
+  }, [shownGroups, ledger, siteBalOf, useLots]);
 
   // Export ให้หน้าตาเหมือนไฟล์ Excel เดิม: รายวัน → แถว "รวม" → แถว "ยอดความต่าง" (ใต้คอลัมน์ส่งออก) ต่อกลุ่มงาน
   const exportRows = useMemo(() => {
@@ -565,7 +587,8 @@ export default function StockLedger() {
         const row: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': `ณ วันนี้: ${s.label}` };
         g.items.forEach((p: any, i: number) => {
           row[`รับเข้า ${names[i]}`] = '';
-          row[`${outLabel} ${names[i]}`] = statusOf.get(p.id)?.[s.key] ?? '';
+          const st = statusOf.get(p.id);
+          row[`${outLabel} ${names[i]}`] = !st ? '' : s.key === 'stock_ready' ? (st.ready_raw ?? st.stock_ready) : s.key === 'in_warehouse' ? (st.wait_raw ?? st.in_warehouse) : (st[s.key] ?? '');
         });
         out.push(row);
       }
@@ -675,11 +698,12 @@ export default function StockLedger() {
         const view = newestFirst ? [...rows].reverse() : rows;
         const gIn = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.in[p.id] || 0), 0), 0);
         const gOut = g.items.reduce((s: number, p: any) => s + rows.reduce((a: number, r: any) => a + (r.out[p.id] || 0), 0), 0);
-        const gBal = g.items.reduce((s: number, p: any) => s + (ledger.closing[p.id] || 0), 0);
+        const gBal = g.items.reduce((s: number, p: any) => s + closingOf(p.id), 0);
+        const gOpen = g.items.reduce((s: number, p: any) => s + openingOf(p.id), 0);
         const gFinal = finalOf(gIn, gOut, gBal);
         const sumIn = (pid: number) => rows.reduce((a: number, r: any) => a + (r.in[pid] || 0), 0);
         const sumOut = (pid: number) => rows.reduce((a: number, r: any) => a + (r.out[pid] || 0), 0);
-        const finalFor = (pid: number) => (mode === 'factory' ? sumIn(pid) - sumOut(pid) : (ledger.closing[pid] || 0));
+        const finalFor = (pid: number) => (mode === 'factory' ? sumIn(pid) - sumOut(pid) : closingOf(pid));
 
         return (
           <div key={g.key} className="card !p-0 overflow-hidden">
@@ -688,9 +712,10 @@ export default function StockLedger() {
               <span className="font-semibold text-gray-800">{projectLabel(g.key)}</span>
               <span className="text-xs text-gray-400">{g.key}</span>
               <span className="ml-auto flex items-center gap-3 text-xs tabular-nums">
-                <span className="text-emerald-700">รับเข้า <b>{fmt(gIn)}</b></span>
-                <span className="text-blue-700">{outLabel} <b>{fmt(gOut)}</b></span>
-                <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{balLabel} <b>{fmt(gFinal)}</b></span>
+                {useLots && <span className="text-gray-500">ยกมา <b>{fmt(gOpen)}</b></span>}
+                <span className="text-emerald-700">{useLots && '+ '}รับเข้า <b>{fmt(gIn)}</b></span>
+                <span className="text-blue-700">{useLots && '− '}{outLabel} <b>{fmt(gOut)}</b></span>
+                <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{useLots && '= '}{balLabel} <b>{fmt(gFinal)}</b></span>
               </span>
             </div>
 
@@ -778,7 +803,7 @@ export default function StockLedger() {
 
       <p className="text-xs text-gray-400 px-1 leading-relaxed">
         {mode === 'site'
-          ? <><b>สต็อกหน้างาน = รับเข้าจากโรงงาน − เบิกออกให้สมาชิก</b> คือของที่ยังอยู่หน้างานรอแจกจ่าย (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)
+          ? <><b>คงเหลือหน้างาน = ยกมา + รับเข้า (ยอดรับจริง) − เบิกออกให้สมาชิก</b> คือของที่ยังรอแจกจ่าย — เลขเดียวกับแถว "รอแจกจ่ายสมาชิก" ด้านล่างและหน้าใบเบิก (ยังไม่รวมงานที่สมาชิกคืนกลับมาแล้วรอส่งโรงงาน)
               {countFrom
                 ? <> · เดินยอดตั้งแต่ <b>{dateTH(STOCK_CUTOFF)}</b> เป็นต้นมา ซึ่งเป็นยอดที่ตรงกับของจริงหน้างาน</>
                 : <> · ช่วงนี้ย้อนไปก่อน {dateTH(STOCK_CUTOFF)} ยอดคงเหลืออาจไม่ตรงกับของจริงหน้างาน (ใช้ดูประวัติเท่านั้น)</>}</>

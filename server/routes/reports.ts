@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
-import { varianceByProduct, lotVariances, lotKey } from '../receivedActual';
+import { varianceByProduct, lotVariances, lotKey, computeLots } from '../receivedActual';
 import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines } from '../wagePolicy';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -795,10 +795,21 @@ function computeStockStatus(asOf?: string) {
   const recvVar = varianceByProduct({ before: d || undefined });
   const recvCutVar = varianceByProduct({ from: STOCK_CUTOFF, before: d || undefined });
 
+  // ณ ตอนนี้: "รอแจกจ่าย" ใช้ระบบล็อตเป็นแหล่งเดียว (ผลรวมคงเหลือทุกล็อต รวมล็อตที่ติดลบ) — เลขเดียวกับหน้าใบเบิก/ช่องเลือกล็อต
+  // (สูตรเดิม รับเข้า − เบิกออก ตั้งแต่เริ่มนับ ไม่นับใบเบิกที่หักของก่อนเริ่มนับ จึงคลาดจากระบบล็อตได้ เช่น 675_A −183)
+  // ย้อนหลัง (asOf) ระบบล็อตไม่รู้ยอด ณ วันนั้น จึงใช้สูตรเดิม
+  const lotsNet = d ? null : (() => {
+    const m = new Map<number, number>();
+    for (const l of computeLots()) m.set(l.product_id, (m.get(l.product_id) || 0) + l.remaining);
+    return m;
+  })();
+
   return (pid: number) => {
     const at_site = (received.get(pid) || 0) + (recvVar.get(pid) || 0) + (adjustments.get(pid) || 0) - (shipped.get(pid) || 0);
-    const wait_raw = (recvCut.get(pid) || 0) + (recvCutVar.get(pid) || 0) - (issCut.get(pid) || 0);
-    const wait_distribute = Math.max(0, wait_raw);   // ติดลบเล็กน้อย = บันทึกเบิกเกินรับเข้า ไม่ใช่ของที่มีจริง
+    const wait_raw = lotsNet ? (lotsNet.get(pid) || 0)
+      : (recvCut.get(pid) || 0) + (recvCutVar.get(pid) || 0) - (issCut.get(pid) || 0);
+    // ณ ตอนนี้ไม่ปัดเป็น 0 — ติดลบ (เบิกเกินรับจริง) ต้องโชว์ให้เห็น และให้ 3 แถวสถานะบวกกันได้เท่ายอดรวมเสมอ
+    const wait_distribute = lotsNet ? wait_raw : Math.max(0, wait_raw);
     const with_members = withMembers.get(pid) || 0;
     const w = waste.get(pid) || 0, l = lost.get(pid) || 0;
     const ready_raw = at_site - wait_distribute - with_members - w - l;
