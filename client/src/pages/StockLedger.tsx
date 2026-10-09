@@ -443,7 +443,8 @@ export default function StockLedger() {
      ทำงานอัตโนมัติเมื่อช่วงที่ดูอยู่เริ่มตั้งแต่เส้นเริ่มนับเป็นต้นไป — ไม่ต้องมีปุ่มให้กดเอง
      ถ้าย้อนไปดูก่อนหน้านั้น (เช่น เลือกเดือน ก.ค.) จะเดินยอดจากวันแรกของระบบแทน = ดูประวัติได้
      แต่มีหมายเหตุใต้ตารางเตือนว่ายอดอาจไม่ตรงกับของจริง */
-  const countFrom = mode === 'site' && !!fromDate && fromDate >= STOCK_CUTOFF ? STOCK_CUTOFF : '';
+  // รับ-ส่งโรงงานก็เริ่มนับใหม่ที่วันเดียวกัน — กลุ่มย้ายมาเริ่มทำใหม่รอบเดือน ก.ย. (28 ส.ค.) ยอดก่อนหน้านั้นไม่ยกมา
+  const countFrom = !!fromDate && fromDate >= STOCK_CUTOFF ? STOCK_CUTOFF : '';
 
   // ใบเบิกทั้งหมดมี ~2,900 แถว (1.3 MB) — โหลดเต็มเฉพาะตอนต้องเดินยอดจากวันแรกของระบบจริงๆ
   const issuesFrom = mode === 'site' && !countFrom ? '' : STOCK_CUTOFF;
@@ -517,7 +518,9 @@ export default function StockLedger() {
       const inRange = !fromDate || d >= fromDate;
       // วันเริ่มรอบ — มีผลเฉพาะมุมมองรับ-ส่งโรงงาน เพราะเป็นกติกาของยอด "ส่งออก" เท่านั้น
       // (มุมมองสต็อกหน้างานไม่เกี่ยวกับการส่งออกเลย ยอดเบิกออกวันรอยต่อเป็นของรอบใหม่ตามปกติ)
-      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev && mode === 'factory';
+      // วันเริ่มนับใหม่ที่เป็นวันรอยต่อรอบ: ส่งออกวันนั้นเป็นการปิดรอบเก่า (ก่อนเริ่มนับ) → ไม่นับเลย ไม่ยกมาเป็นยอดติดลบ
+      const dropOldShip = mode === 'factory' && !!countFrom && d === countFrom && boundaries.has(d);
+      const atStartSeam = inRange && d === fromDate && shipBelongsToPrev && mode === 'factory' && !dropOldShip;
       const atEndSeam = inBelongsToNext && d === toDate;                     // วันปิดรอบ
 
       // วันเริ่มรอบ: ยอด "ส่งงานออกโรงงาน" เป็นของรอบก่อน — ไม่นับในรอบนี้
@@ -527,7 +530,7 @@ export default function StockLedger() {
       const inQty = atEndSeam ? EMPTY : mv.in;
       const outQty = mode === 'site'
         ? (atEndSeam ? EMPTY : mv.issue)
-        : (atStartSeam ? EMPTY : mv.ship);
+        : (atStartSeam || dropOldShip ? EMPTY : mv.ship);
 
       for (const [pid, q] of Object.entries(inQty)) bal[+pid] = (bal[+pid] || 0) + q;
       for (const [pid, q] of Object.entries(outQty)) bal[+pid] = (bal[+pid] || 0) - q;
@@ -540,7 +543,7 @@ export default function StockLedger() {
       }
     }
     return { rows, closing: bal };
-  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext]);
+  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext, boundaries]);
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
@@ -579,7 +582,7 @@ export default function StockLedger() {
       if (rows.length === 0) continue;
       const names = g.items.map((p: any) => { const { num, label } = parseProductLabel(p.name); return `${num} ${label}`; });
       const sumOf = (pid: number, k: 'in' | 'out') => rows.reduce((a: number, r: any) => a + (r[k][pid] || 0), 0);
-      if (mode === 'factory' && fromDate) {
+      if (mode === 'factory' && fromDate && fromDate > STOCK_CUTOFF) {
         // แถวแรก: ยกมาจากรอบก่อน (ใต้คอลัมน์รับเข้า) — เหมือนบนหน้าเว็บ
         const carry: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': 'ยกมาจากรอบก่อน' };
         g.items.forEach((p: any, i: number) => {
@@ -736,7 +739,8 @@ export default function StockLedger() {
         const carryOut = (pid: number) => ledger.closing[pid] || 0;
         const carryIn = (pid: number) => carryOut(pid) - sumIn(pid) + sumOut(pid);
         const gCarryIn = g.items.reduce((s: number, p: any) => s + carryIn(p.id), 0);
-        const showCarry = mode === 'factory' && !!fromDate;
+        // รอบแรกที่เริ่มนับใหม่ (ก.ย. เริ่ม 28 ส.ค.) ไม่มียอดยกมา — ไม่ต้องโชว์แถว
+        const showCarry = mode === 'factory' && !!fromDate && fromDate > STOCK_CUTOFF;
         // แถว "ยกมาจากรอบก่อน" — งานที่รับจากโรงงานแล้วยังค้างส่งคืน ณ ต้นช่วง (ไล่สายตาจากบนลงล่าง: ยกมา → รายวัน → รวม)
         const carryRow = (
           <tr className="border-b border-gray-200 bg-slate-50/70">
