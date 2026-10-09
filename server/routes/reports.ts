@@ -928,7 +928,7 @@ router.get('/stock-status-breakdown', (req, res) => {
     return byMember.get(r.mid);
   };
 
-  let total = 0, unassigned = 0, totalRaw: number | null = null;
+  let total = 0, unassigned = 0, totalRaw: number | null = null, stockReady: number | null = null, lastShip: string | null = null;
   const adjustments: { kind: string; label: string; qty: number; date?: string }[] = [];   // บรรทัดที่ไม่ใช่ของสมาชิก (พร้อมส่งเท่านั้น)
   if (kind === 'with_members') {
     const rows = prepare(`
@@ -947,68 +947,38 @@ router.get('/stock-status-breakdown', (req, res) => {
     }
     total = st.with_members;   // ตรงกับบัตรเสมอ (ผลรวมแถวด้านบนคำนวณด้วยสูตรเดียวกัน)
   } else {
-    /* พร้อมส่งโรงงาน แยกตามคนที่คืน — ไล่เหตุการณ์ตามวันที่ ตั้งแต่วันเริ่มนับสต็อก (STOCK_CUTOFF)
-       เริ่มด้วย "ยอดยกมา" ณ วันเริ่มนับ (ของพร้อมส่งที่มีอยู่ก่อน ไม่รู้ว่าของใคร) → คืน = ของเข้ากอง · ส่งออก = หยิบของเก่าก่อน
-       ส่งออกเกินของที่มีในกอง (ตามที่บันทึก) = "ส่งออกเกินของที่คืน" แยกเป็นบรรทัดของมันเอง ไม่ไปหักจากคนที่คืนทีหลัง
-       (เดิมหักต่อเนื่อง ทำให้คนท้ายรายการโดนตัดยอด เช่น คืน 100 โชว์ 82)
-       ยอดรวมเท่ากับบัตรสต็อกเสมอ: ของสมาชิก + ยอดยกมาที่ยังเหลือ − ส่งเกิน + ปรับยอดสต็อก (+ ส่วนต่างอื่น) = พร้อมส่ง */
-    total = st.ready;
-    const adj = Number((prepare(`SELECT COALESCE(SUM(quantity), 0) v FROM stock_adjustments WHERE product_id = ?`).get(pid) as any)?.v) || 0;
-    // ยอดปรับสต็อกนับเต็มทุกวันที่ในสูตรสต็อก — ตัดออกจากยอดยกมา แล้วแสดงเป็นบรรทัดของมันเอง
-    const opening = computeStockStatus(STOCK_CUTOFF)(pid).ready_raw - adj;
+    /* พร้อมส่งโรงงาน แยกตามคนที่คืน = "งานที่สมาชิกคืนมาหลังส่งงานครั้งล่าสุด"
+       ระบบไม่รู้ว่าแต่ละครั้งที่ส่งออกหยิบงานของใครไป — เดิมเดาแบบคืนก่อนส่งก่อน ทำให้ตัดยอดครึ่งๆ (เช่น เจี๊ยบ 300 เหลือ 50)
+       และต้องมีบรรทัดหักลบท้ายรายการ อ่านแล้วงง จึงใช้กติกาที่ตรงกับการทำงานจริง:
+         ส่งงานแต่ละครั้ง = ส่งของที่คืนมาแล้วทั้งหมด → ของที่คืน "ถึงวันส่งครั้งล่าสุด" ถือว่าส่งไปแล้ว
+         รายชื่อ = เฉพาะที่คืนหลังวันส่งครั้งล่าสุด (เต็มจำนวน ไม่ตัดยอด) · ไม่เคยส่งเลย = คืนทั้งหมดตั้งแต่วันเริ่มนับสต็อก
+       ยอดพร้อมส่งในบัตรสต็อก (คืน − ส่งออก สะสม) อาจไม่เท่ารายชื่อ → ส่งส่วนต่างกลับไปให้หน้าเว็บบอกเป็นหมายเหตุ */
+    const last = prepare(`
+      SELECT MAX(substr(s.shipped_at, 1, 10)) d FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id
+      WHERE si.product_id = ?`).get(pid) as any;
+    lastShip = last?.d || null;
     const rets = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
         substr(i.issued_at, 1, 10) issued_d, i.code icode,
         COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) q
       FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
-      WHERE i.product_id = ? AND r.returned_at >= ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0`).all(pid, STOCK_CUTOFF) as any[];
-    const ships = prepare(`
-      SELECT s.id sid, s.code scode, substr(s.shipped_at, 1, 10) d,
-        SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
-      FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id
-      WHERE si.product_id = ? AND s.shipped_at >= ? GROUP BY s.id`).all(pid, STOCK_CUTOFF) as any[];
-    const events: { d: string; t: number; id: number; r?: any; x?: any }[] = [
-      ...rets.map(r => ({ d: r.d, t: 0, id: r.rid, r })),
-      ...ships.map(x => ({ d: x.d, t: 1, id: x.sid, x })),
-    ].sort((p1, p2) => String(p1.d).localeCompare(String(p2.d)) || p1.t - p2.t || p1.id - p2.id);   // วันเดียวกัน: คืนก่อนส่ง
-    const queue: { r: any | null; left: number }[] = opening > 0 ? [{ r: null, left: opening }] : [];   // r = null = ยอดยกมา
-    const over: { date: string; code: string; qty: number }[] = [];
-    for (const e of events) {
-      if (e.t === 0) { queue.push({ r: e.r, left: Number(e.r.q) || 0 }); continue; }
-      let need = Number(e.x.q) || 0;
-      while (need > 0 && queue.length) {
-        const h = queue[0];
-        const take = Math.min(h.left, need);
-        h.left -= take; need -= take;
-        if (h.left <= 0) queue.shift();
-      }
-      if (need > 0) over.push({ date: e.x.d, code: e.x.scode, qty: need });
+      WHERE i.product_id = ? AND substr(r.returned_at, 1, 10) > ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
+      ORDER BY r.returned_at, r.id`).all(pid, lastShip || (() => {
+        // ไม่เคยส่งเลย = ตั้งแต่วันเริ่มนับสต็อก (รวมวันนั้น) → เทียบกับวันก่อนหน้า
+        const x = new Date(STOCK_CUTOFF + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10);
+      })()) as any[];
+    for (const r of rets) {
+      const m = member(r);
+      const q = Number(r.q) || 0;
+      m.qty += q; total += q;
+      m.items.push({ date: r.d, issued_date: r.issued_d, issue_code: r.icode, code: r.rcode, returned: q, qty: q, partial: false });
     }
-    let openingLeft = 0;
-    for (const h of queue) {
-      if (!h.r) { openingLeft += h.left; continue; }
-      const m = member(h.r);
-      const full = Number(h.r.q) || 0;
-      m.qty += h.left;
-      m.items.push({ date: h.r.d, issued_date: h.r.issued_d, issue_code: h.r.icode, code: h.r.rcode, returned: full, qty: h.left, partial: h.left < full });
-    }
-    const queued = queue.filter(h => h.r).reduce((t, h) => t + h.left, 0);
-    const overSum = over.reduce((t, o) => t + o.qty, 0);
-    const negOpening = Math.min(0, opening);
-    const rest = st.ready_raw - queued - openingLeft + overSum - adj - negOpening;
-    const cut = STOCK_CUTOFF.split('-').reverse().slice(0, 2).map(Number).join('/');
-    if (openingLeft > 0.0001) adjustments.push({ kind: 'opening', label: `ยอดยกมา ณ ${cut} ที่ยังไม่ได้ส่ง (ไม่ทราบว่าของใคร)`, qty: openingLeft });
-    if (negOpening < -0.0001) adjustments.push({ kind: 'opening', label: `ยอดยกมา ณ ${cut} ติดลบ (บันทึกช่วงแรกส่งออกเกินของที่คืน)`, qty: negOpening });
-    for (const o of over) adjustments.push({ kind: 'over', label: `ส่งออกเกินของที่คืน (ใบส่ง ${o.code})`, date: o.date, qty: -o.qty });
-    if (Math.abs(adj) > 0.0001) adjustments.push({ kind: 'adjust', label: 'ปรับยอดสต็อก (หน้า "ปรับยอดสต็อก")', qty: adj });
-    if (Math.abs(rest) > 0.5) adjustments.push({ kind: 'legacy', label: 'ส่วนต่างอื่น (ยอดรับจริง/งานเสียที่ปรับภายหลัง)', qty: rest });
-    totalRaw = st.ready_raw;
+    stockReady = st.ready_raw;
   }
   const members = [...byMember.values()].sort((a, b) => b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
   res.json({ product, kind, total, total_raw: totalRaw, members, unassigned, adjustments,
-    note: kind === 'ready'
-      ? 'สมมติว่าส่งของที่คืนก่อนออกไปก่อน (ระบบไม่ได้ผูกของที่ส่งออกกับสมาชิก) · ยอดของแต่ละคน = ที่คืนจริงที่ยังไม่ได้ส่ง · ยอดที่ไม่ลงตัวแยกเป็นบรรทัดด้านล่างพร้อมที่มา'
-      : null });
+    stock_ready: stockReady, last_ship: lastShip,   // พร้อมส่ง: ยอดในบัตรสต็อก + วันส่งงานครั้งล่าสุด (หน้าเว็บบอกส่วนต่างเป็นหมายเหตุ)
+    note: null });
 });
 
 // Export ตารางตรวจสอบสต็อค (Check & Balance) เป็นไฟล์ Excel

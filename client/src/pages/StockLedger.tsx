@@ -94,7 +94,9 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
               <span className="ml-2 text-sm font-semibold text-gray-600">{num} {label}</span>
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              {isReady ? 'ของที่สมาชิกคืนแล้ว รอส่งโรงงาน — แยกตามคนที่คืน' : 'ใบเบิกที่สมาชิกยังคืนไม่ครบ — แยกตามคนที่ถือ'}
+              {isReady
+                ? (data?.last_ship ? `งานที่สมาชิกคืนมาหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})` : 'งานที่สมาชิกคืนมาแล้ว (ยังไม่เคยส่งออก)')
+                : 'ใบเบิกที่สมาชิกยังคืนไม่ครบ — แยกตามคนที่ถือ'}
             </p>
           </div>
           <div className="text-right shrink-0">
@@ -110,7 +112,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
           ) : isError ? (
             <div className="py-10 text-center text-sm text-rose-600">โหลดข้อมูลไม่สำเร็จ</div>
           ) : members.length === 0 && !(data?.unassigned > 0) && !(data?.adjustments || []).length ? (
-            <div className="py-10 text-center text-sm text-gray-400">ไม่มีรายการ</div>
+            <div className="py-10 text-center text-sm text-gray-400">{isReady && data?.last_ship ? `ไม่มีงานคืนเข้ามาหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})` : 'ไม่มีรายการ'}</div>
           ) : (
             <ul className="divide-y">
               {members.map(m => (
@@ -193,6 +195,20 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
           )}
         </div>
         {data?.note && <div className="px-5 py-2 text-[11px] text-gray-500 border-t bg-gray-50">{data.note}</div>}
+        {/* ยอดพร้อมส่งในบัตรสต็อก (คืน − ส่งออก สะสม) ไม่เท่ารายชื่อ → บอกเป็นหมายเหตุบรรทัดเดียว ไม่หักลบในรายการ */}
+        {isReady && data && data.stock_ready != null && Math.abs(Number(data.stock_ready) - Number(data.total)) > 0.0001 && (() => {
+          const diff = Number(data.stock_ready) - Number(data.total);
+          const since = data.last_ship ? shortDate(data.last_ship) : '';
+          return (
+            <div className="px-5 py-2.5 text-[11px] leading-relaxed border-t bg-amber-50 text-amber-900">
+              บัตรสต็อกบอกพร้อมส่ง <b>{fmt(Number(data.stock_ready))}</b> เส้น ·{' '}
+              {diff > 0
+                ? <>มากกว่ารายชื่อนี้ <b>{fmt(diff)}</b> = ของที่คืนก่อน {since} แต่ยังไม่ได้ส่ง หรือบันทึกคลาด</>
+                : <>น้อยกว่ารายชื่อนี้ <b>{fmt(-diff)}</b> = ส่งออกมากกว่าของที่บันทึกคืน (เช่น ลงรับคืนไม่ครบ)</>}
+              {' '}→ นับของพร้อมส่งจริงแล้วกด <Link to="/stock-adjustments" className="underline font-semibold">ปรับยอดสต็อก</Link>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
