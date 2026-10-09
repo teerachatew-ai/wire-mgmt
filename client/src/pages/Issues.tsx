@@ -1031,7 +1031,7 @@ function QuickRowEditor({ row, members = [], onClose, onSaved, onOpenDetail }: {
 /* ── รับคืนงานทั้งหมดของสมาชิกคนหนึ่งในวันเดียว — คลิกที่ยอดค้างส่ง (สีส้ม) ในตารางสรุปรายวัน ──
    รวมใบเบิกที่ยังค้างของคนนั้น "ทุกชนิดงาน" ที่เบิกวันนั้นมาคืนพร้อมกันในกล่องเดียว ไม่ต้องไปหน้า "รับคืนงาน" แยก
    ค่าเริ่มต้น = คืนครบทุกใบ ไม่มีงานเสีย · ช่องงานเสียโชว์ให้กรอกเลยทุกใบ (ไม่ต้องกด +)
-   กรอก "คืนทั้งหมด" + งาน NG โรงงาน / NG ตัดโดนสายไฟ / NG ดึงเชือก / งานแก้ไข → งานดีคำนวณให้เอง
+   กรอก "คืนทั้งหมด" + งาน NG โรงงาน / NG โดยสมาชิก / NG ดึงเชือก / งานแก้ไข → งานดีคำนวณให้เอง
    (งานแก้ไขเป็นส่วนหนึ่งของงานดี ส่งโรงงานได้ แต่หักค่าแรงตาม % ในหน้าตั้งค่า)
    ใช้ remainOf สูตรเดียวกับที่ IssueMatrix ใช้ตัดสินว่าจะโชว์ปุ่มนี้ไหม (ผลรวม good+defect+waste ไม่รวม lost —
    สอดคล้องกับยอด "ค้างส่ง" ที่เห็นในตาราง ตัวเลขจะได้ตรงกัน) */
@@ -1045,7 +1045,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const [returnedAt, setReturnedAt] = useState(() => new Intl.DateTimeFormat('en-CA').format(new Date()));
   // on = ติ๊กเลือกคืนรายการนี้ (ค่าเริ่มต้นเลือกทุกรายการ) · total = จำนวนที่คืนมาทั้งหมด แก้ได้เผื่อคืนไม่ครบ
   const [lines, setLines] = useState<Record<number, any>>(() => Object.fromEntries(
-    outstanding.map((i: any) => [i.id, { on: true, total: remainOf(i), ng_factory: '', ng_cut: '', ng_rope: '', rework_qty: '' }])
+    outstanding.map((i: any) => [i.id, { on: true, total: remainOf(i), ng_factory: '', ng_cut: '', ng_rope: '', rework_qty: '', uncut_qty: '', ng_note: '' }])
   ));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1070,13 +1070,15 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
   const n = (v: any) => parseFloat(v) || 0;
   const lineTotal = (l: any) => n(l.total);
   const ngOf = (l: any) => n(l.ng_factory) + n(l.ng_cut) + n(l.ng_rope);
-  const goodOf = (l: any) => lineTotal(l) - ngOf(l);   // งานดีทั้งหมด (รวมงานแก้ไข)
+  // งานดีทั้งหมด (รวมงานแก้ไข) = คืนทั้งหมด − งานเสีย − ที่ยังไม่ได้ตัด
+  const goodOf = (l: any) => lineTotal(l) - ngOf(l) - n(l.uncut_qty);
   // ช่องงานเสีย — ลำดับ/ชื่อตามที่หน้างานใช้ + คำใบ้สั้นๆ ว่าคิดเงินยังไง
   const NG_FIELDS = [
     ['ng_factory', 'งาน NG โรงงาน', 'ไม่ปรับ'],
-    ['ng_cut', 'NG ตัดโดนสายไฟ', 'มีค่าปรับ'],
+    ['ng_cut', 'NG โดยสมาชิก', 'มีค่าปรับ'],
     ['ng_rope', 'NG ดึงเชือก', 'มีค่าปรับ'],
     ['rework_qty', 'งานแก้ไข', 'หักค่าแรง %'],
+    ['uncut_qty', 'ไม่ได้ตัด', 'ไม่จ่ายค่าแรง'],
   ] as const;
 
   const save = async () => {
@@ -1094,6 +1096,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
     const payload = picked.map((i: any) => {
       const l = lines[i.id];
       return { issue_id: i.id, good_qty: goodOf(l), ng_cut: n(l.ng_cut), ng_factory: n(l.ng_factory), ng_rope: n(l.ng_rope), rework_qty: n(l.rework_qty), waste_qty: 0, lost_qty: 0,
+        uncut_qty: n(l.uncut_qty), ng_note: n(l.ng_cut) > 0 ? String(l.ng_note || '').trim() : '',
         adjust_issue: adjust[i.id] === true };
     });
     // 2) มี NG -> เตือน "NG ครั้งที่" + ค่าปรับ
@@ -1208,19 +1211,26 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
                       )}
                       {lineTotal(l) > rem + 0.0001 && <span className="text-[11px] text-sky-700">เกินยอดเบิก {(lineTotal(l) - rem).toLocaleString('th-TH')} (จะถามยืนยันแก้ยอดเบิก)</span>}
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 items-end">
                       {NG_FIELDS.map(([f, label, hint]) => (
                         <div key={f}>
                           <label className="block text-[11px] text-gray-600 leading-tight">{label} <span className="text-[10px] text-gray-400">· {hint}</span></label>
-                          <input type="number" step="0.01" min="0" placeholder="0"
-                            className={`input !min-h-[34px] !py-1 !px-1.5 text-sm text-right ${n(l[f]) > 0 ? (f === 'rework_qty' ? '!border-amber-300 bg-amber-50' : '!border-rose-300 bg-rose-50') : ''}`}
+                          <input type="number" step="0.01" min="0" placeholder="0" aria-label={label}
+                            className={`input !min-h-[34px] !py-1 !px-1.5 text-sm text-right ${n(l[f]) > 0 ? (f === 'rework_qty' ? '!border-amber-300 bg-amber-50' : f === 'uncut_qty' ? '!border-slate-400 bg-slate-100' : '!border-rose-300 bg-rose-50') : ''}`}
                             value={l[f]} onChange={e => updateLine(i.id, f, e.target.value)} />
                         </div>
                       ))}
                     </div>
+                    {n(l.ng_cut) > 0 && (
+                      // รายละเอียด NG โดยสมาชิก — ขึ้นในใบเสร็จค่าแรงรายคน (บรรทัด NG ครั้งที่)
+                      <input type="text" maxLength={120} aria-label="รายละเอียด NG โดยสมาชิก"
+                        className="input !min-h-[34px] !py-1 !px-2 text-sm !border-rose-200"
+                        placeholder="รายละเอียด NG โดยสมาชิก เช่น ตัดโดนสายไฟเส้นแดง, ปอกลึกเกิน"
+                        value={l.ng_note} onChange={e => updateLine(i.id, 'ng_note', e.target.value)} />
+                    )}
                     <div className="text-[11px]">
                       {goodOf(l) < -0.0001 ? (
-                        <span className="text-rose-600">งานเสียรวม {ngOf(l).toLocaleString('th-TH')} มากกว่าจำนวนที่คืน</span>
+                        <span className="text-rose-600">งานเสีย + ไม่ได้ตัด รวม {(ngOf(l) + n(l.uncut_qty)).toLocaleString('th-TH')} มากกว่าจำนวนที่คืน</span>
                       ) : n(l.rework_qty) > goodOf(l) + 0.0001 ? (
                         <span className="text-rose-600">งานแก้ไขมากกว่างานดี ({goodOf(l).toLocaleString('th-TH')})</span>
                       ) : (
@@ -1228,6 +1238,7 @@ function QuickReturnModal({ row, onClose, onSaved }: { row: MatrixRow; onClose: 
                           งานดี <b className="text-green-700">{goodOf(l).toLocaleString('th-TH')}</b>
                           {n(l.rework_qty) > 0 && <> (ในนั้นงานแก้ไข <b className="text-amber-700">{n(l.rework_qty).toLocaleString('th-TH')}</b>)</>}
                           {ngOf(l) > 0 && <> · งานเสีย <b className="text-rose-600">{ngOf(l).toLocaleString('th-TH')}</b></>}
+                          {n(l.uncut_qty) > 0 && <> · ไม่ได้ตัด <b className="text-slate-700">{n(l.uncut_qty).toLocaleString('th-TH')}</b> (ไม่จ่ายค่าแรง · กลับเป็นของรอเบิก)</>}
                         </span>
                       )}
                     </div>
@@ -1519,7 +1530,8 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
                     <span className="text-[11px] font-mono text-blue-600 ml-1.5">{r.code}</span>
                     <span className="block text-[11px] text-gray-400">
                       คืนวันที่ {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
-                      {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG ตัดโดนสายไฟ ${r.ng_cut}`}
+                      {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG โดยสมาชิก ${r.ng_cut}${r.ng_note ? ` (${r.ng_note})` : ''}`}
+                      {Number(r.uncut_qty) > 0 && ` · ไม่ได้ตัด ${r.uncut_qty}`}
                       {Number(r.ng_rope) > 0 && ` · NG ดึงเชือก ${r.ng_rope}`}{Number(r.rework_qty) > 0 && ` · งานแก้ไข ${r.rework_qty}`}
                     </span>
                   </span>

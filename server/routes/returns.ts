@@ -29,7 +29,21 @@ function parseQty(b: any, prev?: any) {
   // รองรับของเดิมที่ส่ง defect_qty มาเดี่ยวๆ -> นับเป็น NG ตัดโดนสายไฟ
   const dQty = split > 0 ? split : num(b.defect_qty);
   const finalNgCut = split > 0 ? ngCut : dQty;
-  return { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty: num(b.waste_qty), lQty: keep('lost_qty') };
+  const uQty = keep('uncut_qty');               // คืนแบบยังไม่ได้ตัด (ไม่จ่ายค่าแรง)
+  const ngNote = b.ng_note === undefined && prev ? (prev.ng_note ?? null) : (String(b.ng_note ?? '').trim() || null);
+  return { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty: num(b.waste_qty), lQty: keep('lost_qty'), uQty, ngNote };
+}
+
+/* คืนแบบ "ยังไม่ได้ตัด" — ของกลับเข้ากองรอเบิก ไม่ใช่งานที่ทำเสร็จ
+   ลดยอดเบิกของใบลงเท่าจำนวนที่ไม่ได้ตัด แบบ "แก้ยอดเบิก" (quantity กับ orig_quantity ลดเท่ากัน)
+   → ยอดรับจริงของล็อตไม่เปลี่ยน แต่ยอดที่เบิกออกจากล็อตลดลง = ของรอเบิกเพิ่มขึ้นเท่านี้
+   ผูกล็อตก่อนแก้ (ใบที่ยังไม่ติดล็อต) ไม่ให้การจัดสรรล็อตเลื่อน · ค่าแรงไม่คิด (WAGE_SQL ไม่รวม uncut_qty)
+   delta บวก = คืนไม่ได้ตัดเพิ่ม (ยอดเบิกลด) · ลบ = ย้อนคืน (ลบ/แก้รายการรับคืน) */
+function shiftIssueForUncut(issueId: number, delta: number) {
+  if (!delta) return;
+  const lot = issueLotOf(issueId);
+  prepare(`UPDATE issues SET lot_date = COALESCE(lot_date, ?), orig_quantity = COALESCE(orig_quantity, quantity) - ?, quantity = quantity - ? WHERE id = ?`)
+    .run(lot, delta, delta, issueId);
 }
 
 /* แก้ยอดเบิกให้เท่ากับยอดที่สมาชิกคืนจริง (เบิกไป 100 นับคืนได้ 98 หรือ 102 = มัดที่ได้จากโรงงานมีจริงเท่านั้น)
@@ -123,18 +137,19 @@ router.post('/', (req, res) => {
   if (!issue) return res.status(400).json({ error: 'ไม่พบใบเบิก' });
   if (issue.status === 'closed') return res.status(400).json({ error: 'ใบเบิกนี้ปิดแล้ว' });
 
-  const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty } = parseQty(req.body);
+  const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty, uQty, ngNote } = parseQty(req.body);
 
   const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(issue_id) as any;
   const remaining = issue.quantity - (prev.total || 0);
-  if (gQty + dQty + wQty + lQty > remaining + 0.001) {
+  if (gQty + dQty + wQty + lQty + uQty > remaining + 0.001) {
     return res.status(400).json({ error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
   }
 
   const code = nextDateCode('RT', 'returns', returned_at);
   const payCycle = payCycleFor(returned_at);
-  const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, inspector || null, notes || null, payCycle, userOf(req));
+  const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, uncut_qty, ng_note, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, uQty, ngNote, inspector || null, notes || null, payCycle, userOf(req));
+  shiftIssueForUncut(parseInt(issue_id), uQty);
 
   updateIssueStatus(parseInt(issue_id));
 
@@ -171,11 +186,11 @@ router.post('/batch', (req, res) => {
     if (!issue) { failed.push({ issue_id, error: 'ไม่พบใบเบิก' }); continue; }
     if (issue.status === 'closed') { failed.push({ issue_id, code: issue.code, error: 'ใบเบิกนี้ปิดแล้ว' }); continue; }
 
-    const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty } = parseQty(l);
+    const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty, uQty, ngNote } = parseQty(l);
 
     const prev = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ?`).get(issue_id) as any;
     let remaining = issue.quantity - (prev.total || 0);
-    const lineTotal = gQty + dQty + wQty + lQty;
+    const lineTotal = gQty + dQty + wQty + lQty + uQty;   // ยอดที่สมาชิกถือมาคืนทั้งหมด (รวมที่ไม่ได้ตัด)
     // ผู้ใช้ยืนยันแล้วว่าคืนไม่เท่ายอดเบิก เพราะเบิกไปจริงเท่านี้ -> แก้ยอดเบิก (+ ยอดรับจริงของล็อต) ก่อนบันทึก
     if (l.adjust_issue === true && Math.abs(lineTotal - remaining) > 0.0001) {
       const newQty = (prev.total || 0) + lineTotal;
@@ -191,8 +206,9 @@ router.post('/batch', (req, res) => {
     }
 
     const code = nextDateCode('RT', 'returns', returned_at);
-    const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, inspector || null, notes || null, payCycle, by);
+    const result = prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, uncut_qty, ng_note, inspector, notes, pay_cycle, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(code, issue_id, returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, uQty, ngNote, inspector || null, notes || null, payCycle, by);
+    shiftIssueForUncut(parseInt(issue_id), uQty);
     updateIssueStatus(parseInt(issue_id));
 
     const allRets = prepare(`SELECT COALESCE(SUM(good_qty),0) as g, COALESCE(SUM(defect_qty),0) as d FROM returns WHERE issue_id = ?`).get(issue_id) as any;
@@ -214,12 +230,14 @@ router.put('/:id', (req, res) => {
 
   const issue = prepare(`SELECT i.*, p.unit, p.defect_tolerance FROM issues i JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(ret.issue_id) as any;
 
-  const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty } = parseQty(req.body, ret);
+  const { gQty, ngCut: finalNgCut, ngFac, ngRope, rework, dQty, wQty, lQty, uQty, ngNote } = parseQty(req.body, ret);
+  const oldU = Number(ret.uncut_qty) || 0;
 
   // จำนวนคืนรวมของใบเบิกนี้ ไม่นับรายการที่กำลังแก้ + จำนวนใหม่ ต้องไม่เกินจำนวนเบิก
+  // (ยอดเบิกตอนนี้ถูกหักส่วน "ไม่ได้ตัด" ของรายการเดิมไปแล้ว — บวกกลับก่อนเทียบ)
   const others = prepare(`SELECT COALESCE(SUM(good_qty+defect_qty+waste_qty+lost_qty),0) as total FROM returns WHERE issue_id = ? AND id != ?`).get(ret.issue_id, req.params.id) as any;
-  const remaining = issue.quantity - (others.total || 0);
-  if (gQty + dQty + wQty + lQty > remaining + 0.001) {
+  const remaining = issue.quantity + oldU - (others.total || 0);
+  if (gQty + dQty + wQty + lQty + uQty > remaining + 0.001) {
     return res.status(400).json({ error: `คืนเกินจำนวน (คงเหลือ ${remaining} ${issue.unit})` });
   }
 
@@ -233,8 +251,9 @@ router.put('/:id', (req, res) => {
   `).all(issue.member_id, ret.returned_at, ret.good_qty, req.params.id) : [];
 
   const payCycle = payCycleFor(returned_at);
-  prepare(`UPDATE returns SET returned_at=?, good_qty=?, defect_qty=?, ng_cut=?, ng_factory=?, ng_rope=?, rework_qty=?, waste_qty=?, lost_qty=?, inspector=?, notes=?, pay_cycle=? WHERE id=?`)
-    .run(returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, inspector || null, notes || null, payCycle, req.params.id);
+  prepare(`UPDATE returns SET returned_at=?, good_qty=?, defect_qty=?, ng_cut=?, ng_factory=?, ng_rope=?, rework_qty=?, waste_qty=?, lost_qty=?, uncut_qty=?, ng_note=?, inspector=?, notes=?, pay_cycle=? WHERE id=?`)
+    .run(returned_at, gQty, dQty, finalNgCut, ngFac, ngRope, rework, wQty, lQty, uQty, ngNote, inspector || null, notes || null, payCycle, req.params.id);
+  shiftIssueForUncut(ret.issue_id, uQty - oldU);
 
   updateIssueStatus(ret.issue_id);
   res.json({ return: prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id), siblings });
@@ -256,6 +275,7 @@ router.delete('/:id', (req, res) => {
   // กันไม่ให้เหลือคำขอค้างอ้างถึงรายการรับคืนที่ถูกลบไปแล้ว
   prepare(`DELETE FROM return_requests WHERE confirmed_return_id = ?`).run(req.params.id);
   prepare(`DELETE FROM returns WHERE id = ?`).run(req.params.id);
+  shiftIssueForUncut(ret.issue_id, -(Number(ret.uncut_qty) || 0));   // ของที่คืนแบบไม่ได้ตัดกลับไปอยู่กับสมาชิกตามเดิม
   updateIssueStatus(ret.issue_id);
   res.json({ deleted: true, code: ret.code, siblings });
 });

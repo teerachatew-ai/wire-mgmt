@@ -291,7 +291,7 @@ function ReturnListScreen({ token, openIssues, onDone, onCancel }: { token: stri
                       ) : (
                         <div className="space-y-2 pt-1">
                           <div>
-                            <label className="text-xs text-gray-500">NG ตัดโดนสายไฟ</label>
+                            <label className="text-xs text-gray-500">NG โดยสมาชิก</label>
                             <input type="number" inputMode="numeric" min={0} className="input mt-1" placeholder="0" value={ngCut[i.id] || ''} onChange={e => setNgCut(q => ({ ...q, [i.id]: e.target.value }))} />
                           </div>
                           <div>

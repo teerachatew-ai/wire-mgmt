@@ -20,7 +20,7 @@ const FIELD: Record<string, string> = {
   quantity: 'จำนวน', orig_quantity: 'ยอดฐานล็อต', actual_qty: 'ยอดรับจริง (นับ)', actual_note: 'หมายเหตุยอดนับ', actual_by: 'นับโดย', actual_at: 'เวลานับ',
   issued_at: 'วันที่เบิก', member_id: 'สมาชิก', product_id: 'สินค้า', lot_date: 'ล็อต', due_date: 'กำหนดคืน', status: 'สถานะ', notes: 'หมายเหตุ',
   issue_id: 'ใบเบิก', returned_at: 'วันที่คืน', good_qty: 'งานดี', defect_qty: 'งานเสีย', waste_qty: 'เศษเสีย', lost_qty: 'หาย',
-  ng_cut: 'NG ตัดโดนสายไฟ', ng_rope: 'NG ดึงเชือก', ng_factory: 'NG โรงงาน', rework_qty: 'งานแก้ไข', pay_cycle: 'รอบค่าแรง', inspector: 'ผู้ตรวจ',
+  ng_cut: 'NG โดยสมาชิก', ng_note: 'รายละเอียด NG', uncut_qty: 'ไม่ได้ตัด', ng_rope: 'NG ดึงเชือก', ng_factory: 'NG โรงงาน', rework_qty: 'งานแก้ไข', pay_cycle: 'รอบค่าแรง', inspector: 'ผู้ตรวจ',
   received_at: 'วันที่รับ', factory_ref: 'เลขอ้างอิง', shipped_at: 'วันที่ส่ง', received_qty: 'โรงงานรับจริง', bill_ng_qty: 'NG โรงงานแจ้ง',
   adjusted_at: 'วันที่ปรับ', reason: 'เหตุผล', value: 'ค่า', key: 'หัวข้อ', name: 'ชื่อ', nickname: 'ชื่อเล่น', phone: 'โทร',
   bank_account: 'เลขบัญชี', bank_name: 'ธนาคาร', wage_per_unit: 'ค่าแรง/เส้น', factory_price: 'ราคาโรงงาน', amount: 'จำนวนเงิน',

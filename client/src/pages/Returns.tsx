@@ -39,6 +39,8 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
       rework_qty: ret.rework_qty ?? 0,
       waste_qty: ret.waste_qty,
       lost_qty: ret.lost_qty ?? 0,
+      uncut_qty: ret.uncut_qty ?? 0,
+      ng_note: ret.ng_note || '',
       inspector: ret.inspector || '',
       notes: ret.notes || '',
     }
@@ -148,13 +150,21 @@ function EditReturnModal({ ret, onClose, onSaved }: any) {
             <input type="number" step="0.01" min="0" className="input" {...register('ng_factory')} />
           </div>
           <div>
-            <label className="label text-rose-600">NG ตัดโดนสายไฟ <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
+            <label className="label text-rose-600">NG โดยสมาชิก <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_cut')} />
           </div>
           <div>
             <label className="label text-rose-600">NG ดึงเชือก <span className="text-[11px] text-gray-400 font-normal">(มีค่าปรับ)</span></label>
             <input type="number" step="0.01" min="0" className="input" {...register('ng_rope')} />
           </div>
+          <div>
+            <label className="label text-slate-700">ไม่ได้ตัด <span className="text-[11px] text-gray-400 font-normal">(ไม่จ่ายค่าแรง · กลับเป็นของรอเบิก)</span></label>
+            <input type="number" step="0.01" min="0" className="input" {...register('uncut_qty')} />
+          </div>
+        </div>
+        <div>
+          <label className="label text-rose-600">รายละเอียด NG โดยสมาชิก <span className="text-[11px] text-gray-400 font-normal">(เช่น ตัดโดนอะไร — ขึ้นในใบเสร็จค่าแรง)</span></label>
+          <input className="input" maxLength={120} {...register('ng_note')} />
         </div>
         <div>
           <label className="label">ผู้ตรวจรับ</label>
@@ -318,7 +328,7 @@ function PendingRequestRow({ req, onDone, onChange }: { req: any; onDone: () => 
       </div>
       <div className="flex items-end gap-2 mt-2 flex-wrap">
         {numField('งานดี', good, setGood, 'font-semibold text-green-700')}
-        {numField('NG ตัดโดนสายไฟ', ngCut, setNgCut)}
+        {numField('NG โดยสมาชิก', ngCut, setNgCut)}
         {numField('NG โรงงาน', ngFactory, setNgFactory)}
         <div className="w-36 shrink-0">
           <label className="block text-[10px] text-gray-400">วันที่คืน</label>
@@ -507,17 +517,17 @@ export default function Returns() {
   const remainOf = (i: any) => i.quantity - (i.returned_good + i.returned_defect + i.returned_waste);
   // ค่าเริ่มต้น = คืนครบ ไม่มีงานเสีย (งานดี = คงเหลือ) — hasDefect=false จะซ่อนช่องกรอกตัวเลข
   // เลือกใบเบิกแล้ว "คงคำค้นหาไว้" เพื่อเลือกใบถัดไปของคนเดียวกันได้เลย ไม่ต้องพิมพ์ใหม่
-  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0, hasDefect: false }]); };
+  const addIssue = (i: any) => { setLines(l => [...l, { issue: i, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0, uncut_qty: 0, ng_note: '', hasDefect: false }]); };
   const removeIssue = (id: number) => setLines(l => l.filter(x => x.issue.id !== id));
   const updateLine = (id: number, field: string, val: any) =>
     setLines(l => l.map(x => x.issue.id === id ? { ...x, [field]: val } : x));
   // สลับโหมด "มีงานเสีย": เปิด = ให้กรอกเอง · ปิด = คืนครบ (งานดี=คงเหลือ, เสีย/เศษ=0)
   const toggleDefect = (i: any, on: boolean) =>
     setLines(l => l.map(x => x.issue.id === i.id
-      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0 })
+      ? (on ? { ...x, hasDefect: true } : { ...x, hasDefect: false, good_qty: remainOf(i), ng_cut: 0, ng_factory: 0, ng_rope: 0, rework_qty: 0, waste_qty: 0, lost_qty: 0, uncut_qty: 0, ng_note: '' })
       : x));
   // งานแก้ไขอยู่ในงานดีแล้ว ไม่บวกซ้ำ
-  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.ng_rope) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0);
+  const lineTotal = (l: any) => (parseFloat(l.good_qty) || 0) + (parseFloat(l.ng_cut) || 0) + (parseFloat(l.ng_factory) || 0) + (parseFloat(l.ng_rope) || 0) + (parseFloat(l.waste_qty) || 0) + (parseFloat(l.lost_qty) || 0) + (parseFloat(l.uncut_qty) || 0);
 
   const { gate, dialog } = useNgGate();   // เตือน "NG ครั้งที่" + ค่าปรับ ก่อนยืนยัน
   const closeModal = () => { setShowModal(false); setError(''); setWarning(''); setLines([]); setSearchIssue(''); setIssueDayFilter(''); reset(); };
@@ -537,6 +547,7 @@ export default function Returns() {
           good_qty: l.good_qty || 0, ng_cut: l.ng_cut || 0, ng_factory: l.ng_factory || 0,
           ng_rope: l.ng_rope || 0, rework_qty: l.rework_qty || 0,
           waste_qty: l.waste_qty || 0, lost_qty: l.lost_qty || 0,
+          uncut_qty: l.uncut_qty || 0, ng_note: (parseFloat(l.ng_cut) || 0) > 0 ? String(l.ng_note || '').trim() : '',
         })),
       });
       for (const w of (res.warnings || [])) warnings.push(`${w.code}: ${w.warning}`);
@@ -562,7 +573,7 @@ export default function Returns() {
           <ExportExcelButton filename="รับคืนงาน" rows={(returns_ as any[]).map(r => ({
             'เลขที่คืน': r.code, 'อ้างใบเบิก': r.issue_code, 'วันที่เบิก': r.issued_at || '', 'วันที่คืน': r.returned_at,
             'สมาชิก': r.member_name, 'ชื่อเล่น': r.member_nickname || '', 'สินค้า': r.product_name,
-            'งานดี': r.good_qty, 'งานแก้ไข': r.rework_qty ?? 0, 'NG ตัดโดนสายไฟ': r.ng_cut ?? r.defect_qty, 'NG ดึงเชือก': r.ng_rope ?? 0, 'NG โรงงาน': r.ng_factory ?? 0,
+            'งานดี': r.good_qty, 'งานแก้ไข': r.rework_qty ?? 0, 'NG โดยสมาชิก': r.ng_cut ?? r.defect_qty, 'รายละเอียด NG': r.ng_note || '', 'NG ดึงเชือก': r.ng_rope ?? 0, 'NG โรงงาน': r.ng_factory ?? 0, 'ไม่ได้ตัด': r.uncut_qty ?? 0,
             'ผู้ตรวจ': r.inspector || '', 'ผู้บันทึก': r.created_by || '',
           }))} />
           <button className="btn-primary btn-sm flex items-center gap-2" onClick={() => { setShowModal(true); setWarning(''); }}>
@@ -595,7 +606,7 @@ export default function Returns() {
               <th className="px-4 py-3 font-medium">สมาชิก</th>
               <th className="px-4 py-3 font-medium">สินค้า</th>
               <th className="px-4 py-3 font-medium text-right">งานดี</th>
-              <th className="px-4 py-3 font-medium text-right text-rose-500">NG ตัดโดนสายไฟ</th>
+              <th className="px-4 py-3 font-medium text-right text-rose-500">NG โดยสมาชิก</th>
               <th className="px-4 py-3 font-medium text-right text-amber-600">NG โรงงาน</th>
               <th className="px-4 py-3 font-medium">ผู้ตรวจ</th>
               <th className="px-4 py-3 font-medium"></th>
@@ -724,14 +735,23 @@ export default function Returns() {
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_factory} onChange={e => updateLine(l.issue.id, 'ng_factory', e.target.value)} />
                           </div>
                           <div>
-                            <label className="text-xs text-rose-600">NG ตัดโดนสายไฟ (มีค่าปรับ)</label>
+                            <label className="text-xs text-rose-600">NG โดยสมาชิก (มีค่าปรับ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_cut} onChange={e => updateLine(l.issue.id, 'ng_cut', e.target.value)} />
                           </div>
                           <div>
                             <label className="text-xs text-rose-600">NG ดึงเชือก (มีค่าปรับ)</label>
                             <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.ng_rope} onChange={e => updateLine(l.issue.id, 'ng_rope', e.target.value)} />
                           </div>
+                          <div>
+                            <label className="text-xs text-slate-700">ไม่ได้ตัด (ไม่จ่ายค่าแรง)</label>
+                            <input type="number" step="0.01" min="0" className="input !min-h-[40px] !py-1.5" value={l.uncut_qty} onChange={e => updateLine(l.issue.id, 'uncut_qty', e.target.value)} />
+                          </div>
                         </div>
+                        {(parseFloat(l.ng_cut) || 0) > 0 && (
+                          <input type="text" maxLength={120} aria-label="รายละเอียด NG โดยสมาชิก" className="input !min-h-[40px] !py-1.5 !border-rose-200"
+                            placeholder="รายละเอียด NG โดยสมาชิก เช่น ตัดโดนสายไฟเส้นแดง"
+                            value={l.ng_note} onChange={e => updateLine(l.issue.id, 'ng_note', e.target.value)} />
+                        )}
                         <p className={`text-xs ${total > rem + 0.001 ? 'text-red-500' : 'text-gray-500'}`}>
                           รวม {total} / คงเหลือ {rem} {l.issue.unit}
                           {total > rem + 0.001 && ' ⚠️ เกินจำนวนคงเหลือ'}
@@ -805,7 +825,9 @@ const ReturnRow = memo(function ReturnRow({ r, checked, onToggle, onEdit, onDele
       <td className="px-4 py-3 text-right font-medium text-green-600">{r.good_qty}</td>
       <td className="px-4 py-3 text-right font-medium text-rose-500">
         {r.ng_cut ?? r.defect_qty}
+        {r.ng_note && <span className="block text-[11px] font-normal text-rose-400 max-w-[160px] ml-auto truncate" title={r.ng_note}>{r.ng_note}</span>}
         {Number(r.ng_rope) > 0 && <span className="block text-[11px] font-normal">ดึงเชือก {r.ng_rope}</span>}
+        {Number(r.uncut_qty) > 0 && <span className="block text-[11px] font-normal text-slate-600">ไม่ได้ตัด {r.uncut_qty}</span>}
         {Number(r.rework_qty) > 0 && <span className="block text-[11px] font-normal text-amber-700">แก้ไข {r.rework_qty}</span>}
       </td>
       <td className="px-4 py-3 text-right font-medium text-amber-600">{r.ng_factory ?? 0}</td>

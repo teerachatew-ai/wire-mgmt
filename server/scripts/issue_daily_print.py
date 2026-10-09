@@ -175,7 +175,7 @@ for day in d["days"]:
                         (7.5, False, "CBD5E1", ("\n" + parts[1]) if len(parts) > 1 else "")])
     put(ws, H, cSum, "รวม", f=font(9.5, True, "FFFFFF"), fill=HEAD_FILL, al=C, border=hb)
     put(ws, H, cNgF, "NG\nโรงงาน", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
-    put(ws, H, cNgG, "NG กลุ่ม\n(ตัดสาย/\nดึงเชือก)", f=font(7.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
+    put(ws, H, cNgG, "NG โดย\nสมาชิก", f=font(8.5, True, "FFFFFF"), fill=NG_HEAD, al=C, border=hb)
     put(ws, H, cDate, "วันที่คืน", f=font(9.5, True, "FFFFFF"), fill=RET_HEAD, al=C, border=hb)
     ws.row_dimensions[H].height = 44
 
@@ -191,7 +191,7 @@ for day in d["days"]:
     # ตัดหน้าเองก่อนกลุ่มสมาชิกที่จะล้นหน้า — 3 แถวของคนเดียวกันต้องอยู่หน้าเดียวกันเสมอ
     # (ความสูงหน้า A4 หลังย่อให้พอดีความกว้าง ≈ 800pt เผื่อไว้ · หัวตารางพิมพ์ซ้ำทุกหน้า 44pt)
     # ตัดหน้าตามขนาดจริงบนเซิร์ฟเวอร์: หน้า A4 ≈ 777pt ÷ อัตราย่อ ~0.72 ≈ 1080pt (เผื่อไว้ 1000) · สมาชิก 1 คน = 70pt
-    PAGE_H, BLOCK_H, used_h = 1000, 70, 15 + 26 + 15 + 5 + 44
+    PAGE_H, BLOCK_H, used_h = 1070, 70, 15 + 26 + 15 + 5 + 44
     for gi, code in enumerate(sorted(by_member)):
         group = by_member[code]
         issued = {}

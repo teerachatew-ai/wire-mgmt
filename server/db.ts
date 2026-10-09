@@ -529,6 +529,10 @@ CREATE TABLE IF NOT EXISTS managers (
   // NG ดึงเชือก (ค่าปรับอีกอัตรา) + งานแก้ไข (อยู่ในงานดี แต่หักค่าแรง %) — ดูกติกาใน wagePolicy.ts
   if (!returnCols.includes('ng_rope')) db.exec(`ALTER TABLE returns ADD COLUMN ng_rope REAL NOT NULL DEFAULT 0`);
   if (!returnCols.includes('rework_qty')) db.exec(`ALTER TABLE returns ADD COLUMN rework_qty REAL NOT NULL DEFAULT 0`);
+  // uncut_qty = คืนมาแบบยังไม่ได้ตัด (ไม่จ่ายค่าแรง · กลับเป็นของรอเบิก — ยอดเบิกของใบลดลงเท่านี้ ดู routes/returns.ts)
+  // ng_note = รายละเอียด NG โดยสมาชิก (เช่น ตัดโดนอะไร) — ขึ้นในใบเสร็จค่าแรงรายคน
+  if (!returnCols.includes('uncut_qty')) db.exec(`ALTER TABLE returns ADD COLUMN uncut_qty REAL NOT NULL DEFAULT 0`);
+  if (!returnCols.includes('ng_note')) db.exec(`ALTER TABLE returns ADD COLUMN ng_note TEXT`);
   // ค่าใช้จ่ายบริหารจัดการ: ระบุผู้รับเงินได้ (general/member/manager) — ถ้าจ่ายให้สมาชิก/ผู้บริหาร นับรวมค่าตอบแทนผู้บริหาร
   const expCols = db.exec(`PRAGMA table_info(expenses)`)[0]?.values.map(r => r[1]) ?? [];
   if (!expCols.includes('paid_to_type')) db.exec(`ALTER TABLE expenses ADD COLUMN paid_to_type TEXT`);       // 'general' | 'member' | 'manager'

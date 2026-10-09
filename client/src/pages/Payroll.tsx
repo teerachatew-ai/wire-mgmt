@@ -33,7 +33,7 @@ function MemberBreakdown({ member, month, onClose }: { member: any; month: strin
   // สรุปงานเสีย/งานแก้ไขของแถว — แสดงเฉพาะชนิดที่มี
   const ngParts = (r: any) => [
     r.ng_strike && `NG ครั้งที่ ${r.ng_strike}`,
-    r.ng_cut > 0 && `ตัดโดนสายไฟ ${fmtQty(r.ng_cut)}`,
+    r.ng_cut > 0 && `NG สมาชิก ${fmtQty(r.ng_cut)}`,
     r.ng_rope > 0 && `ดึงเชือก ${fmtQty(r.ng_rope)}`,
     r.ng_factory > 0 && `โรงงาน ${fmtQty(r.ng_factory)}`,
     r.rework_qty > 0 && `แก้ไข ${fmtQty(r.rework_qty)}`,
@@ -473,7 +473,7 @@ function MonthlyTab() {
                   <th className="px-4 py-3 font-medium">ธนาคาร / เลขบัญชี</th>
                   <th className="px-4 py-3 font-medium">จำนวนที่ตัด (แยกชนิด)</th>
                   {data.ng_policy === 'tiered' ? (<>
-                    <th className="px-4 py-3 font-medium text-right text-gray-400">NG ตัดโดนสายไฟ (เส้น)</th>
+                    <th className="px-4 py-3 font-medium text-right text-gray-400">NG โดยสมาชิก (เส้น)</th>
                     <th className="px-4 py-3 font-medium text-right text-rose-500">ครั้ง / ดึงเชือก</th>
                   </>) : (<>
                     <th className="px-4 py-3 font-medium text-right text-gray-400">NG ตัด (เส้น)</th>
@@ -578,7 +578,7 @@ function MonthlyTab() {
             {data.total_ng_deduction > 0 && (
               <div className="px-4 py-2.5 text-xs text-gray-500 border-t bg-rose-50/40">
                 {data.ng_policy === 'tiered'
-                  ? <>💡 ค่าปรับ NG (นับครั้งสะสม รวมตัดโดนสายไฟ + ดึงเชือก · 1 วันที่เบิก = 1 ครั้ง · ครั้งที่ 1 ตักเตือน · ครั้งที่ 2 ขึ้นไปตามอัตราในหน้าตั้งค่า) — รวม </>
+                  ? <>💡 ค่าปรับ NG (นับครั้งสะสม รวม NG โดยสมาชิก + ดึงเชือก · 1 วันที่เบิก = 1 ครั้ง · ครั้งที่ 1 ตักเตือน · ครั้งที่ 2 ขึ้นไปตามอัตราในหน้าตั้งค่า) — รวม </>
                   : <>💡 ค่าปรับงานเสียจากการตัด เฉพาะส่วนที่เกินเกณฑ์ % ยอมรับได้ของแต่ละรุ่น — รวม </>}
                 <strong className="text-rose-600">{fmt(data.total_ng_deduction)}</strong> บาท ถือเป็นรายได้เข้ากลุ่ม
               </div>

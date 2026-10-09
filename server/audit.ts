@@ -111,8 +111,8 @@ function lookups() {
 type Row = Record<string, any>;
 const SETTING_LABEL: Record<string, string> = {
   pay_cutoff_day: 'วันตัดรอบค่าแรง', withholding_tax_percent: 'ภาษีหัก ณ ที่จ่าย (%)', defect_wage_percent: '% ค่าแรงงานเสีย',
-  rework_deduct_percent: 'งานแก้ไข หักค่าแรง (%)', ng_group_rate_2: 'ค่าปรับ NG ตัดโดนสายไฟ ครั้งที่ 2', ng_group_rate_3: 'ค่าปรับ NG ตัดโดนสายไฟ ครั้งที่ 3+',
-  ng_rope_rate: 'ค่าปรับ NG ดึงเชือก', ng_cut_allow: 'เกณฑ์ NG ตัดโดนสายไฟที่ยอมรับได้', ng_cut_allow_unit: 'หน่วยเกณฑ์ NG',
+  rework_deduct_percent: 'งานแก้ไข หักค่าแรง (%)', ng_group_rate_2: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 2', ng_group_rate_3: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 3+',
+  ng_rope_rate: 'ค่าปรับ NG ดึงเชือก', ng_cut_allow: 'เกณฑ์ NG โดยสมาชิกที่ยอมรับได้', ng_cut_allow_unit: 'หน่วยเกณฑ์ NG',
   ng_penalty_per_unit: 'ค่าปรับ NG ต่อเส้น (เดิม)', overdue_days_limit: 'ค้างคืนเกินกี่วัน', max_pending_units: 'ยอดค้างสูงสุดต่อคน',
   admin_cost_percent: '% ค่าบริหาร', admin_name: 'ชื่อผู้บริหาร', group_deduction_percent: '% หักเข้ากองกลาง', bill_ng_rate: 'โรงงานหักเงินงาน NG (%)',
   holidays: 'วันหยุด',

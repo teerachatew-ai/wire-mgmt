@@ -137,7 +137,7 @@ export default function SettingsPage() {
           <input type="number" min="1" className="input" value={current.overdue_days_limit || ''} onChange={e => set('overdue_days_limit', e.target.value)} />
         </div>
         <div>
-          <label className="label">% ค่าจ้างสำหรับงานเสีย (NG ตัดโดนสายไฟ / NG ดึงเชือก)</label>
+          <label className="label">% ค่าจ้างสำหรับงานเสีย (NG โดยสมาชิก / NG ดึงเชือก)</label>
           <input type="number" min="0" max="100" step="1" className="input" value={current.defect_wage_percent || ''} onChange={e => set('defect_wage_percent', e.target.value)} />
           <p className="text-xs text-gray-400 mt-1">0 = ไม่จ่ายค่าแรงสำหรับงานเสีย, 100 = จ่ายเต็ม · NG โรงงานจ่ายเต็มเสมอ</p>
         </div>
@@ -149,11 +149,11 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-500 mt-0.5">มีผลกับงานจากล็อตที่โรงงานมาส่งตั้งแต่ 28 ส.ค. 2569 · นับครั้งสะสมต่อเนื่อง (ไม่รีเซ็ตรายเดือน) · NG โรงงานไม่มีค่าปรับ</p>
           </div>
           <div className="text-sm text-gray-700">
-            <span className="font-medium">การนับครั้ง</span> <span className="text-xs text-gray-400">นับรวม NG ตัดโดนสายไฟ + NG ดึงเชือก · งานที่เบิกวันเดียวกัน = 1 ครั้ง ไม่ว่ากี่เส้น</span>
+            <span className="font-medium">การนับครั้ง</span> <span className="text-xs text-gray-400">นับรวม NG โดยสมาชิก + NG ดึงเชือก · งานที่เบิกวันเดียวกัน = 1 ครั้ง ไม่ว่ากี่เส้น</span>
           </div>
-          {/* เกณฑ์ที่ยอมรับได้ของ NG ตัดโดนสายไฟ ต่อใบเบิก 1 ใบ — ส่วนที่อยู่ในเกณฑ์ไม่ปรับและไม่นับครั้ง (ดึงเชือกไม่มีเกณฑ์) */}
+          {/* เกณฑ์ที่ยอมรับได้ของ NG โดยสมาชิก ต่อใบเบิก 1 ใบ — ส่วนที่อยู่ในเกณฑ์ไม่ปรับและไม่นับครั้ง (ดึงเชือกไม่มีเกณฑ์) */}
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 space-y-1.5">
-            <label className="label !mb-0" htmlFor="ng-cut-allow">เกณฑ์ NG ตัดโดนสายไฟที่ยอมรับได้ <span className="text-[11px] text-gray-400 font-normal">ต่อการเบิก 1 ใบ</span></label>
+            <label className="label !mb-0" htmlFor="ng-cut-allow">เกณฑ์ NG โดยสมาชิกที่ยอมรับได้ <span className="text-[11px] text-gray-400 font-normal">ต่อการเบิก 1 ใบ</span></label>
             <div className="flex items-center gap-2">
               <input id="ng-cut-allow" type="number" min="0" step="0.1" className="input w-28" placeholder="0"
                 value={current.ng_cut_allow || ''} onChange={e => set('ng_cut_allow', e.target.value)} />
@@ -166,14 +166,14 @@ export default function SettingsPage() {
             <p className="text-xs text-gray-500">
               {(() => {
                 const v = parseFloat(current.ng_cut_allow) || 0;
-                if (v <= 0) return 'ว่าง/0 = ไม่มีเกณฑ์ (NG ตัดโดนสายไฟทุกเส้นคิดตามขั้นด้านล่าง)';
+                if (v <= 0) return 'ว่าง/0 = ไม่มีเกณฑ์ (NG โดยสมาชิกทุกเส้นคิดตามขั้นด้านล่าง)';
                 return current.ng_cut_allow_unit === 'pieces'
                   ? `ใบเบิกละ ${Math.floor(v)} เส้นแรกไม่ปรับและไม่นับครั้ง · ส่วนที่เกินคิดตามขั้นด้านล่าง`
                   : `เช่น เบิก 100 เส้น ยอมรับ ${Math.floor(100 * v / 100)} เส้น · เบิก 1,000 เส้น ยอมรับ ${Math.floor(1000 * v / 100)} เส้น (ปัดลง) · ส่วนที่เกินคิดตามขั้นด้านล่าง`;
               })()} · ไม่รวม NG ดึงเชือก (ปรับตามเดิม)
             </p>
           </div>
-          <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG ตัดโดนสายไฟ</div>
+          <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG โดยสมาชิก</div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="label">ครั้งที่ 1</label>
