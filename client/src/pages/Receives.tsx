@@ -393,142 +393,133 @@ function EditDayModal({ date, products, onClose }: { date: string; products: any
   );
 }
 
-/* ── ที่มาของส่วนต่าง "รับจริง − ใบส่งของ" ของล็อตหนึ่ง + ล้างกลับเป็นยอดตามใบส่งของ ──
-   เปิดจากการคลิกช่อง ▲/▼ ในตารางสรุปรายวัน
-   ส่วนต่างมาได้ 3 ทาง: (1) แก้ยอดเบิกแบบ "นับในมัดได้จริงไม่ตรง" (2) นับเองที่ใบรับ (3) ระบบปิดล็อตที่คลาดไม่กี่เส้นให้เอง
-   ล้างได้เฉพาะ (1)(2) — (3) ระบบคิดใหม่เองทุกครั้ง ล้างรายการที่เลือกแล้วยอดเบิก/ค่าแรงไม่เปลี่ยน */
+/* ── ยอดรับจริงของล็อต (คลิกตัวเลข "รับจริง" ที่มีป้ายส่วนต่างในตารางสรุปรายวัน) ──
+   ออกแบบให้ตัดสินใจเรื่องเดียว: "ล็อตนี้ได้ของมาจริงกี่เส้น"
+     • บนสุด: ใบส่งของ → รับจริง (ส่วนต่าง) + เบิกไปแล้ว / เหลือรอเบิก
+     • ช่องเดียวกรอกยอดรับจริง + ปุ่มลัด "ตามใบส่งของ" / "เท่าที่เบิกไป (ไม่มีของเหลือ)" + บอกผลก่อนกดบันทึก
+     • ที่มาของส่วนต่าง (ใบเบิกที่แก้ยอด / นับเอง / ปิดล็อตอัตโนมัติ) ซ่อนไว้ กดดูได้ อ่านอย่างเดียว
+   บันทึก = กำหนดยอดรับจริงของล็อต (POST /receives/lot-set-actual) — ใบเบิก/ค่าแรงไม่เปลี่ยน */
 function LotDetailDialog({ date, productId, productName, onClose }: { date: string; productId: number; productName: string; onClose: () => void }) {
   const qc = useQueryClient();
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['lot-detail', productId, date],
     queryFn: () => receiveApi.lotDetail(productId, date),
   });
-  const [pick, setPick] = useState<Record<number, boolean>>({});
-  const [clearCounted, setClearCounted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [target, setTarget] = useState('');   // ยอดรับจริงที่กำหนดเอง (ค่าเริ่มต้น = ยอดตามใบส่งของ)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [target, setTarget] = useState('');
+  const [showWhy, setShowWhy] = useState(false);
   const fmtN = (n: any) => Number(n || 0).toLocaleString('th-TH');
+  const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmtN(Math.abs(n))}`;
   const lot = data?.lot;
-  const targetVal = target === '' ? Number(lot?.note || 0) : Number(target);
-  const setActual = async () => {
-    if (!lot || !Number.isFinite(targetVal) || targetVal < 0) return;
-    setBusy(true); setMsg('');
-    try {
-      const r = await receiveApi.lotSetActual(productId, date, targetVal);
-      setMsg(`บันทึกแล้ว · ยอดรับจริง ${fmtN(r.before)} → ${fmtN(r.after)} (ใบส่งของ ${fmtN(r.note)})`);
-      setTarget('');
-      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports']) qc.invalidateQueries({ queryKey: [k] });
-      refetch();
-    } catch (e: any) { setMsg(e?.response?.data?.error || 'บันทึกไม่สำเร็จ'); }
-    finally { setBusy(false); }
-  };
+  const issued = lot ? Number(lot.actual) - Number(lot.remaining) : 0;
+  const value = target === '' ? null : Number(target);
+  const valid = value !== null && Number.isFinite(value) && value >= 0;
+  const after = valid ? (value as number) - issued : null;
   const issues: any[] = data?.issues || [];
   const counted: any[] = (data?.receives || []).filter((r: any) => r.actual_qty != null);
   const countDiff = counted.reduce((s: number, r: any) => s + (Number(r.actual_qty) - Number(r.quantity)), 0);
-  const chosen = issues.filter(i => pick[i.id]);
-  const reset = async () => {
-    setBusy(true); setMsg('');
+
+  const save = async () => {
+    if (!lot || !valid) return;
+    setBusy(true); setMsg(null);
     try {
-      const r = await receiveApi.lotReset(productId, date, chosen.map(i => i.id), clearCounted);
-      setMsg(`ล้างแล้ว · ยอดรับจริง ${fmtN(r.before)} → ${fmtN(r.after)} (ใบส่งของ ${fmtN(r.note)})`);
-      setPick({}); setClearCounted(false);
-      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports']) qc.invalidateQueries({ queryKey: [k] });
+      const r = await receiveApi.lotSetActual(productId, date, value as number);
+      setMsg({ ok: true, text: `บันทึกแล้ว · ยอดรับจริง ${fmtN(r.before)} → ${fmtN(r.after)}` });
+      setTarget('');
+      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports', 'lot-detail']) qc.invalidateQueries({ queryKey: [k] });
       refetch();
-    } catch (e: any) { setMsg(e?.response?.data?.error || 'ล้างไม่สำเร็จ'); }
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.error || 'บันทึกไม่สำเร็จ' }); }
     finally { setBusy(false); }
   };
-  const diffTxt = (n: number) => `${n > 0 ? '+' : ''}${fmtN(n)}`;
+
+  const Quick = ({ label, qty }: { label: string; qty: number }) => (
+    <button type="button" onClick={() => setTarget(String(qty))}
+      className={`flex-1 rounded-xl border px-3 py-2 text-left hover:border-blue-400 hover:bg-blue-50 ${value === qty ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+      <div className="text-[11px] text-gray-500">{label}</div>
+      <div className="font-bold tabular-nums text-gray-900">{fmtN(qty)}</div>
+    </button>
+  );
+
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div role="dialog" aria-labelledby="lot-detail-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b bg-amber-50 flex items-start gap-3">
+      <div role="dialog" aria-labelledby="lot-detail-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <h3 id="lot-detail-title" className="font-bold text-amber-900">ส่วนต่างยอดรับ — ล็อต {date}</h3>
-            <p className="text-xs text-amber-800/80 mt-0.5 truncate">{productName}</p>
+            <h3 id="lot-detail-title" className="font-bold text-gray-900">ยอดรับจริง — ล็อต {date}</h3>
+            <p className="text-xs text-gray-500 mt-0.5 truncate">{productName}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="ปิด" className="text-amber-700/60 hover:text-amber-900"><X size={18} /></button>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
         </div>
-        {isLoading ? <div className="py-10 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" size={20} /></div> : (
-          <div className="overflow-y-auto p-4 space-y-4 text-sm">
-            {lot && (
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl bg-gray-50 p-2"><div className="text-[11px] text-gray-500">ตามใบส่งของ</div><div className="font-bold tabular-nums">{fmtN(lot.note)}</div></div>
-                <div className="rounded-xl bg-blue-50 p-2"><div className="text-[11px] text-blue-700">รับจริง (ที่ระบบใช้)</div><div className="font-bold tabular-nums text-blue-800">{fmtN(lot.actual)}</div></div>
-                <div className={`rounded-xl p-2 ${lot.actual - lot.note > 0 ? 'bg-emerald-50' : lot.actual - lot.note < 0 ? 'bg-rose-50' : 'bg-gray-50'}`}>
-                  <div className="text-[11px] text-gray-500">ส่วนต่าง</div>
-                  <div className={`font-bold tabular-nums ${lot.actual - lot.note > 0 ? 'text-emerald-700' : lot.actual - lot.note < 0 ? 'text-rose-700' : ''}`}>{diffTxt(lot.actual - lot.note)}</div>
-                </div>
+        {isLoading ? <div className="py-10 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" size={20} /></div>
+        : !lot ? <div className="py-10 px-5 text-center text-sm text-gray-500">ล็อตนี้อยู่ก่อนวันเริ่มนับสต็อก — ไม่มีข้อมูลยอดเบิกรายล็อตให้แก้</div> : (
+          <div className="overflow-y-auto p-5 space-y-4 text-sm">
+            {/* สถานะตอนนี้ */}
+            <div className="rounded-xl bg-gray-50 px-4 py-3 space-y-1.5 tabular-nums">
+              <div className="flex justify-between"><span className="text-gray-500">ตามใบส่งของ</span><span>{fmtN(lot.note)}</span></div>
+              <div className="flex justify-between font-semibold">
+                <span>รับจริง (ที่ระบบใช้ตอนนี้)</span>
+                <span>{fmtN(lot.actual)}{lot.actual !== lot.note && <span className={`ml-1.5 text-xs ${lot.actual > lot.note ? 'text-emerald-600' : 'text-rose-600'}`}>({signed(lot.actual - lot.note)})</span>}</span>
               </div>
-            )}
-            <div>
-              <div className="text-xs font-semibold text-gray-600 mb-1.5">มาจากใบเบิกที่แก้ยอด (สมาชิกนับในมัดได้ไม่ตรง)</div>
-              {issues.length === 0 ? <p className="text-xs text-gray-400">ไม่มี</p> : (
-                <div className="border rounded-xl divide-y">
-                  {issues.map(i => (
-                    <label key={i.id} className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer ${pick[i.id] ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
-                      <input type="checkbox" className="w-4 h-4" checked={!!pick[i.id]} onChange={e => setPick(p => ({ ...p, [i.id]: e.target.checked }))} />
-                      <span className="flex-1 min-w-0">
-                        <span className="font-mono text-[11px] text-gray-400 mr-1">{i.member_code}</span>{i.member_name}
-                        <span className="block text-[11px] text-gray-500">{i.code} · เบิก {i.issued_at} · ยอดเดิม {fmtN(i.orig_quantity)} → ตอนนี้ {fmtN(i.quantity)}</span>
-                      </span>
-                      <span className={`font-semibold tabular-nums ${i.diff > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{diffTxt(i.diff)}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              {issues.length > 0 && <p className="text-[11px] text-gray-500 mt-1">ติ๊กรายการที่ "ลงผิด/พิมพ์ผิด" — ระบบจะถือว่ายอดเบิกปัจจุบันถูกแล้ว และเลิกนำส่วนต่างไปปรับยอดรับ (ยอดเบิก/ค่าแรงไม่เปลี่ยน)</p>}
+              <div className="flex justify-between text-gray-500"><span>เบิกให้สมาชิกไปแล้ว</span><span>{fmtN(issued)}</span></div>
+              <div className="flex justify-between border-t pt-1.5">
+                <span className="text-gray-700">เหลือรอเบิก</span>
+                <span className={`font-semibold ${lot.remaining < 0 ? 'text-rose-600' : lot.remaining > 0 ? 'text-violet-700' : 'text-gray-700'}`}>{fmtN(lot.remaining)}</span>
+              </div>
             </div>
-            {counted.length > 0 && (
-              <label className="flex items-center gap-2.5 rounded-xl border px-3 py-2 cursor-pointer hover:bg-gray-50">
-                <input type="checkbox" className="w-4 h-4" checked={clearCounted} onChange={e => setClearCounted(e.target.checked)} />
-                <span className="flex-1">ยอดที่นับเองตอนรับของ <span className="text-[11px] text-gray-500">({counted.map(r => `${r.code}: ${fmtN(r.quantity)} → ${fmtN(r.actual_qty)}`).join(', ')})</span></span>
-                <span className={`font-semibold tabular-nums ${countDiff > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{diffTxt(countDiff)}</span>
-              </label>
-            )}
-            {lot && lot.auto !== 0 && (
-              <p className="text-[11px] text-gray-500 rounded-lg bg-gray-50 px-3 py-2">
-                ระบบปรับอัตโนมัติ {diffTxt(lot.auto)} เส้น (ปิดล็อตที่คลาดไม่กี่เส้นให้เอง) — ส่วนนี้คิดใหม่เองหลังล้างรายการอื่น
-              </p>
-            )}
-            {/* กำหนดยอดรับจริงเอง — ใช้เมื่อส่วนต่างมาจากการปรับอัตโนมัติ หรือรู้ยอดจริงจากการนับแล้ว */}
-            {lot && (
-              <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-3 space-y-2">
-                <div className="text-xs font-semibold text-blue-900">กำหนดยอดรับจริงของล็อตนี้เอง</div>
-                <div className="flex items-center gap-2">
-                  <input type="number" min="0" step="1" aria-label="ยอดรับจริงที่ต้องการ"
-                    className="input !min-h-[38px] !py-1.5 w-36 text-right font-semibold" placeholder={String(lot.note)}
-                    value={target} onChange={e => setTarget(e.target.value)} />
-                  <span className="text-sm text-gray-600">เส้น</span>
-                  {targetVal !== lot.note && <span className={`text-xs font-semibold ${targetVal - lot.note > 0 ? 'text-emerald-700' : 'text-rose-700'}`}>({diffTxt(targetVal - lot.note)} จากใบส่งของ)</span>}
-                  <button type="button" className="btn-primary !min-h-[38px] !py-1.5 ml-auto whitespace-nowrap" disabled={busy || targetVal === lot.actual}
-                    onClick={setActual}>ใช้ยอดนี้</button>
-                </div>
-                {/* ผลต่อ "คงเหลือรอเบิก" ของล็อต — กันกดแล้วเกิดยอดผีรอเบิกโดยไม่รู้ตัว */}
-                {(() => {
-                  const issued = Number(lot.actual) - Number(lot.remaining);
-                  const after = targetVal - issued;
-                  return (
-                    <div className="flex items-center gap-2 text-xs flex-wrap">
-                      <span className="text-gray-600">เบิกจากล็อตนี้แล้ว {fmtN(issued)} → คงเหลือรอเบิกหลังบันทึก</span>
-                      <b className={`tabular-nums ${after > 0 ? 'text-violet-700' : after < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>{fmtN(after)}</b>
-                      {after !== 0 && (
-                        <button type="button" className="ml-auto text-[11px] font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
-                          onClick={() => setTarget(String(issued))}>ไม่มีของเหลือหน้างาน (= ยอดเบิก {fmtN(issued)})</button>
-                      )}
-                    </div>
-                  );
-                })()}
-                <p className="text-[11px] text-gray-500">เว้นว่าง = ใช้ยอดตามใบส่งของ ({fmtN(lot.note)}) · ล็อตที่กำหนดเองแล้วระบบจะไม่ปรับอัตโนมัติทับ</p>
+
+            {/* แก้ยอดรับจริง */}
+            <div className="space-y-2">
+              <div className="font-semibold text-gray-800">ล็อตนี้ได้ของมาจริงกี่เส้น?</div>
+              <div className="flex gap-2">
+                <Quick label="ตามใบส่งของ" qty={Number(lot.note)} />
+                <Quick label="เท่าที่เบิกไป (ไม่มีของเหลือ)" qty={issued} />
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="number" min="0" step="1" inputMode="numeric" aria-label="ยอดรับจริง"
+                  className="input !min-h-[42px] text-right font-bold text-base flex-1" placeholder="หรือพิมพ์ยอดที่นับได้"
+                  value={target} onChange={e => setTarget(e.target.value)} />
+                <span className="text-gray-500">เส้น</span>
+              </div>
+              {valid && (
+                <p className={`text-xs ${after! < 0 ? 'text-rose-600' : 'text-gray-600'}`}>
+                  บันทึกแล้วเหลือรอเบิก <b className={after! > 0 ? 'text-violet-700' : after! < 0 ? 'text-rose-600' : 'text-emerald-700'}>{fmtN(after)}</b> เส้น
+                  {after! < 0 && ' — น้อยกว่าที่เบิกไปแล้ว ตรวจตัวเลขอีกครั้ง'}
+                </p>
+              )}
+              {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{msg.text}</p>}
+            </div>
+
+            {/* ที่มาของส่วนต่าง — อ่านอย่างเดียว */}
+            {lot.actual !== lot.note && (
+              <div>
+                <button type="button" onClick={() => setShowWhy(v => !v)} className="text-xs text-blue-700 hover:underline">
+                  {showWhy ? '▾' : '▸'} ทำไมรับจริงไม่เท่าใบส่งของ
+                </button>
+                {showWhy && (
+                  <ul className="mt-2 space-y-1 text-xs text-gray-600 rounded-lg border px-3 py-2">
+                    {issues.map(i => (
+                      <li key={i.id} className="flex justify-between gap-2">
+                        <span className="min-w-0 truncate">แก้ยอดเบิก {i.code} {i.member_name} ({fmtN(i.orig_quantity)} → {fmtN(i.quantity)})</span>
+                        <span className={`shrink-0 font-semibold ${i.diff > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{signed(i.diff)}</span>
+                      </li>
+                    ))}
+                    {countDiff !== 0 && (
+                      <li className="flex justify-between gap-2"><span>กำหนด/นับยอดเองที่ใบรับ</span><span className={`font-semibold ${countDiff > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{signed(countDiff)}</span></li>
+                    )}
+                    {lot.auto !== 0 && (
+                      <li className="flex justify-between gap-2"><span>ระบบปิดล็อตอัตโนมัติ (คลาดไม่กี่เส้น)</span><span className={`font-semibold ${lot.auto > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>{signed(lot.auto)}</span></li>
+                    )}
+                  </ul>
+                )}
               </div>
             )}
-            {msg && <p className="text-sm text-emerald-700">{msg}</p>}
           </div>
         )}
         <div className="border-t px-5 py-3 flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ปิด</button>
-          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || (chosen.length === 0 && !clearCounted)} onClick={reset}>
-            {busy ? 'กำลังล้าง...' : 'ย้อนกลับเป็นยอดตามใบส่งของ'}
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || !valid || value === lot?.actual} onClick={save}>
+            {busy ? 'กำลังบันทึก...' : 'บันทึกยอดรับจริง'}
           </button>
         </div>
       </div>
