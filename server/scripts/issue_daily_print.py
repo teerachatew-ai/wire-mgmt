@@ -138,9 +138,10 @@ for day in d["days"]:
     cNgF, cNgG = cSum + 1, cSum + 2      # NG โรงงาน / NG กลุ่ม (ตัดโดนสายไฟ + ดึงเชือก) ต่อการคืนแต่ละงวด
     cDate = cSum + 3                     # วันที่คืน (ขวาสุด)
     NCOL = cDate
-    widths = {cN: 3.6, cM: 21, cT: 6.2, cSum: 7.6, cNgF: 7.2, cNgG: 7.2, cDate: 11.5}
+    # ความกว้างรวม ~109 ตัวอักษร — LibreOffice บนเซิร์ฟเวอร์ (ฟอนต์แทนที่กว้างกว่า Excel) ย่อเหลือ ~72% ตัวหนังสือยังอ่านได้
+    widths = {cN: 3, cM: 17, cT: 5, cSum: 6.8, cNgF: 6, cNgG: 6, cDate: 9.5}
     for c in range(1, NCOL + 1):
-        ws.column_dimensions[COL(c)].width = widths.get(c, 7.4)
+        ws.column_dimensions[COL(c)].width = widths.get(c, 6.2)
 
     # ── หัวกระดาษ ──
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=NCOL)
@@ -189,7 +190,8 @@ for day in d["days"]:
     sep = Side(style="medium", color="64748B")
     # ตัดหน้าเองก่อนกลุ่มสมาชิกที่จะล้นหน้า — 3 แถวของคนเดียวกันต้องอยู่หน้าเดียวกันเสมอ
     # (ความสูงหน้า A4 หลังย่อให้พอดีความกว้าง ≈ 800pt เผื่อไว้ · หัวตารางพิมพ์ซ้ำทุกหน้า 44pt)
-    PAGE_H, used_h = 860, 15 + 26 + 15 + 5 + 44
+    # ตัดหน้าตามขนาดจริงบนเซิร์ฟเวอร์: หน้า A4 ≈ 777pt ÷ อัตราย่อ ~0.72 ≈ 1080pt (เผื่อไว้ 1000) · สมาชิก 1 คน = 70pt
+    PAGE_H, BLOCK_H, used_h = 1000, 70, 15 + 26 + 15 + 5 + 44
     for gi, code in enumerate(sorted(by_member)):
         group = by_member[code]
         issued = {}
@@ -230,10 +232,10 @@ for day in d["days"]:
         who = rich([(9.5, True, INK, f"{code}  {nick or full}"),
                     (7.5, False, GREY, f"\n{full}" if nick and full and nick != full else "")])
         r0 = row
-        if used_h + 59 > PAGE_H:
+        if used_h + BLOCK_H > PAGE_H:
             ws.row_breaks.append(Break(id=r0 - 1))
             used_h = 44
-        used_h += 59
+        used_h += BLOCK_H
         bg_issue = DONE_FILL if done else ("F1F5F9" if gi % 2 else "FFFFFF")
         bg_ret = DONE_FILL if done else None
         b = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -264,7 +266,7 @@ for day in d["days"]:
             put(ws, rr, cNgF, ng[0] or None, f=font(10, True, RED, italic=True), fill=bg_ret or NG_FILL, al=C, fmt=NUM, border=b)
             put(ws, rr, cNgG, ng[1] or None, f=font(10, True, RED, italic=True), fill=bg_ret or NG_FILL, al=C, fmt=NUM, border=b)
             put(ws, rr, cDate, dt_txt, f=font(9.5, False, BLUE, italic=True), fill=bg_ret, al=C, border=b)
-        for r, h in ((r0, 21), (r0 + 1, 19), (r0 + 2, 19)):
+        for r, h in ((r0, 22), (r0 + 1, 24), (r0 + 2, 24)):   # แถวคืนสูงหน่อย เขียนมือได้สบาย
             ws.row_dimensions[r].height = h
 
         ws.merge_cells(start_row=r0, start_column=cN, end_row=r0 + 2, end_column=cN)
