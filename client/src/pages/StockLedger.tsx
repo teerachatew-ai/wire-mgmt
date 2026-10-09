@@ -454,12 +454,13 @@ export default function StockLedger() {
   const loading = lp || lr || ls || li;
 
   const outLabel = mode === 'site' ? 'เบิกออกให้สมาชิก' : 'ส่งงานออกโรงงาน';
-  const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : 'ยอดความต่าง';
+  // รับ-ส่งโรงงานแบบเลือกช่วง: มียอดยกมาด้านบนแล้ว ตัวเลขล่างสุดจึงต้องรวมยกมาด้วย = งานที่ค้างส่งคืนโรงงาน ณ ท้ายช่วง
+  const balLabel = mode === 'site' ? 'คงเหลือหน้างาน' : fromDate ? 'คงค้างส่งคืนโรงงาน' : 'ยอดความต่าง';
   /* ตารางรายวันโชว์แค่ของเข้า/ของออก แล้วสรุปตัวเลขสุดท้ายไว้ "ใต้ตาราง" แถวเดียว แบบไฟล์ Excel 交货明细
      (ไม่ไล่ยอดสะสมทุกบรรทัด — เคยทำแล้วงง เพราะแยกไม่ออกว่าเลขไหนเป็นยอดเคลื่อนไหว เลขไหนเป็นยอดคงเหลือ)
      - รับ-ส่งโรงงาน: ยอดความต่าง = รวมรับเข้า − รวมส่งออก ของช่วงที่เลือก (สูตรเดียวกับ Excel)
      - สต็อกหน้างาน:  คงเหลือหน้างาน = ของที่เหลืออยู่จริง (เดินยอดจากเส้นเริ่มนับ) */
-  const finalOf = (tin: number, tout: number, closing: number) => (mode === 'factory' ? tin - tout : closing);
+  const finalOf = (tin: number, tout: number, closing: number) => (mode === 'factory' && !fromDate ? tin - tout : closing);
 
   // ── รวมความเคลื่อนไหวรายวัน ──
   const { dates, moves } = useMemo(() => {
@@ -577,6 +578,16 @@ export default function StockLedger() {
       const rows = ledger.rows.get(g.key) || [];
       if (rows.length === 0) continue;
       const names = g.items.map((p: any) => { const { num, label } = parseProductLabel(p.name); return `${num} ${label}`; });
+      const sumOf = (pid: number, k: 'in' | 'out') => rows.reduce((a: number, r: any) => a + (r[k][pid] || 0), 0);
+      if (mode === 'factory' && fromDate) {
+        // แถวแรก: ยกมาจากรอบก่อน (ใต้คอลัมน์รับเข้า) — เหมือนบนหน้าเว็บ
+        const carry: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': 'ยกมาจากรอบก่อน' };
+        g.items.forEach((p: any, i: number) => {
+          carry[`รับเข้า ${names[i]}`] = (ledger.closing[p.id] || 0) - sumOf(p.id, 'in') + sumOf(p.id, 'out');
+          carry[`${outLabel} ${names[i]}`] = '';
+        });
+        out.push(carry);
+      }
       for (const r of rows) {
         const row: Record<string, any> = { 'กลุ่มงาน': projectLabel(g.key), 'วันที่': r.date };
         g.items.forEach((p: any, i: number) => {
@@ -593,7 +604,7 @@ export default function StockLedger() {
         total[`รับเข้า ${names[i]}`] = sIn;
         total[`${outLabel} ${names[i]}`] = sOut;
         diff[`รับเข้า ${names[i]}`] = '';
-        diff[`${outLabel} ${names[i]}`] = mode === 'factory' ? sIn - sOut : (ledger.closing[p.id] || 0);
+        diff[`${outLabel} ${names[i]}`] = mode === 'factory' && !fromDate ? sIn - sOut : closingOf(p.id);
       });
       out.push(total, diff);
       // สถานะงาน ณ วันนี้ — วางใต้คอลัมน์ส่งออก แบบแถวสรุปในไฟล์ Excel
@@ -610,7 +621,7 @@ export default function StockLedger() {
       }
     }
     return out;
-  }, [shownGroups, ledger, outLabel, balLabel, mode, statusOf]);
+  }, [shownGroups, ledger, outLabel, balLabel, mode, statusOf, fromDate, siteBalOf, useLots]);
 
   const pill = (active: boolean) =>
     `px-2.5 py-1 rounded-lg text-sm border transition ${active ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`;
@@ -698,7 +709,7 @@ export default function StockLedger() {
           <div className="text-xl font-bold text-blue-700 tabular-nums mt-0.5">{fmt(summary.tout)}</div>
         </div>
         <div className="card !p-3 border-l-4 border-l-slate-700">
-          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel}{mode === 'factory' ? 'ในช่วงนี้' : ' (ล่าสุด)'}</div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500"><Boxes size={13} className="text-slate-700" /> {balLabel}{mode === 'factory' ? (fromDate ? ' (ท้ายช่วง)' : 'ในช่วงนี้') : ' (ล่าสุด)'}</div>
           {(() => {
             const v = finalOf(summary.tin, summary.tout, summary.closing);
             return <div className={`text-xl font-bold tabular-nums mt-0.5 ${v < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{fmt(v)}</div>;
@@ -719,7 +730,7 @@ export default function StockLedger() {
         const gFinal = finalOf(gIn, gOut, gBal);
         const sumIn = (pid: number) => rows.reduce((a: number, r: any) => a + (r.in[pid] || 0), 0);
         const sumOut = (pid: number) => rows.reduce((a: number, r: any) => a + (r.out[pid] || 0), 0);
-        const finalFor = (pid: number) => (mode === 'factory' ? sumIn(pid) - sumOut(pid) : closingOf(pid));
+        const finalFor = (pid: number) => (mode === 'factory' && !fromDate ? sumIn(pid) - sumOut(pid) : closingOf(pid));
         /* รับ-ส่งโรงงาน: ยอดยกมา/ยกไป — งานที่รับจากโรงงานแล้วยังไม่ได้ส่งคืน สะสมตั้งแต่วันแรกของระบบ
            ยกไป = เดินยอด (รับเข้า − ส่งออก) ถึงท้ายช่วง · ยกมา = ยกไป − ความเคลื่อนไหวในช่วง → ยกมา + ยอดความต่าง = ยกไป */
         const carryOut = (pid: number) => ledger.closing[pid] || 0;
@@ -752,11 +763,10 @@ export default function StockLedger() {
               <span className="font-semibold text-gray-800">{projectLabel(g.key)}</span>
               <span className="text-xs text-gray-400">{g.key}</span>
               <span className="ml-auto flex items-center gap-3 text-xs tabular-nums">
-                {useLots && <span className="text-gray-500">ยกมา <b>{fmt(gOpen)}</b></span>}
-                <span className="text-emerald-700">{useLots && '+ '}รับเข้า <b>{fmt(gIn)}</b></span>
-                <span className="text-blue-700">{useLots && '− '}{outLabel} <b>{fmt(gOut)}</b></span>
-                <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{useLots && '= '}{balLabel} <b>{fmt(gFinal)}</b></span>
-                {showCarry && <span className="text-gray-500">· ยกมา <b>{fmt(gCarryIn)}</b></span>}
+                {(useLots || showCarry) && <span className="text-gray-500">ยกมา <b>{fmt(useLots ? gOpen : gCarryIn)}</b></span>}
+                <span className="text-emerald-700">{(useLots || showCarry) && '+ '}รับเข้า <b>{fmt(gIn)}</b></span>
+                <span className="text-blue-700">{(useLots || showCarry) && '− '}{outLabel} <b>{fmt(gOut)}</b></span>
+                <span className={gFinal < 0 ? 'text-rose-600' : 'text-slate-800'}>{(useLots || showCarry) && '= '}{balLabel} <b>{fmt(gFinal)}</b></span>
               </span>
             </div>
 
@@ -818,7 +828,7 @@ export default function StockLedger() {
                       <td className="sticky left-0 bg-white z-10 px-3 py-2.5 border-r text-gray-800 font-semibold leading-tight">
                         {balLabel}
                         <div className="text-[10px] font-normal text-gray-400">
-                          {mode === 'factory' ? 'รวมรับเข้า − รวมส่งออก' : 'ของที่เหลืออยู่ตอนนี้'}
+                          {mode === 'factory' ? (fromDate ? 'ยกมา + รับเข้า − ส่งออก' : 'รวมรับเข้า − รวมส่งออก') : 'ของที่เหลืออยู่ตอนนี้'}
                         </div>
                       </td>
                       {g.items.map((p: any, i: number) => (
