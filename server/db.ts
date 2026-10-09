@@ -109,7 +109,13 @@ async function pgFlush() {
   } catch (e) {
     dirty = true; // ลองใหม่รอบถัดไป
     console.error('pgFlush error:', (e as any)?.message);
-  } finally { flushing = false; }
+  } finally {
+    flushing = false;
+    // มีการแก้ข้อมูลระหว่างที่กำลังอัปโหลด (หรืออัปโหลดพลาด) → ต้องนัดเซฟรอบใหม่เอง
+    // เดิมรอบที่ถูกข้ามตอน flushing ไม่มีใครนัดใหม่ ข้อมูลค้างในหน่วยความจำจนกว่าจะมีคนแก้อะไรอีก
+    // ถ้า restart/deploy ก่อนหน้านั้น = ข้อมูลหาย (เกิดจริง 9 ต.ค. 69: แก้ล็อต 674_A 2 รายการหาย)
+    if (dirty && !genConflict && !flushTimer) flushTimer = setTimeout(() => { flushTimer = null; pgFlush(); }, 1500);
+  }
 }
 // ให้ส่วนอื่นเช็คได้ว่าตอนนี้ยังบันทึกลงฐานกลางได้อยู่ไหม
 export function dbWriteBlocked() { return genConflict; }
@@ -120,7 +126,11 @@ function scheduleFlush() {
 }
 // flush ค้างก่อนปิดโปรเซส (Render ส่ง SIGTERM ตอน deploy/restart)
 // flush เฉพาะเมื่อมีการแก้ข้อมูลจริง (dirty) — กันไม่ให้เขียนทับฐานข้อมูลด้วยข้อมูลเปล่าตอน restart
-export async function flushNow() { if (USE_PG) await pgFlush(); }
+export async function flushNow() {
+  if (!USE_PG) return;
+  for (let i = 0; i < 100 && flushing; i++) await new Promise(r => setTimeout(r, 100));   // รออัปโหลดรอบที่ค้างอยู่ให้จบก่อน
+  await pgFlush();
+}
 
 // เลขเวอร์ชันข้อมูล — ขยับทุกครั้งที่มีการเขียน ใช้เป็นกุญแจให้ cache ของ API (ดู server/apiCache.ts)
 // พอมีคนแก้ข้อมูล cache ทั้งหมดจะถือว่าหมดอายุทันทีโดยอัตโนมัติ ไม่ต้องไล่ล้างทีละ endpoint

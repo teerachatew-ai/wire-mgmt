@@ -2087,8 +2087,20 @@ export default function Issues() {
       )}
 
       {/* เทียบรับเข้า vs เบิกออก ในตารางเดียว — อ่านทีละแถวได้เลย ไม่ต้องกวาดสายตาขึ้นลงระหว่าง 2 การ์ด */}
-      <InOutCompare received={receiveSummaryOfPeriod} issued={summary} waiting={waitingByName} balance={balanceByName}
-        stockCutoff={balanceData?.stock_cutoff} note={dateFilterLabel(dateFilter)} memberCount={memberCount} />
+      {/* รอบเดือนที่ปิดแล้ว: วันรอยต่อ (วันส่งของครั้งสุดท้ายของเดือน) เป็นของรอบถัดไป — server ตัดออกให้แล้ว
+          ใช้ยอดรับเข้า/เบิกออกจาก server ชุดเดียวกับยกมา/คงเหลือ ไม่งั้นแถวไม่ลงตัว และคงเหลือ ≠ ยกมาเดือนถัดไป */}
+      {(() => {
+        const excl = !!balanceData?.end_exclusive;
+        const fromBal = (k: 'received' | 'issued') => ((balanceData?.products || []) as any[])
+          .filter((p: any) => p[k]).map((p: any) => ({ name: p.name, unit: p.unit, color: p.color, qty: p[k] }));
+        const seamTH = excl ? (() => { const [, m, d] = String(balanceData.end).slice(0, 10).split('-').map(Number);
+          return `${d} ${['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'][m - 1]}`; })() : '';
+        return (
+          <InOutCompare received={excl ? fromBal('received') : receiveSummaryOfPeriod} issued={excl ? fromBal('issued') : summary}
+            waiting={waitingByName} balance={balanceByName} stockCutoff={balanceData?.stock_cutoff}
+            note={`${dateFilterLabel(dateFilter)}${excl ? ` (ไม่รวม ${seamTH} — วันรอยต่อ นับเป็นของรอบถัดไป)` : ''}`} memberCount={memberCount} />
+        );
+      })()}
 
       <div className="card overflow-x-auto">
         <button type="button" className="w-full flex items-center justify-between flex-wrap gap-2 mb-0 text-left" onClick={() => setLedgerOpen(o => !o)}>

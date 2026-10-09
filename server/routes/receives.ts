@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { prepare, nextDateCode } from '../db';
 import { userOf } from '../reqUser';
-import { deliveryCutoffRange } from '../payCycle';
+import { deliveryCutoffRange, todayThai } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
 import { lotVariances, lotKey, computeLots } from '../receivedActual';
 
@@ -87,9 +87,16 @@ function periodOf(q: any): { start: string | null; end: string | null } {
    (รับก่อน STOCK_CUTOFF หรือใบเบิกที่หักของก่อน STOCK_CUTOFF) — ถ้าเป็นลบมาก = เบิกเกินของที่มีก่อนเริ่มนับ ต้องตรวจ */
 router.get('/balance', (req, res) => {
   const { start, end } = periodOf(req.query);
-  const before = (x: string, edge: string | null) => !edge || x < edge;          // ก่อนต้นช่วง
-  const upTo = (x: string, edge: string | null) => !edge || x <= edge;           // ถึงท้ายช่วง
-  const inP = (x: string) => (!start || x >= start) && (!end || x <= end);
+  /* วันรอยต่อรอบ: รอบเดือนที่ปิดแล้วจบที่ "วันที่โรงงานส่งของครั้งสุดท้ายของเดือน" ซึ่งเป็นวันเริ่มของรอบถัดไปด้วย
+     รับเข้า/เบิกออกของวันนั้น = ของรอบถัดไป (กติกาเดียวกับหน้าสต็อกสินค้า เข้า-ออก) → ตัดออกจากรอบที่ปิดแล้ว
+     ไม่งั้นวันรอยต่อถูกนับ 2 เดือน: คงเหลือ ก.ย. ≠ ยกมา ต.ค. (เช่น ป้ายขาว รับ 30 ก.ย. เบิกไม่หมดวันนั้น) */
+  const ym = typeof req.query.date === 'string' && /^\d{4}-\d{2}$/.test(req.query.date) ? req.query.date : '';
+  const endExcl = !!ym && !req.query.to && ym !== todayThai().slice(0, 7) && !!end
+    && !!(prepare(`SELECT 1 FROM receives WHERE substr(received_at, 1, 10) = ? LIMIT 1`).get(String(end).slice(0, 10)));
+  const day = (x: string) => x.slice(0, 10);
+  const before = (x: string, edge: string | null) => !edge || day(x) < day(edge);          // ก่อนต้นช่วง
+  const upTo = (x: string, edge: string | null) => !edge || (endExcl ? day(x) < day(edge) : x <= edge);   // ถึงท้ายช่วง
+  const inP = (x: string) => (!start || day(x) >= day(start)) && upTo(x, end);
   const out = new Map<number, any>();
   const row = (pid: number) => {
     if (!out.has(pid)) out.set(pid, { product_id: pid, received: 0, issued: 0, opening: 0, closing: 0, now: 0 });
@@ -118,7 +125,7 @@ router.get('/balance', (req, res) => {
   for (const l of lots) row(l.product_id).now += l.remaining;
   const names = new Map((prepare(`SELECT id, name, color, unit FROM products`).all() as any[]).map((p: any) => [p.id, p]));
   res.json({
-    start, end, stock_cutoff: STOCK_CUTOFF,
+    start, end, end_exclusive: endExcl, stock_cutoff: STOCK_CUTOFF,
     products: [...out.values()].filter(r => names.has(r.product_id)).map(r => {
       const p: any = names.get(r.product_id);
       return { product_id: r.product_id, name: p.name, color: p.color, unit: p.unit,
