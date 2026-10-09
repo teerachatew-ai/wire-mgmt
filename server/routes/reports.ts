@@ -964,7 +964,7 @@ router.get('/stock-status-breakdown', (req, res) => {
   const product = prepare(`SELECT id, code, name, unit, color FROM products WHERE id = ?`).get(pid) as any;
   if (!product) return res.status(404).json({ error: 'ไม่พบสินค้า' });
   const st = computeStockStatus()(pid);
-  const byMember = new Map<number, any>();
+  const byMember = new Map<number | string, any>();
   const member = (r: any) => {
     if (!byMember.has(r.mid)) byMember.set(r.mid, { member_id: r.mid, code: r.mcode, name: r.mname, nickname: r.mnick, qty: 0, items: [] as any[] });
     return byMember.get(r.mid);
@@ -993,37 +993,67 @@ router.get('/stock-status-breakdown', (req, res) => {
          รายชื่อ = งานที่คืนมาหลังส่งงานครั้งล่าสุด (เต็มจำนวน ไม่เดาตัดยอดครึ่งๆ)
          + บรรทัด "ค้างจากการส่งครั้งก่อน" = ของที่ส่งครั้งล่าสุดแล้วยังเหลือ (ส่งไม่หมด) — ไม่รู้ว่าของใคร
        ระบบไม่รู้ว่าแต่ละครั้งที่ส่งออกหยิบงานของใครไป จึงไม่แบ่งยอดที่ค้างให้ใครคนหนึ่ง */
+    /* ไล่กองของพร้อมส่งทีละรายการคืน (กติกาเดียวกับ readyPiles — ผลรวมจึงเท่ายอดในบัตร)
+         ส่งออก = หยิบของที่คืนมาก่อนออกไปก่อน (FIFO) → ของที่ยังเหลือในกอง = ของที่คืนล่าสุด รู้ได้ว่าของใคร คืนวันไหน
+         • คืนหลังส่งงานครั้งล่าสุด  → section 'new'
+         • คืนก่อน/วันส่งครั้งล่าสุด แต่ยังไม่ได้ส่ง (ส่งไม่หมด) → section 'carried' = พร้อมส่งรอบถัดไป ระบุตัวตนได้
+         • ยอดยกมา ณ วันเริ่มนับ / ปรับยอดสต็อกเพิ่ม → ไม่ระบุว่าของใคร */
     const pile = readyPiles().get(pid) || { ready: 0, lastShip: null, leftover: 0, adjAfterShip: false };
     lastShip = pile.lastShip;
-    const rets = prepare(`
+    const cut = String(STOCK_CUTOFF).slice(0, 10);
+    const cutTH = cut.split('-').reverse().slice(0, 2).map(Number).join('/');
+    type Ent = { d: string; t: number; q: number; r?: any; label?: string };
+    const ev: Ent[] = [];
+    for (const r of prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
         substr(i.issued_at, 1, 10) issued_d, i.code icode,
         COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) q
       FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
-      WHERE i.product_id = ? AND substr(r.returned_at, 1, 10) > ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
-      ORDER BY r.returned_at, r.id`).all(pid, lastShip || (() => {
-        // ยังไม่เคยส่งตั้งแต่วันเริ่มนับ = ตั้งแต่วันเริ่มนับสต็อก (รวมวันนั้น) → เทียบกับวันก่อนหน้า
-        const x = new Date(STOCK_CUTOFF + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10);
-      })()) as any[];
-    let listed = 0;
-    for (const r of rets) {
-      const m = member(r);
-      const q = Number(r.q) || 0;
-      m.qty += q; listed += q;
-      m.items.push({ date: r.d, issued_date: r.issued_d, issue_code: r.icode, code: r.rcode, returned: q, qty: q, partial: false });
+      WHERE i.product_id = ? AND r.returned_at >= ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
+      ORDER BY r.returned_at, r.id`).all(pid, cut) as any[]) ev.push({ d: r.d, t: 0, q: Number(r.q) || 0, r });
+    for (const s of prepare(`SELECT substr(s.shipped_at, 1, 10) d, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
+        FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE si.product_id = ? AND s.shipped_at >= ? GROUP BY d`).all(pid, cut) as any[])
+      ev.push({ d: s.d, t: 1, q: Number(s.q) || 0 });
+    let adjAfterCut = 0;
+    for (const a of prepare(`SELECT substr(adjusted_at, 1, 10) d, SUM(quantity) q FROM stock_adjustments
+        WHERE product_id = ? AND adjusted_at >= ? GROUP BY d`).all(pid, cut) as any[]) {
+      ev.push({ d: a.d, t: 2, q: Number(a.q) || 0 }); adjAfterCut += Number(a.q) || 0;
     }
+    ev.sort((a, b) => a.d.localeCompare(b.d) || a.t - b.t);
+    const queue: { d: string; q: number; full: number; r?: any; label: string }[] = [];
+    const take = (n: number) => {   // หยิบของเก่าสุดออกจากกองก่อน
+      while (n > 0.0001 && queue.length) {
+        const h = queue[0], k = Math.min(h.q, n);
+        h.q -= k; n -= k;
+        if (h.q <= 0.0001) queue.shift();
+      }
+    };
+    const open0 = Math.max(0, computeStockStatus(cut)(pid).ready_raw - adjAfterCut);   // = ยอดตั้งต้นใน readyPiles
+    if (open0 > 0) queue.push({ d: cut, q: open0, full: open0, label: `ยอดยกมา ณ ${cutTH}` });
+    for (const e of ev) {
+      if (e.t === 0) queue.push({ d: e.d, q: e.q, full: e.q, r: e.r, label: '' });
+      else if (e.t === 1) take(e.q);
+      else if (e.q > 0) queue.push({ d: e.d, q: e.q, full: e.q, label: 'ปรับยอดสต็อก (เพิ่ม)' });
+      else take(-e.q);
+    }
+    const byKey = new Map<string, any>();
+    for (const h of queue) {
+      if (h.q <= 0.0001) continue;
+      if (!h.r) { adjustments.push({ kind: 'leftover', qty: h.q, label: h.label, date: h.label.startsWith('ปรับ') ? h.d : undefined }); continue; }
+      const section = lastShip && h.d <= lastShip ? 'carried' : 'new';
+      const key = `${section}-${h.r.mid}`;
+      if (!byKey.has(key)) byKey.set(key, { member_id: h.r.mid, section, code: h.r.mcode, name: h.r.mname, nickname: h.r.mnick, qty: 0, items: [] as any[] });
+      const m = byKey.get(key);
+      m.qty += h.q;
+      m.items.push({ date: h.d, issued_date: h.r.issued_d, issue_code: h.r.icode, code: h.r.rcode, returned: h.full, qty: h.q, partial: h.q < h.full - 0.0001 });
+    }
+    for (const [k, m] of byKey) byMember.set(k, m);
     total = pile.ready;
-    const rest = pile.ready - listed;   // = ของที่ค้างจากการส่งครั้งล่าสุด (หรือยอดยกมา ถ้ายังไม่เคยส่ง)
-    if (Math.abs(rest) > 0.0001) {
-      const cutTH = STOCK_CUTOFF.split('-').reverse().slice(0, 2).map(Number).join('/');
-      adjustments.push({ kind: 'leftover', qty: rest,
-        label: rest < 0 ? 'ปรับยอดสต็อก (นับของจริงได้น้อยกว่ารายชื่อ)'
-          : pile.adjAfterShip ? 'ค้างจากการส่งงานครั้งก่อน / ปรับยอดสต็อก (ไม่ระบุว่าของใคร)'
-          : lastShip ? 'ค้างจากการส่งงานครั้งก่อน (ส่งไม่หมด · ไม่ระบุว่าของใคร)' : `ยอดยกมา ณ ${cutTH} (ไม่ระบุว่าของใคร)` });
-    }
     stockReady = pile.ready;
   }
-  const members = [...byMember.values()].sort((a, b) => b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
+  // พร้อมส่ง: คืนหลังส่งครั้งล่าสุดขึ้นก่อน แล้วตามด้วยของค้างจากรอบก่อน
+  const secRank = (m: any) => (m.section === 'carried' ? 1 : 0);
+  const members = [...byMember.values()].sort((a, b) => secRank(a) - secRank(b) || b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
   res.json({ product, kind, total, total_raw: totalRaw, members, unassigned, adjustments,
     stock_ready: stockReady, last_ship: lastShip,   // พร้อมส่ง: ยอดในบัตรสต็อก + วันส่งงานครั้งล่าสุด (หน้าเว็บบอกส่วนต่างเป็นหมายเหตุ)
     note: null });

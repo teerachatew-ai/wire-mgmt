@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { productApi, receiveApi, issueApi, shipmentApi, reportApi } from '../api';
 import { projectLabel, parseProductLabel } from '../projectLabel';
@@ -73,7 +73,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
     queryKey: ['stock-status-breakdown', product.id, kind],
     queryFn: () => reportApi.stockStatusBreakdown(product.id, kind),
   });
-  const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   useEffect(() => {   // Esc = ปิด
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
@@ -97,7 +97,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {isReady
-                ? (data?.last_ship ? `งานที่สมาชิกคืนมาหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})` : 'งานที่สมาชิกคืนมาแล้ว (ยังไม่เคยส่งออก)')
+                ? (data?.last_ship ? `งานที่สมาชิกคืนแล้วยังไม่ได้ส่ง · ส่งงานครั้งล่าสุด ${shortDate(data.last_ship)} (ถือว่าส่งของที่คืนก่อนออกไปก่อน)` : 'งานที่สมาชิกคืนมาแล้ว (ยังไม่เคยส่งออก)')
                 : 'ใบเบิกที่สมาชิกยังคืนไม่ครบ — แยกตามคนที่ถือ'}
             </p>
           </div>
@@ -117,12 +117,27 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
             <div className="py-10 text-center text-sm text-gray-400">{isReady && data?.last_ship ? `ไม่มีงานคืนเข้ามาหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})` : 'ไม่มีรายการ'}</div>
           ) : (
             <ul className="divide-y">
-              {members.map(m => (
-                <li key={m.member_id}>
+              {members.map((m, idx) => {
+                const mk = `${m.section || ''}-${m.member_id}`;
+                // พร้อมส่ง: หัวข้อแบ่ง "คืนหลังส่งครั้งล่าสุด" / "ค้างจากการส่งงานครั้งก่อน" (โชว์เมื่อมีของค้างจากรอบก่อน)
+                const secHead = isReady && m.section && (idx === 0 || members[idx - 1].section !== m.section)
+                  && members.some(x => x.section === 'carried');
+                const secQty = members.filter(x => x.section === m.section).reduce((t, x) => t + x.qty, 0);
+                return (
+                <Fragment key={mk}>
+                {secHead && (
+                  <li className="px-5 pt-2.5 pb-1 flex items-baseline gap-2 text-[11px] font-semibold text-gray-500 bg-gray-50 border-t first:border-t-0">
+                    <span>{m.section === 'carried'
+                      ? `ค้างจากการส่งงานครั้งก่อน (คืนถึง ${shortDate(data.last_ship)} แต่ยังไม่ได้ส่ง)`
+                      : `คืนหลังส่งงานครั้งล่าสุด (${shortDate(data.last_ship)})`}</span>
+                    <span className="ml-auto tabular-nums text-gray-600">{fmt(secQty)}</span>
+                  </li>
+                )}
+                <li>
                   <button type="button" className="w-full text-left px-5 py-2.5 hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-none"
-                    aria-expanded={!!open[m.member_id]} onClick={() => setOpen(o => ({ ...o, [m.member_id]: !o[m.member_id] }))}>
+                    aria-expanded={!!open[mk]} onClick={() => setOpen(o => ({ ...o, [mk]: !o[mk] }))}>
                     <div className="flex items-center gap-2 text-sm">
-                      <ChevronRight size={14} className={`shrink-0 text-gray-400 transition-transform ${open[m.member_id] ? 'rotate-90' : ''}`} />
+                      <ChevronRight size={14} className={`shrink-0 text-gray-400 transition-transform ${open[mk] ? 'rotate-90' : ''}`} />
                       <span className="font-mono text-[11px] text-gray-400 shrink-0">{m.code}</span>
                       <span className="font-medium text-gray-800 truncate">{m.name}{m.nickname && <span className="text-gray-400 font-normal text-xs"> ({m.nickname})</span>}</span>
                       <span className={`ml-auto font-bold tabular-nums ${tone.num}`}>{fmt(m.qty)}</span>
@@ -131,7 +146,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
                       <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${Math.max(3, (m.qty / max) * 100)}%` }} />
                     </div>
                   </button>
-                  {open[m.member_id] && (
+                  {open[mk] && (
                     <div className="pb-2.5 pl-[42px] pr-5 bg-gray-50/60 divide-y divide-gray-100">
                       {/* จัดกลุ่มตาม "วันที่เบิก" — งานที่เบิกวันเดียวกันอยู่ติดกัน เรียงวันเบิกเก่า→ใหม่ แล้วไล่วันที่คืนในกลุ่ม */}
                       {groupByIssueDate(m.items, isReady).map(g => (
@@ -165,7 +180,9 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
                     </div>
                   )}
                 </li>
-              ))}
+                </Fragment>
+                );
+              })}
               {data?.unassigned > 0 && (
                 <li className="px-5 py-2.5 flex items-center gap-2 text-sm bg-gray-50">
                   <span className="text-gray-600">ไม่ระบุสมาชิก</span>
