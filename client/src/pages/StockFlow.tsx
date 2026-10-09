@@ -359,7 +359,8 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
         color: p.color,
         unit: p.unit,
         max_good: p.ret_good > 0 ? p.ret_good : 0,
-        max_total: p.available ?? (p.received - p.shipped),
+        // ยอดพร้อมส่ง (คืนแล้วรอส่ง) — เดิมใช้ "รวมของที่อยู่ที่กลุ่ม" ซึ่งรวมของที่อยู่กับสมาชิกด้วย เลยแทบไม่เคยเตือน
+        max_total: p.stock_ready ?? 0,
         good_qty: 0,
         defect_qty: 0,
       }))
@@ -421,7 +422,9 @@ function ShipmentModal({ products, onClose }: { products: any[]; onClose: () => 
         return `• ${it.product_name}: ส่ง ${fmt(q)} ${it.unit || ''} (สต็อกพร้อมส่งมี ${fmt(ready)})`;
       }).join('\n');
       const ok = window.confirm(
-        `⚠️ ไม่มีของในสต็อกพร้อมส่ง / จำนวนส่งเกินสต็อกพร้อมส่ง:\n\n${lines}\n\nยืนยันจะทำรายการส่งออกหรือไม่?`
+        `⚠️ ส่งมากกว่าของพร้อมส่งที่บันทึกไว้:\n\n${lines}\n\n` +
+        `มีงานที่สมาชิกคืนมาแล้วแต่ยังไม่ได้ลง "รับคืน" หรือเปล่า? ควรลงรับคืนให้ครบก่อน (วันที่คืนให้ตรงวันจริง) แล้วค่อยบันทึกส่ง\n\n` +
+        `กด OK = บันทึกส่งต่อเลย · Cancel = กลับไปตรวจก่อน`
       );
       if (!ok) return;
     }
@@ -684,6 +687,17 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
 
   const save = async () => {
     if (!val) return;
+    // ส่งเพิ่มเกินของพร้อมส่ง → ถามก่อน (ต้นเหตุของยอดคลาด: ลงรับคืนไม่ครบ/ลงวันที่คืนช้ากว่าวันส่ง)
+    const over = visibleProducts.map((p: any) => {
+      const v = val[p.id] || { good: '', defect: '', ng: '' };
+      const add = (parseFloat(v.good) || 0) + (parseFloat(v.defect) || 0) - sumOf(p.id, 'good') - sumOf(p.id, 'defect');
+      const ready = Number(p.stock_ready) || 0;
+      return add > 0 && add > ready ? `• ${p.name}: ส่งเพิ่ม ${fmt(add)} (พร้อมส่งมี ${fmt(ready)})` : '';
+    }).filter(Boolean);
+    if (over.length && !window.confirm(
+      `⚠️ ส่งมากกว่าของพร้อมส่งที่บันทึกไว้:\n\n${over.join('\n')}\n\n` +
+      `มีงานที่สมาชิกคืนมาแล้วแต่ยังไม่ได้ลง "รับคืน" หรือเปล่า? ควรลงรับคืนให้ครบก่อน (วันที่คืนให้ตรงวันจริง) แล้วค่อยบันทึกส่ง\n\n` +
+      `กด OK = บันทึกต่อเลย · Cancel = กลับไปตรวจก่อน`)) return;
     setSaving(true); setError('');
     try {
       const ships = dayShipments as any[];

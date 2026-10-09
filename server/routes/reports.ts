@@ -803,6 +803,7 @@ function computeStockStatus(asOf?: string) {
     for (const l of computeLots()) m.set(l.product_id, (m.get(l.product_id) || 0) + l.remaining);
     return m;
   })();
+  const piles = d ? null : readyPiles();   // พร้อมส่ง ณ ตอนนี้ (กองของที่คืนแล้ว ไม่ติดลบ) — ดู readyPiles
 
   return (pid: number) => {
     const at_site = (received.get(pid) || 0) + (recvVar.get(pid) || 0) + (adjustments.get(pid) || 0) - (shipped.get(pid) || 0);
@@ -812,9 +813,40 @@ function computeStockStatus(asOf?: string) {
     const wait_distribute = lotsNet ? wait_raw : Math.max(0, wait_raw);
     const with_members = withMembers.get(pid) || 0;
     const w = waste.get(pid) || 0, l = lost.get(pid) || 0;
-    const ready_raw = at_site - wait_distribute - with_members - w - l;
+    // ย้อนหลัง (asOf — ใช้กับงบ/กำไรขาดทุน) คงสูตรเดิม · ณ ตอนนี้ใช้กองของที่คืนแล้ว (ไม่ติดลบ)
+    const ready_raw = piles ? (piles.get(pid)?.ready || 0) : at_site - wait_distribute - with_members - w - l;
     return { at_site, wait_raw, wait_distribute, with_members, waste: w, lost: l, ready_raw, ready: Math.max(0, ready_raw) };
   };
+}
+
+/* ── "พร้อมส่งโรงงาน" ณ ตอนนี้ = กองของที่สมาชิกคืนมาแล้วรอส่ง ──────────────────────────
+   ไล่ตามวันที่ตั้งแต่วันเริ่มนับสต็อก: เริ่มด้วยยอดยกมา ณ วันนั้น → คืน = เพิ่มเข้ากอง · ส่งออก = หยิบออกจากกอง
+   ส่งออกมากกว่าของในกอง (ลงรับคืนไม่ครบ/ลงวันที่คืนช้ากว่าวันส่ง) → กองเหลือ 0 ไม่ติดลบสะสม
+   (เดิม = คืน − ส่งออก สะสม ทำให้ติดลบค้าง และตัวเลขก่อนคลิก/หลังคลิกไม่ตรงกัน)
+   ผล: ไม่ติดลบเสมอ · = ของที่ค้างจากการส่งครั้งล่าสุด (ส่งไม่หมด) + งานที่คืนมาหลังส่งครั้งล่าสุด
+   วันเดียวกัน: คืนก่อนส่ง (ของที่คืนเช้าแล้วส่งบ่าย ถือว่าส่งไปแล้ว) */
+type Pile = { ready: number; lastShip: string | null; leftover: number };
+function readyPiles(): Map<number, Pile> {
+  const cut = String(STOCK_CUTOFF).slice(0, 10);
+  const openSt = computeStockStatus(cut);   // ยอดยกมา ณ วันเริ่มนับ (รวมยอดปรับสต็อกทั้งหมดแล้ว)
+  const ev = new Map<number, { d: string; t: number; q: number }[]>();
+  const push = (pid: number, e: { d: string; t: number; q: number }) => { if (!ev.has(pid)) ev.set(pid, []); ev.get(pid)!.push(e); };
+  for (const r of prepare(`SELECT i.product_id pid, substr(r.returned_at, 1, 10) d, SUM(COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0)) q
+      FROM returns r JOIN issues i ON r.issue_id = i.id WHERE r.returned_at >= ? GROUP BY i.product_id, d`).all(cut) as any[]) push(r.pid, { d: r.d, t: 0, q: Number(r.q) || 0 });
+  for (const s of prepare(`SELECT si.product_id pid, substr(s.shipped_at, 1, 10) d, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
+      FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE s.shipped_at >= ? GROUP BY si.product_id, d`).all(cut) as any[]) push(s.pid, { d: s.d, t: 1, q: Number(s.q) || 0 });
+  const out = new Map<number, Pile>();
+  const pids = new Set<number>([...ev.keys(), ...(prepare(`SELECT id FROM products`).all() as any[]).map(p => p.id)]);
+  for (const pid of pids) {
+    let pile = Math.max(0, openSt(pid).ready_raw);
+    let lastShip: string | null = null, leftover = pile;
+    for (const e of (ev.get(pid) || []).sort((a, b) => a.d.localeCompare(b.d) || a.t - b.t)) {
+      if (e.t === 0) pile += e.q;
+      else { pile = Math.max(0, pile - e.q); lastShip = e.d; leftover = pile; }
+    }
+    out.set(pid, { ready: pile, lastShip, leftover });
+  }
+  return out;
 }
 
 function computeStockFlow(m: string) {
@@ -879,7 +911,8 @@ function computeStockFlow(m: string) {
     // (เศษ/หายเลิกใช้แล้ว เหลือแต่รายการเก่า — ถือว่าออกจากกลุ่มไปแล้วเหมือนส่งออก ไม่ต้องโชว์เป็นแถวแยก
     //  ผลรวม รอรับกลับ + รอแจกจ่าย + พร้อมส่ง จึงเท่ากับยอดนี้พอดี)
     const adj = p.adj_total || 0;
-    const available = p.received + adj - p.shipped - (p.ret_waste || 0) - (p.ret_lost || 0);
+    // = รอแจกจ่าย + รอรับกลับ + พร้อมส่ง (ผลรวม 3 แถวที่โชว์ ตรงกันเสมอ)
+    const available = in_warehouse + with_members + stock_ready;
     const balance = p.received + adj - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
     return { ...p, in_warehouse, with_members, stock_ready, available, balance,
       wait_raw: st.wait_raw, ready_raw: st.ready_raw, ok: st.ready_raw >= 0 };
@@ -947,16 +980,12 @@ router.get('/stock-status-breakdown', (req, res) => {
     }
     total = st.with_members;   // ตรงกับบัตรเสมอ (ผลรวมแถวด้านบนคำนวณด้วยสูตรเดียวกัน)
   } else {
-    /* พร้อมส่งโรงงาน แยกตามคนที่คืน = "งานที่สมาชิกคืนมาหลังส่งงานครั้งล่าสุด"
-       ระบบไม่รู้ว่าแต่ละครั้งที่ส่งออกหยิบงานของใครไป — เดิมเดาแบบคืนก่อนส่งก่อน ทำให้ตัดยอดครึ่งๆ (เช่น เจี๊ยบ 300 เหลือ 50)
-       และต้องมีบรรทัดหักลบท้ายรายการ อ่านแล้วงง จึงใช้กติกาที่ตรงกับการทำงานจริง:
-         ส่งงานแต่ละครั้ง = ส่งของที่คืนมาแล้วทั้งหมด → ของที่คืน "ถึงวันส่งครั้งล่าสุด" ถือว่าส่งไปแล้ว
-         รายชื่อ = เฉพาะที่คืนหลังวันส่งครั้งล่าสุด (เต็มจำนวน ไม่ตัดยอด) · ไม่เคยส่งเลย = คืนทั้งหมดตั้งแต่วันเริ่มนับสต็อก
-       ยอดพร้อมส่งในบัตรสต็อก (คืน − ส่งออก สะสม) อาจไม่เท่ารายชื่อ → ส่งส่วนต่างกลับไปให้หน้าเว็บบอกเป็นหมายเหตุ */
-    const last = prepare(`
-      SELECT MAX(substr(s.shipped_at, 1, 10)) d FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id
-      WHERE si.product_id = ?`).get(pid) as any;
-    lastShip = last?.d || null;
+    /* พร้อมส่งโรงงาน แยกตามคนที่คืน — ยอดรวม = เลขเดียวกับบัตรสต็อกเสมอ (กองของที่คืนแล้ว — readyPiles)
+         รายชื่อ = งานที่คืนมาหลังส่งงานครั้งล่าสุด (เต็มจำนวน ไม่เดาตัดยอดครึ่งๆ)
+         + บรรทัด "ค้างจากการส่งครั้งก่อน" = ของที่ส่งครั้งล่าสุดแล้วยังเหลือ (ส่งไม่หมด) — ไม่รู้ว่าของใคร
+       ระบบไม่รู้ว่าแต่ละครั้งที่ส่งออกหยิบงานของใครไป จึงไม่แบ่งยอดที่ค้างให้ใครคนหนึ่ง */
+    const pile = readyPiles().get(pid) || { ready: 0, lastShip: null, leftover: 0 };
+    lastShip = pile.lastShip;
     const rets = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
         substr(i.issued_at, 1, 10) issued_d, i.code icode,
@@ -964,16 +993,24 @@ router.get('/stock-status-breakdown', (req, res) => {
       FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
       WHERE i.product_id = ? AND substr(r.returned_at, 1, 10) > ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
       ORDER BY r.returned_at, r.id`).all(pid, lastShip || (() => {
-        // ไม่เคยส่งเลย = ตั้งแต่วันเริ่มนับสต็อก (รวมวันนั้น) → เทียบกับวันก่อนหน้า
+        // ยังไม่เคยส่งตั้งแต่วันเริ่มนับ = ตั้งแต่วันเริ่มนับสต็อก (รวมวันนั้น) → เทียบกับวันก่อนหน้า
         const x = new Date(STOCK_CUTOFF + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10);
       })()) as any[];
+    let listed = 0;
     for (const r of rets) {
       const m = member(r);
       const q = Number(r.q) || 0;
-      m.qty += q; total += q;
+      m.qty += q; listed += q;
       m.items.push({ date: r.d, issued_date: r.issued_d, issue_code: r.icode, code: r.rcode, returned: q, qty: q, partial: false });
     }
-    stockReady = st.ready_raw;
+    total = pile.ready;
+    const rest = pile.ready - listed;   // = ของที่ค้างจากการส่งครั้งล่าสุด (หรือยอดยกมา ถ้ายังไม่เคยส่ง)
+    if (rest > 0.0001) {
+      const cutTH = STOCK_CUTOFF.split('-').reverse().slice(0, 2).map(Number).join('/');
+      adjustments.push({ kind: 'leftover', qty: rest,
+        label: lastShip ? 'ค้างจากการส่งงานครั้งก่อน (ส่งไม่หมด · ไม่ระบุว่าของใคร)' : `ยอดยกมา ณ ${cutTH} (ไม่ระบุว่าของใคร)` });
+    }
+    stockReady = pile.ready;
   }
   const members = [...byMember.values()].sort((a, b) => b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
   res.json({ product, kind, total, total_raw: totalRaw, members, unassigned, adjustments,
