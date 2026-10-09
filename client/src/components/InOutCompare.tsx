@@ -10,7 +10,7 @@ const lotTH = (iso: string) => { const [, m, d] = String(iso).split('-').map(Num
 // ยอดคลาดเล็กน้อย server ปิดให้อัตโนมัติแล้ว (server/receivedActual.ts) ที่ยังเหลือให้เห็นคือคลาดเกินเกณฑ์
 export type Waiting = { qty: number; lots: { date: string; qty: number }[]; color?: string; unit?: string; suspect?: boolean };
 /** ยกมา/คงเหลือของช่วงที่เลือก — มาจาก /api/receives/balance */
-export type Balance = { opening: number; received: number; issued: number; closing: number; now: number; outside: number };
+export type Balance = { opening: number; received: number; issued: number; adjusted?: number; closing: number; now: number; outside: number };
 
 /* ตารางเทียบ "รับเข้าจากโรงงาน vs เบิกออกให้สมาชิก" แถวละชนิดงาน — อ่านเป็นสมการเดียวจบ:
      ยอดยกมา (ต้นช่วง) + รับเข้า − เบิกออก = คงเหลือรอเบิก (ท้ายช่วง)
@@ -128,6 +128,12 @@ export default function InOutCompare({
                       {hasGhost && ' ⚠'}
                     </div>
                   )}
+                  {b && !!b.adjusted && (
+                    <div className="text-[10px] leading-tight mt-0.5 text-gray-500"
+                      title="ส่วนต่างจากการนับของหน้างาน (ของออกไปโดยไม่มีใบเบิก / ลงเบิกเกิน) — ยอดรับจากโรงงานไม่เปลี่ยน ดูรายล็อตได้ที่หน้ารับของ">
+                      รวมปรับยอดนับหน้างาน {b.adjusted > 0 ? '+' : ''}{fmt(b.adjusted)}
+                    </div>
+                  )}
                   {b && b.outside !== 0 && (
                     <div className={`text-[10px] leading-tight mt-0.5 ${b.outside > 0 ? 'text-amber-600' : 'text-gray-400'}`}
                       title={`ยกมา + รับเข้า − เบิกออก ไม่เท่าคงเหลือ เพราะมีของก่อนวันเริ่มนับสต็อก (${cutoffTH}) เข้ามาเกี่ยว`}>
@@ -157,7 +163,7 @@ export default function InOutCompare({
       <p className="text-xs text-gray-400 mt-2 leading-relaxed">
         {balance ? (
           <>
-            อ่านแต่ละแถว: <b className="text-gray-500">ยอดยกมา + รับเข้า − เบิกออก = คงเหลือรอเบิก</b> ·
+            อ่านแต่ละแถว: <b className="text-gray-500">ยอดยกมา + รับเข้า − เบิกออก (± ปรับยอดนับหน้างาน) = คงเหลือรอเบิก</b> ·
             ยกมา/คงเหลือ = ของที่ยังไม่ได้แจกตามระบบล็อต (นับตั้งแต่ {cutoffTH} เหมือนหน้าสต็อก) ·{' '}
             <span className="text-rose-600 font-semibold">ตัวแดง ⚠</span> = ติดลบ คือเบิกเกินของที่รับจริง ต้องตรวจ ·
             ตัวเลขเล็กใต้ยอด = แยกตามล็อตวันที่รับของ

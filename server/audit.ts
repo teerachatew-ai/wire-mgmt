@@ -11,7 +11,7 @@ import { userOf } from './reqUser';
  * ข้อดี: route ไหนแก้อะไรก็ถูกจับหมด (รวม route ใหม่ในอนาคต) และกิน CPU เฉพาะแถวที่เปลี่ยนจริง ไม่ต้องถ่ายภาพทั้งตาราง
  * ไม่มีอะไรเปลี่ยน (เช่น POST ที่แค่คำนวณ/พรีวิว) = ไม่บันทึก */
 
-const AUDITED = ['members', 'products', 'receives', 'issues', 'returns', 'shipments', 'shipment_items', 'stock_adjustments',
+const AUDITED = ['members', 'products', 'receives', 'issues', 'returns', 'shipments', 'shipment_items', 'stock_adjustments', 'waiting_adjustments',
   'settings', 'managers', 'manager_month', 'expenses', 'recurring_expenses', 'assets', 'asset_repayments',
   'return_requests', 'issue_requests'];
 const KEY: Record<string, string> = { settings: `X.key`, manager_month: `X.month || '|' || X.manager_id` };
@@ -73,6 +73,7 @@ const ACTIONS: [RegExp, string, string][] = [
   [/^POST \/receives\/lot-reset$/, 'ย้อนยอดรับของล็อตเป็นตามใบส่งของ', 'รับของ/ล็อต'],
   [/^POST \/receives\/lot-set-actual$/, 'กำหนดยอดรับจริงของล็อต', 'รับของ/ล็อต'],
   [/^POST \/receives\/count-waiting$/, 'นับของหน้างาน', 'รับของ/ล็อต'],
+  [/^DELETE \/receives\/waiting-adjustments\/\d+$/, 'ลบรายการปรับยอดรอแจกจ่าย', 'รับของ/ล็อต'],
   [/^POST \/stock-adjustments$/, 'ปรับยอดสต็อก', 'รับของ/ล็อต'],
   [/^DELETE \/stock-adjustments\/\d+$/, 'ลบรายการปรับยอดสต็อก', 'รับของ/ล็อต'],
   [/^POST \/shipments$/, 'ส่งงานออกโรงงาน', 'ส่งออก/วางบิล'],
@@ -135,6 +136,7 @@ function labelOf(t: string, r: Row, L: ReturnType<typeof lookups>, issueOf: (id:
       return `${s ? `${s.code} (${d(s.shipped_at)})` : `ใบส่ง #${r.shipment_id}`} · ${p(r.product_id)}`;
     }
     case 'stock_adjustments': return `${p(r.product_id)} · ${d(r.adjusted_at)}`;
+    case 'waiting_adjustments': return `ปรับยอดรอแจกจ่าย · ${p(r.product_id)} · ล็อต ${d(r.lot_date)}`;
     case 'members': return `${r.code} ${r.name}${r.nickname ? ` (${r.nickname})` : ''}`;
     case 'products': return `${r.code} ${r.name}`;
     case 'settings': return SETTING_LABEL[r.key] || (String(r.key).startsWith('cutoff_') ? `วันตัดรอบค่าแรงเดือน ${String(r.key).slice(7)}` : r.key);

@@ -122,6 +122,14 @@ router.get('/balance', (req, res) => {
     if (start && before(x, start)) w.opening -= tracked;
     if (upTo(x, end)) w.closing -= tracked;
   }
+  // ปรับยอดรอแจกจ่าย: มีผล ณ วันที่ปรับ (ของออกจากหน้างานโดยไม่มีใบเบิก) — แยกเป็นช่อง adjusted ไม่ปนกับยอดเบิก
+  for (const a of prepare(`SELECT product_id, adjusted_at, quantity, lot_date FROM waiting_adjustments`).all() as any[]) {
+    if (String(a.lot_date) < STOCK_CUTOFF) continue;
+    const x = String(a.adjusted_at || ''), q = Number(a.quantity) || 0, w = row(a.product_id);
+    if (start && before(x, start)) w.opening += q;
+    if (upTo(x, end)) w.closing += q;
+    if (inP(x)) w.adjusted = (w.adjusted || 0) + q;
+  }
   for (const l of lots) row(l.product_id).now += l.remaining;
   const names = new Map((prepare(`SELECT id, name, color, unit FROM products`).all() as any[]).map((p: any) => [p.id, p]));
   res.json({
@@ -129,8 +137,8 @@ router.get('/balance', (req, res) => {
     products: [...out.values()].filter(r => names.has(r.product_id)).map(r => {
       const p: any = names.get(r.product_id);
       return { product_id: r.product_id, name: p.name, color: p.color, unit: p.unit,
-        opening: r.opening, received: r.received, issued: r.issued, closing: r.closing, now: r.now,
-        outside: r.closing - (r.opening + r.received - r.issued) };
+        opening: r.opening, received: r.received, issued: r.issued, adjusted: r.adjusted || 0, closing: r.closing, now: r.now,
+        outside: r.closing - (r.opening + r.received - r.issued + (r.adjusted || 0)) };
     }),
   });
 });
@@ -163,7 +171,9 @@ router.get('/lot-detail', (req, res) => {
     FROM issues i JOIN members m ON i.member_id = m.id
     WHERE i.product_id = ? AND i.lot_date = ? AND i.orig_quantity IS NOT NULL AND i.quantity != i.orig_quantity
     ORDER BY i.issued_at, i.id`).all(pid, d);
-  res.json({ lot, receives, issues });
+  const adjustments = prepare(`SELECT id, adjusted_at, quantity, reason, created_by FROM waiting_adjustments
+    WHERE product_id = ? AND lot_date = ? ORDER BY id`).all(pid, d);
+  res.json({ lot, receives, issues, adjustments });
 });
 
 /* ล้างส่วนต่างที่เลือก ให้ยอดรับจริงกลับไปตามใบส่งของ
@@ -240,7 +250,7 @@ router.post('/count-waiting', (req, res) => {
   const lots = lotsOf(productId);
   if (lots.length === 0) return res.status(400).json({ error: 'สินค้านี้ยังไม่มีล็อตรับเข้าตั้งแต่วันเริ่มนับสต็อก' });
   const current = lots.reduce((s, l) => s + l.remaining_qty, 0);
-  const note = `${COUNT_NOTE} ${new Date().toISOString().slice(0, 10)}${req.body?.note ? ` · ${String(req.body.note).trim()}` : ''}`;
+  const note = `${COUNT_NOTE} ${todayThai()}${req.body?.note ? ` · ${String(req.body.note).trim()}` : ''}`;
   const locked = lockedLots(productId);
   const open = lots.filter(l => !locked.has(l.lot_date));
   let delta = counted - current;
@@ -274,9 +284,36 @@ router.post('/count-waiting', (req, res) => {
     if (open.length) applyToLot(open[open.length - 1], delta); else delta = 0;
   }
 
+  /* ส่วนที่ปรับยอดรับไม่ได้ (ล็อตที่กรอกยอดรับจริงไว้แล้ว = ล็อก) → ลงเป็น "ปรับยอดรอแจกจ่าย" รายล็อต
+       ขาด (นับได้น้อยกว่าระบบ): ตัดล็อตที่ยังเหลือ เก่าสุดก่อน · เกิน: เติมล็อตที่ติดลบก่อน ที่เหลือลงล็อตล่าสุด */
+  const adjusted: any[] = [];
+  let left = want - delta;
+  if (Math.abs(left) > 0.0001) {
+    const today = todayThai();
+    const reason = req.body?.note ? String(req.body.note).trim() : `นับของหน้างาน ${today}`;
+    const add = (lot: string, q: number) => {
+      prepare(`INSERT INTO waiting_adjustments (product_id, lot_date, adjusted_at, quantity, reason, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(productId, lot, today, q, reason, userOf(req));
+      adjusted.push({ lot_date: lot, qty: q });
+    };
+    const now = lotsOf(productId).filter(l => locked.has(l.lot_date));
+    if (left < 0) {
+      for (const l of now) { if (left >= -0.0001) break; const k = Math.min(Math.max(0, l.remaining_qty), -left); if (k > 0) { add(l.lot_date, -k); left += k; } }
+    } else {
+      for (const l of now) { if (left <= 0.0001) break; const k = Math.min(Math.max(0, -l.remaining_qty), left); if (k > 0) { add(l.lot_date, k); left -= k; } }
+    }
+    if (Math.abs(left) > 0.0001 && now.length) add(now[now.length - 1].lot_date, left);
+  }
   const after = lotsOf(productId).reduce((s, l) => s + l.remaining_qty, 0);
-  res.json({ before: current, counted, after, applied: delta, changed,
-    unapplied: want - delta, locked_lots: [...locked].sort() });
+  res.json({ before: current, counted, after, applied: delta, changed, adjusted, locked_lots: [...locked].sort() });
+});
+
+// ลบรายการปรับยอดรอแจกจ่าย (เช่น เจอใบเบิกที่ลงตกแล้ว แก้ที่ใบเบิกแทน)
+router.delete('/waiting-adjustments/:id', (req, res) => {
+  const r = prepare(`SELECT * FROM waiting_adjustments WHERE id = ?`).get(req.params.id) as any;
+  if (!r) return res.status(404).json({ error: 'ไม่พบรายการปรับยอด' });
+  prepare(`DELETE FROM waiting_adjustments WHERE id = ?`).run(req.params.id);
+  res.json({ deleted: true });
 });
 
 router.post('/', (req, res) => {

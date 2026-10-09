@@ -412,10 +412,22 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
   const fmtN = (n: any) => Number(n || 0).toLocaleString('th-TH');
   const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmtN(Math.abs(n))}`;
   const lot = data?.lot;
-  const issued = lot ? Number(lot.actual) - Number(lot.remaining) : 0;
+  const issued = lot ? Number(lot.tagged) + Number(lot.untagged) : 0;
+  const adjTotal = lot ? Number(lot.adjusted) || 0 : 0;   // ปรับยอดรอแจกจ่าย (ส่วนต่างนับหน้างาน)
+  const adjList: any[] = data?.adjustments || [];
   const value = target === '' ? null : Number(target);
   const valid = value !== null && Number.isFinite(value) && value >= 0;
-  const after = valid ? (value as number) - issued : null;
+  const after = valid ? (value as number) - issued + adjTotal : null;
+  const delAdj = async (id: number) => {
+    if (!confirm('ลบรายการปรับยอดนี้? ยอดรอแจกจ่ายของล็อตนี้จะกลับไปเท่าเดิมก่อนปรับ')) return;
+    setBusy(true); setMsg(null);
+    try {
+      await receiveApi.deleteWaitingAdj(id);
+      for (const k of ['receives', 'receive-lots', 'stock-flow', 'issues', 'reports', 'lot-detail']) qc.invalidateQueries({ queryKey: [k] });
+      refetch();
+    } catch (e: any) { setMsg({ ok: false, text: e?.response?.data?.error || 'ลบไม่สำเร็จ' }); }
+    finally { setBusy(false); }
+  };
   const issues: any[] = data?.issues || [];
   const counted: any[] = (data?.receives || []).filter((r: any) => r.actual_qty != null);
   const countDiff = counted.reduce((s: number, r: any) => s + (Number(r.actual_qty) - Number(r.quantity)), 0);
@@ -462,6 +474,18 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
                 <span>{fmtN(lot.actual)}{lot.actual !== lot.note && <span className={`ml-1.5 text-xs ${lot.actual > lot.note ? 'text-emerald-600' : 'text-rose-600'}`}>({signed(lot.actual - lot.note)})</span>}</span>
               </div>
               <div className="flex justify-between text-gray-500"><span>เบิกให้สมาชิกไปแล้ว</span><span>{fmtN(issued)}</span></div>
+              {adjList.length > 0 && (
+                <div className="text-gray-500">
+                  <div className="flex justify-between"><span>ปรับยอดนับหน้างาน</span><span>{signed(adjTotal)}</span></div>
+                  {adjList.map((a: any) => (
+                    <div key={a.id} className="flex items-center gap-2 text-[11px] text-gray-400 pl-3">
+                      <span className="truncate">{a.adjusted_at} · {a.reason || 'นับของหน้างาน'}{a.created_by ? ` · ${a.created_by}` : ''}</span>
+                      <span className="ml-auto tabular-nums">{signed(Number(a.quantity))}</span>
+                      <button type="button" disabled={busy} onClick={() => delAdj(a.id)} className="text-rose-600 hover:underline disabled:opacity-40">ลบ</button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between border-t pt-1.5">
                 <span className="text-gray-700">เหลือรอเบิก</span>
                 <span className={`font-semibold ${lot.remaining < 0 ? 'text-rose-600' : lot.remaining > 0 ? 'text-violet-700' : 'text-gray-700'}`}>{fmtN(lot.remaining)}</span>
@@ -473,7 +497,7 @@ function LotDetailDialog({ date, productId, productName, onClose }: { date: stri
               <div className="font-semibold text-gray-800">ล็อตนี้ได้ของมาจริงกี่เส้น?</div>
               <div className="flex gap-2">
                 <Quick label="ตามใบส่งของ" qty={Number(lot.note)} />
-                <Quick label="เท่าที่เบิกไป (ไม่มีของเหลือ)" qty={issued} />
+                <Quick label="เท่าที่เบิกไป (ไม่มีของเหลือ)" qty={issued - adjTotal} />
               </div>
               <div className="flex items-center gap-2">
                 <input type="number" min="0" step="1" inputMode="numeric" aria-label="ยอดรับจริง"

@@ -35,6 +35,7 @@ export type LotRow = {
   untagged: number;    // เบิกที่ไม่ได้ระบุล็อต ซึ่งระบบจัดสรรมาให้ล็อตนี้
   auto: number;        // ระบบปรับอัตโนมัติ (+ ของเกินเล็กน้อย / − ปิดล็อตที่เหลือเศษ)
   actual: number;      // ยอดรับจริงสุดท้าย
+  adjusted: number;    // ปรับยอดรอแจกจ่าย (waiting_adjustments) — ลบ = ออกจากหน้างานโดยไม่มีใบเบิก
   remaining: number;   // ยังไม่ได้แจก
 };
 
@@ -68,6 +69,10 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} GROUP BY product_id, lot_date`).all(STOCK_CUTOFF) as any[]) {
     tagged.set(lotKey(r.product_id, r.d), { qty: Number(r.q) || 0, reported: Number(r.rep) || 0 });
   }
+  const wadj = new Map<LotKey, number>();
+  for (const r of prepare(`SELECT product_id, lot_date d, SUM(quantity) q FROM waiting_adjustments
+      WHERE lot_date >= ?${where} GROUP BY product_id, lot_date`).all(STOCK_CUTOFF) as any[])
+    wadj.set(lotKey(r.product_id, r.d), Number(r.q) || 0);
   const untaggedOf = new Map<number, { id: number; d: string; q: number }[]>();
   for (const u of prepare(`
     SELECT id, product_id, substr(issued_at, 1, 10) d, quantity q
@@ -88,7 +93,8 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     const base = r.n_manual > 0 ? counted + t.reported : Math.max(counted + t.reported, t.qty);
     const row: LotRow = {
       product_id: r.product_id, lot_date: r.d, note: Number(r.note) || 0, manual: Number(r.n_manual) > 0,
-      counted, reported: t.reported, tagged: t.qty, untagged: 0, auto: 0, actual: base, remaining: 0,
+      counted, reported: t.reported, tagged: t.qty, untagged: 0, auto: 0, actual: base,
+      adjusted: wadj.get(lotKey(r.product_id, r.d)) || 0, remaining: 0,
     };
     if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
     byProduct.get(r.product_id)!.push(row);
@@ -103,7 +109,7 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     for (let i = 0; i < lots.length - 1; i++) {
       const next = lots[i + 1].lot_date;
       let recvGroup = 0, issuedGroup = 0;
-      for (let j = 0; j <= i; j++) { recvGroup += lots[j].actual; issuedGroup += lots[j].tagged; }
+      for (let j = 0; j <= i; j++) { recvGroup += lots[j].actual; issuedGroup += lots[j].tagged - lots[j].adjusted; }
       for (const u of unt) if (u.d < next) issuedGroup += u.q;
       const residue = recvGroup - issuedGroup;
       const last = lots[i];
@@ -122,7 +128,7 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
       const last = lots[lots.length - 1];
       const started = last.tagged > 0 || unt.some(u => u.d >= last.lot_date);
       let recvAll = 0, issuedAll = 0;
-      for (const l of lots) { recvAll += l.actual; issuedAll += l.tagged; }
+      for (const l of lots) { recvAll += l.actual; issuedAll += l.tagged - l.adjusted; }
       for (const u of unt) issuedAll += u.q;
       const residue = recvAll - issuedAll;
       if (started && residue !== 0 && !last.manual && Math.abs(residue) <= autoCloseTolerance(last.actual)) {
@@ -131,7 +137,7 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     }
 
     // 3) แตกยอดคงเหลือรายล็อตไว้แสดงผล
-    for (const l of lots) l.remaining = l.actual - l.tagged;
+    for (const l of lots) l.remaining = l.actual - l.tagged + l.adjusted;
     for (const u of unt) {
       let left = u.q;
       const arrived = lots.filter(l => l.lot_date <= u.d);

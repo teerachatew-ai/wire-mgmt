@@ -410,6 +410,20 @@ CREATE TABLE IF NOT EXISTS managers (
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
+  // ปรับยอด "รอแจกจ่าย" รายล็อต — ของออกจากหน้างานไปโดยไม่มีใบเบิก (ลบ) / ลงเบิกเกินของจริง (บวก)
+  // ยอดรับจากโรงงานที่คนกรอกไว้ไม่ต้องแก้ ใบเบิก/ค่าแรงไม่เปลี่ยน — ส่วนต่างเก็บเป็นรายการแยกให้ตามหาสาเหตุได้
+  // สร้างจากปุ่ม "นับของหน้างาน" เมื่อล็อตที่ต่างเป็นล็อตที่กรอกยอดรับจริงไว้แล้ว (ล็อก)
+  db.exec(`CREATE TABLE IF NOT EXISTS waiting_adjustments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    lot_date TEXT NOT NULL,
+    adjusted_at TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    reason TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // คำขอคืนงานที่สมาชิกส่งเองผ่านลิงก์พอร์ทัลส่วนตัว — ยังไม่ใช่ยอดจริง ต้องรอเจ้าหน้าที่ตรวจนับของจริงแล้วกดยืนยันก่อน
   // ถึงจะกลายเป็นแถวใน returns (กันสมาชิกปลอมยอดเบิกเอง — เจ้าหน้าที่เห็น "ยอดที่แจ้ง" แต่กรอกยอดจริงตอนยืนยันได้)
   db.exec(`CREATE TABLE IF NOT EXISTS return_requests (

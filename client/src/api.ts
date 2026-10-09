@@ -46,6 +46,8 @@ export const receiveApi = {
   // กำหนดยอดรับจริงของล็อตเอง (นับแล้ว) — ล็อตนี้ระบบจะไม่ปรับอัตโนมัติทับ
   lotSetActual: (productId: number, lotDate: string, actual: number) =>
     api.post('/receives/lot-set-actual', { product_id: productId, lot_date: lotDate, actual }).then(r => r.data),
+  // ลบรายการปรับยอดรอแจกจ่าย (ส่วนต่างจากการนับของหน้างาน)
+  deleteWaitingAdj: (id: number) => api.delete(`/receives/waiting-adjustments/${id}`).then(r => r.data),
   lotReset: (productId: number, lotDate: string, issueIds: number[], clearCounted: boolean) =>
     api.post('/receives/lot-reset', { product_id: productId, lot_date: lotDate, issue_ids: issueIds, clear_counted: clearCounted }).then(r => r.data),
 };
