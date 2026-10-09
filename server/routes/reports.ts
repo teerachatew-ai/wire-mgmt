@@ -917,7 +917,8 @@ router.get('/stock-status-breakdown', (req, res) => {
     return byMember.get(r.mid);
   };
 
-  let total = 0, unassigned = 0;
+  let total = 0, unassigned = 0, totalRaw: number | null = null;
+  const adjustments: { kind: string; label: string; qty: number; date?: string }[] = [];   // บรรทัดที่ไม่ใช่ของสมาชิก (พร้อมส่งเท่านั้น)
   if (kind === 'with_members') {
     const rows = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, i.id iid, i.code icode, substr(i.issued_at, 1, 10) d,
@@ -935,30 +936,58 @@ router.get('/stock-status-breakdown', (req, res) => {
     }
     total = st.with_members;   // ตรงกับบัตรเสมอ (ผลรวมแถวด้านบนคำนวณด้วยสูตรเดียวกัน)
   } else {
+    /* พร้อมส่งโรงงาน แยกตามคนที่คืน — ไล่เหตุการณ์ตามวันที่ (คืน = ของเข้ากอง · ส่งออก = หยิบของที่คืนก่อนออกไปก่อน)
+       ส่งออกเกินของที่มีในกอง (ตามที่บันทึก) = "ส่งเกินของที่คืน" แยกเป็นบรรทัดของมันเอง ไม่ไปหักจากคนที่คืนทีหลัง
+       (เดิมหักต่อเนื่อง ทำให้คนท้ายรายการโดนตัดยอด เช่น คืน 100 โชว์ 82)
+       ยอดรวมยังเท่ากับบัตรสต็อกเสมอ: สมาชิก − ส่งเกิน (ตั้งแต่เริ่มนับสต็อก) + ปรับยอดสต็อก + ส่วนต่างสะสมช่วงแรก = พร้อมส่ง */
     total = st.ready;
-    let left = total;
-    const rows = prepare(`
+    const rets = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
         substr(i.issued_at, 1, 10) issued_d, i.code icode,
-        COALESCE(r.good_qty,0) g, COALESCE(r.defect_qty,0) df
+        COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) q
       FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id
-      WHERE i.product_id = ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0
-      ORDER BY r.returned_at DESC, r.id DESC`).all(pid) as any[];
-    for (const r of rows) {
-      if (left <= 0) break;
-      const full = Number(r.g) + Number(r.df);
-      const take = Math.min(full, left);
-      const m = member(r);
-      m.qty += take; left -= take;
-      // date = วันที่รับคืน · issued_date = วันที่เบิกงานนั้น (หน้าเว็บโชว์วันเบิกเป็นหลัก แล้วตามด้วยวันคืน)
-      m.items.push({ date: r.d, issued_date: r.issued_d, issue_code: r.icode, code: r.rcode, returned: full, qty: take, partial: take < full });
+      WHERE i.product_id = ? AND COALESCE(r.good_qty,0) + COALESCE(r.defect_qty,0) > 0`).all(pid) as any[];
+    const ships = prepare(`
+      SELECT s.id sid, s.code scode, substr(s.shipped_at, 1, 10) d,
+        SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
+      FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id
+      WHERE si.product_id = ? GROUP BY s.id`).all(pid) as any[];
+    const events: { d: string; t: number; id: number; r?: any; x?: any }[] = [
+      ...rets.map(r => ({ d: r.d, t: 0, id: r.rid, r })),
+      ...ships.map(x => ({ d: x.d, t: 1, id: x.sid, x })),
+    ].sort((p1, p2) => String(p1.d).localeCompare(String(p2.d)) || p1.t - p2.t || p1.id - p2.id);   // วันเดียวกัน: คืนก่อนส่ง
+    const queue: { r: any; left: number }[] = [];
+    const over: { date: string; code: string; qty: number }[] = [];
+    for (const e of events) {
+      if (e.t === 0) { queue.push({ r: e.r, left: Number(e.r.q) || 0 }); continue; }
+      let need = Number(e.x.q) || 0;
+      while (need > 0 && queue.length) {
+        const h = queue[0];
+        const take = Math.min(h.left, need);
+        h.left -= take; need -= take;
+        if (h.left <= 0) queue.shift();
+      }
+      if (need > 0) over.push({ date: e.x.d, code: e.x.scode, qty: need });
     }
-    unassigned = Math.max(0, left);
+    for (const h of queue) {
+      const m = member(h.r);
+      const full = Number(h.r.q) || 0;
+      m.qty += h.left;
+      m.items.push({ date: h.r.d, issued_date: h.r.issued_d, issue_code: h.r.icode, code: h.r.rcode, returned: full, qty: h.left, partial: h.left < full });
+    }
+    const queued = queue.reduce((t, h) => t + h.left, 0);
+    const overRecent = over.filter(o => o.date >= STOCK_CUTOFF);
+    const adj = Number((prepare(`SELECT COALESCE(SUM(quantity), 0) v FROM stock_adjustments WHERE product_id = ?`).get(pid) as any)?.v) || 0;
+    const rest = st.ready_raw - queued + overRecent.reduce((t, o) => t + o.qty, 0) - adj;
+    for (const o of overRecent) adjustments.push({ kind: 'over', label: `ส่งออกเกินของที่คืน (ใบส่ง ${o.code})`, date: o.date, qty: -o.qty });
+    if (Math.abs(adj) > 0.0001) adjustments.push({ kind: 'adjust', label: 'ปรับยอดสต็อก (หน้า "ปรับยอดสต็อก")', qty: adj });
+    if (Math.abs(rest) > 0.0001) adjustments.push({ kind: 'legacy', label: `ส่วนต่างสะสมจากบันทึกช่วงแรก (ก่อน ${STOCK_CUTOFF})`, qty: rest });
+    totalRaw = st.ready_raw;
   }
   const members = [...byMember.values()].sort((a, b) => b.qty - a.qty || String(a.code).localeCompare(String(b.code)));
-  res.json({ product, kind, total, members, unassigned,
+  res.json({ product, kind, total, total_raw: totalRaw, members, unassigned, adjustments,
     note: kind === 'ready'
-      ? 'ประมาณจากการคืนล่าสุดย้อนหลัง (สมมติว่าส่งของที่คืนก่อนออกไปก่อน) — ระบบไม่ได้ผูกล็อตที่ส่งออกกับสมาชิก'
+      ? 'สมมติว่าส่งของที่คืนก่อนออกไปก่อน (ระบบไม่ได้ผูกของที่ส่งออกกับสมาชิก) · ยอดของแต่ละคน = ที่คืนจริงที่ยังไม่ได้ส่ง · ยอดที่ไม่ลงตัวแยกเป็นบรรทัดด้านล่างพร้อมที่มา'
       : null });
 });
 

@@ -109,7 +109,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
             <div className="py-12 text-center text-gray-400"><Loader2 className="animate-spin mx-auto" size={22} /></div>
           ) : isError ? (
             <div className="py-10 text-center text-sm text-rose-600">โหลดข้อมูลไม่สำเร็จ</div>
-          ) : members.length === 0 && !(data?.unassigned > 0) ? (
+          ) : members.length === 0 && !(data?.unassigned > 0) && !(data?.adjustments || []).length ? (
             <div className="py-10 text-center text-sm text-gray-400">ไม่มีรายการ</div>
           ) : (
             <ul className="divide-y">
@@ -144,7 +144,7 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
                                   <>
                                     <span className="shrink-0 text-emerald-700">คืน {shortDate(it.date)}</span>
                                     <span className="font-mono text-blue-600 shrink-0">{it.code}</span>
-                                    {it.partial && <span className="text-gray-400 truncate">จากที่คืน {fmt(it.returned)}</span>}
+                                    {it.partial && <span className="text-gray-400 truncate">จากที่คืน {fmt(it.returned)} (ที่เหลือส่งออกแล้ว)</span>}
                                   </>
                                 ) : (
                                   <>
@@ -168,6 +168,26 @@ function StatusBreakdownModal({ product, kind, onClose }: { product: any; kind: 
                   <span className="text-[11px] text-gray-400">ยอดยกมา / ปรับยอดสต็อก</span>
                   <span className="ml-auto font-bold tabular-nums text-gray-700">{fmt(data.unassigned)}</span>
                 </li>
+              )}
+              {/* ยอดที่ไม่ใช่ของสมาชิกคนไหน — แยกให้เห็นที่มา แทนการไปตัดยอดของคนท้ายรายการ */}
+              {(data?.adjustments || []).length > 0 && (
+                <li className="px-5 pt-2.5 pb-1 text-[11px] font-semibold text-gray-500 bg-gray-50 border-t-2 border-gray-200">ยอดที่ไม่ลงตัว (ไม่ใช่ของสมาชิกคนไหน)</li>
+              )}
+              {(data?.adjustments || []).map((a: any, k: number) => (
+                <li key={k} className="px-5 py-2 flex items-center gap-2 text-sm bg-gray-50">
+                  <span className={a.qty < 0 ? 'text-rose-700' : 'text-gray-700'}>{a.label}</span>
+                  {a.date && <span className="text-[11px] text-gray-400 shrink-0">{shortDate(a.date)}</span>}
+                  <span className={`ml-auto font-bold tabular-nums ${a.qty < 0 ? 'text-rose-600' : 'text-gray-700'}`}>{a.qty > 0 ? '+' : ''}{fmt(a.qty)}</span>
+                </li>
+              ))}
+              {(data?.adjustments || []).length > 0 && (
+                <li className="px-5 py-2 flex items-center gap-2 text-xs bg-gray-50 text-gray-500">
+                  <span>รวมทั้งหมด = ของสมาชิก {fmt(members.reduce((t: number, m: any) => t + m.qty, 0))} {(data.adjustments as any[]).map((a: any) => `${a.qty < 0 ? '−' : '+'} ${fmt(Math.abs(a.qty))}`).join(' ')}</span>
+                  <span className="ml-auto font-semibold tabular-nums text-gray-700">{fmt(data.total_raw ?? data.total)}</span>
+                </li>
+              )}
+              {data?.total_raw != null && data.total_raw < 0 && (
+                <li className="px-5 py-2 text-[11px] text-rose-600 bg-rose-50">ยอดคำนวณติดลบ {fmt(data.total_raw)} — ส่งออกเกินของที่คืนตามบันทึก บัตรสต็อกจึงแสดงเป็น 0</li>
               )}
             </ul>
           )}
