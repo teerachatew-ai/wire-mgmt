@@ -188,7 +188,6 @@ function DateProductMatrix({
    ถ้าต่างกัน แถวล่างมีป้าย ±ส่วนต่าง + บอกที่มา (กำหนด/นับเอง · จากใบเบิกที่สมาชิกนับในมัดได้ไม่ตรง · ระบบปิดล็อต)
    คลิกตัวเลขแถวล่างเพื่อดูรายละเอียด/ล้างส่วนต่าง (เหมือนเดิม) */
 const SRC: Record<string, string> = { counted: 'กำหนด/นับเอง', member: 'จากใบเบิก', auto: 'ปิดล็อตอัตโนมัติ' };
-const SRC_SHORT: Record<string, string> = { counted: 'นับเอง', member: 'ใบเบิก', auto: 'ปิดล็อต' };   // ป้ายในช่อง — สั้นพอให้อยู่บรรทัดเดียว
 const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
 
 function SplitMatrix({ entries, accent, unitLabel, onDateClick, onVarianceClick }: {
@@ -291,7 +290,7 @@ function SplitMatrix({ entries, accent, unitLabel, onDateClick, onVarianceClick 
                           <span className={`font-bold ${diffCls(diff)}`}>{fmt(c.actual)}</span>
                           {diff !== 0 && (
                             <span className={`mt-0.5 whitespace-nowrap rounded px-1 text-[10px] font-semibold leading-4 ring-1 ${pillCls(diff)}`}>
-                              {signed(diff)} {srcs.length === 1 ? SRC_SHORT[srcs[0]] : srcs.length > 1 ? 'หลายที่มา' : ''}
+                              {signed(diff)}
                             </span>
                           )}
                         </span>
@@ -331,10 +330,8 @@ function SplitMatrix({ entries, accent, unitLabel, onDateClick, onVarianceClick 
       </div>
       <p className="px-4 py-2 text-[11px] text-gray-500 border-t leading-relaxed">
         หน่วย: {unitLabel} · แต่ละวันมี 2 แถว: <span className="text-gray-400">ใบส่งของ</span> = ยอดที่โรงงานเขียนมา ·{' '}
-        <b>รับจริง</b> = ยอดที่ระบบใช้คิดสต็อก/ยอดรอเบิก · ป้าย <span className="text-rose-700 font-semibold">−</span>/<span className="text-emerald-700 font-semibold">+</span> = ส่วนต่างและที่มา:{' '}
-        <b>กำหนด/นับเอง</b> (นับของตอนรับ หรือกำหนดยอดรับจริงของล็อต) · <b>จากใบเบิก</b> (แก้ยอดเบิกแบบสมาชิกนับในมัดได้ไม่ตรง) ·{' '}
-        <b>ปิดล็อตอัตโนมัติ</b> (ล็อตเก่าคลาดไม่กี่เส้น ระบบปิดให้)
-        {onVarianceClick && <> · <b>คลิกตัวเลขรับจริง</b> ที่มีป้าย เพื่อดูว่ามาจากใบไหน และย้อนกลับเป็นยอดตามใบส่งของได้</>}
+        <b>รับจริง</b> = ยอดที่ระบบใช้คิดสต็อก/ยอดรอเบิก · ป้าย <span className="text-rose-700 font-semibold">−</span>/<span className="text-emerald-700 font-semibold">+</span> = ต่างจากใบส่งของเท่าไหร่
+        {onVarianceClick && <> · <b>คลิกตัวเลขรับจริง</b> เพื่อดูว่าส่วนต่างมาจากไหน และย้อนกลับเป็นยอดตามใบส่งของได้</>}
         {onDateClick && <> · <Pencil size={10} className="inline -mt-0.5" /> คลิกวันที่เพื่อแก้ไขยอดของวันนั้น</>}
       </p>
     </div>
