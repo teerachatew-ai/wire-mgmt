@@ -271,7 +271,6 @@ router.post('/count-waiting', (req, res) => {
     changed.push({ receive_id: target.id, code: target.code, lot_date: lotDate, from: before, to: after, delta: amount });
   };
 
-  const want = delta;
   if (delta < 0) {
     let left = -delta;
     for (const lot of open) {
@@ -281,13 +280,16 @@ router.post('/count-waiting', (req, res) => {
     }
     delta = -(-delta - left);   // ตัดได้จริงเท่าไหร่ (ล็อตที่ล็อกไว้ไม่แตะ จึงอาจไม่ครบ)
   } else if (delta > 0) {
-    if (open.length) applyToLot(open[open.length - 1], delta); else delta = 0;
+    // ของเกินมากับล็อตล่าสุด — แก้ยอดรับได้เฉพาะเมื่อล็อตล่าสุดยังไม่ได้กรอกยอดเอง (ไม่ไปเติมล็อตเก่า)
+    const newest = lots[lots.length - 1];
+    if (!locked.has(newest.lot_date)) applyToLot(newest, delta); else delta = 0;
   }
 
   /* ส่วนที่ปรับยอดรับไม่ได้ (ล็อตที่กรอกยอดรับจริงไว้แล้ว = ล็อก) → ลงเป็น "ปรับยอดรอแจกจ่าย" รายล็อต
        ขาด (นับได้น้อยกว่าระบบ): ตัดล็อตที่ยังเหลือ เก่าสุดก่อน · เกิน: เติมล็อตที่ติดลบก่อน ที่เหลือลงล็อตล่าสุด */
   const adjusted: any[] = [];
-  let left = want - delta;
+  // วัดส่วนต่างที่เหลือจริงหลังแก้ล็อตที่เปิดอยู่ (การจัดสรรใบเบิกไม่ระบุล็อตอาจกินส่วนที่เติมไป)
+  let left = counted - lotsOf(productId).reduce((s, l) => s + l.remaining_qty, 0);
   if (Math.abs(left) > 0.0001) {
     const today = todayThai();
     const reason = req.body?.note ? String(req.body.note).trim() : `นับของหน้างาน ${today}`;
