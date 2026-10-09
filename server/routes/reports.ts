@@ -825,7 +825,7 @@ function computeStockStatus(asOf?: string) {
    (เดิม = คืน − ส่งออก สะสม ทำให้ติดลบค้าง และตัวเลขก่อนคลิก/หลังคลิกไม่ตรงกัน)
    ผล: ไม่ติดลบเสมอ · = ของที่ค้างจากการส่งครั้งล่าสุด (ส่งไม่หมด) + งานที่คืนมาหลังส่งครั้งล่าสุด
    วันเดียวกัน: คืนก่อนส่ง (ของที่คืนเช้าแล้วส่งบ่าย ถือว่าส่งไปแล้ว) */
-type Pile = { ready: number; lastShip: string | null; leftover: number };
+type Pile = { ready: number; lastShip: string | null; leftover: number; adjAfterShip: boolean };
 function readyPiles(): Map<number, Pile> {
   const cut = String(STOCK_CUTOFF).slice(0, 10);
   const openSt = computeStockStatus(cut);   // ยอดยกมา ณ วันเริ่มนับ (รวมยอดปรับสต็อกทั้งหมดแล้ว)
@@ -835,16 +835,25 @@ function readyPiles(): Map<number, Pile> {
       FROM returns r JOIN issues i ON r.issue_id = i.id WHERE r.returned_at >= ? GROUP BY i.product_id, d`).all(cut) as any[]) push(r.pid, { d: r.d, t: 0, q: Number(r.q) || 0 });
   for (const s of prepare(`SELECT si.product_id pid, substr(s.shipped_at, 1, 10) d, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
       FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE s.shipped_at >= ? GROUP BY si.product_id, d`).all(cut) as any[]) push(s.pid, { d: s.d, t: 1, q: Number(s.q) || 0 });
+  // ยอดปรับสต็อก (หน้า "ปรับยอดสต็อก" = นับของพร้อมส่งจริงแล้วแก้) มีผล ณ วันที่ปรับ — ปิดท้ายวัน (หลังคืน/ส่งของวันนั้น)
+  // ยอดยกมา ณ วันเริ่มนับรวมยอดปรับทุกรายการไว้แล้ว (สูตรเดิมไม่สนวันที่) → หักรายการตั้งแต่วันเริ่มนับออก แล้วใส่เป็นเหตุการณ์ตามวันแทน
+  const adjAfterCut = new Map<number, number>();
+  for (const a of prepare(`SELECT product_id pid, substr(adjusted_at, 1, 10) d, SUM(quantity) q FROM stock_adjustments
+      WHERE adjusted_at >= ? GROUP BY product_id, d`).all(cut) as any[]) {
+    push(a.pid, { d: a.d, t: 2, q: Number(a.q) || 0 });
+    adjAfterCut.set(a.pid, (adjAfterCut.get(a.pid) || 0) + (Number(a.q) || 0));
+  }
   const out = new Map<number, Pile>();
   const pids = new Set<number>([...ev.keys(), ...(prepare(`SELECT id FROM products`).all() as any[]).map(p => p.id)]);
   for (const pid of pids) {
-    let pile = Math.max(0, openSt(pid).ready_raw);
-    let lastShip: string | null = null, leftover = pile;
+    let pile = Math.max(0, openSt(pid).ready_raw - (adjAfterCut.get(pid) || 0));
+    let lastShip: string | null = null, leftover = pile, adjAfterShip = false;
     for (const e of (ev.get(pid) || []).sort((a, b) => a.d.localeCompare(b.d) || a.t - b.t)) {
       if (e.t === 0) pile += e.q;
-      else { pile = Math.max(0, pile - e.q); lastShip = e.d; leftover = pile; }
+      else if (e.t === 1) { pile = Math.max(0, pile - e.q); lastShip = e.d; leftover = pile; adjAfterShip = false; }
+      else { pile = Math.max(0, pile + e.q); adjAfterShip = true; }
     }
-    out.set(pid, { ready: pile, lastShip, leftover });
+    out.set(pid, { ready: pile, lastShip, leftover, adjAfterShip });
   }
   return out;
 }
@@ -984,7 +993,7 @@ router.get('/stock-status-breakdown', (req, res) => {
          รายชื่อ = งานที่คืนมาหลังส่งงานครั้งล่าสุด (เต็มจำนวน ไม่เดาตัดยอดครึ่งๆ)
          + บรรทัด "ค้างจากการส่งครั้งก่อน" = ของที่ส่งครั้งล่าสุดแล้วยังเหลือ (ส่งไม่หมด) — ไม่รู้ว่าของใคร
        ระบบไม่รู้ว่าแต่ละครั้งที่ส่งออกหยิบงานของใครไป จึงไม่แบ่งยอดที่ค้างให้ใครคนหนึ่ง */
-    const pile = readyPiles().get(pid) || { ready: 0, lastShip: null, leftover: 0 };
+    const pile = readyPiles().get(pid) || { ready: 0, lastShip: null, leftover: 0, adjAfterShip: false };
     lastShip = pile.lastShip;
     const rets = prepare(`
       SELECT m.id mid, m.code mcode, m.name mname, m.nickname mnick, r.id rid, r.code rcode, substr(r.returned_at, 1, 10) d,
@@ -1005,10 +1014,12 @@ router.get('/stock-status-breakdown', (req, res) => {
     }
     total = pile.ready;
     const rest = pile.ready - listed;   // = ของที่ค้างจากการส่งครั้งล่าสุด (หรือยอดยกมา ถ้ายังไม่เคยส่ง)
-    if (rest > 0.0001) {
+    if (Math.abs(rest) > 0.0001) {
       const cutTH = STOCK_CUTOFF.split('-').reverse().slice(0, 2).map(Number).join('/');
       adjustments.push({ kind: 'leftover', qty: rest,
-        label: lastShip ? 'ค้างจากการส่งงานครั้งก่อน (ส่งไม่หมด · ไม่ระบุว่าของใคร)' : `ยอดยกมา ณ ${cutTH} (ไม่ระบุว่าของใคร)` });
+        label: rest < 0 ? 'ปรับยอดสต็อก (นับของจริงได้น้อยกว่ารายชื่อ)'
+          : pile.adjAfterShip ? 'ค้างจากการส่งงานครั้งก่อน / ปรับยอดสต็อก (ไม่ระบุว่าของใคร)'
+          : lastShip ? 'ค้างจากการส่งงานครั้งก่อน (ส่งไม่หมด · ไม่ระบุว่าของใคร)' : `ยอดยกมา ณ ${cutTH} (ไม่ระบุว่าของใคร)` });
     }
     stockReady = pile.ready;
   }
