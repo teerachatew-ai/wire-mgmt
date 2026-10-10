@@ -858,6 +858,28 @@ function readyPiles(): Map<number, Pile> {
   return out;
 }
 
+/* ── ยอดยกมาเริ่มต้นของมุมมอง "รับ-ส่ง โรงงาน" = ของที่อยู่ที่กลุ่มจริง ณ วันเริ่มนับ (STOCK_CUTOFF) ──
+   = พร้อมส่ง (กองของที่คืนแล้ว ตั้งต้นแบบเดียวกับ readyPiles) + ของที่อยู่กับสมาชิก ณ วันนั้น − ส่งออกวันเริ่มนับ
+   (ส่งออกวันเริ่มนับเป็นการปิดรอบ ส.ค. ตารางโรงงานไม่นับ จึงหักออกจากยอดตั้งต้นแทน) · ไม่ติดลบ
+   ของรอแจกจ่ายจากใบรับก่อนวันเริ่มนับรวมอยู่ในก้อนพร้อมส่งแล้ว (สูตร ready_raw = ของที่กลุ่ม − กับสมาชิก − เศษ)
+   ทำให้ คงค้างส่งคืนโรงงาน เทียบกับ "รวมของที่อยู่ที่กลุ่ม" ได้ — ต่างกันเฉพาะของที่หาย/ปรับยอด/เศษ */
+function factoryOpening(): Map<number, number> {
+  const cut = String(STOCK_CUTOFF).slice(0, 10);
+  const openSt = computeStockStatus(cut);
+  const adjAfterCut = new Map((prepare(`SELECT product_id pid, SUM(quantity) q FROM stock_adjustments WHERE adjusted_at >= ? GROUP BY product_id`)
+    .all(cut) as any[]).map(r => [r.pid, Number(r.q) || 0]));
+  const shipCut = new Map((prepare(`SELECT si.product_id pid, SUM(COALESCE(si.received_qty, si.good_qty) + COALESCE(si.defect_qty, 0)) q
+      FROM shipment_items si JOIN shipments s ON si.shipment_id = s.id WHERE substr(s.shipped_at, 1, 10) = ? GROUP BY si.product_id`)
+    .all(cut) as any[]).map(r => [r.pid, Number(r.q) || 0]));
+  const out = new Map<number, number>();
+  for (const p of prepare(`SELECT id FROM products`).all() as any[]) {
+    const st = openSt(p.id);
+    const ready = Math.max(0, st.ready_raw - (adjAfterCut.get(p.id) || 0));
+    out.set(p.id, Math.max(0, ready + st.with_members - (shipCut.get(p.id) || 0)));
+  }
+  return out;
+}
+
 function computeStockFlow(m: string) {
   // "โหมดเดือน" ใช้รอบ Cut-off ที่ตั้งไว้ (Settings) แทนปฏิทิน 1-สิ้นเดือน ไม่งั้นยอด "ยกมา/ยกไป"
   // จะคาบเกี่ยวหรือขาดช่วงวันระหว่างวันสิ้นสุด Cut-off กับวันสิ้นเดือนปฏิทิน ทำให้ยอดคงเหลือดูงง
@@ -893,6 +915,7 @@ function computeStockFlow(m: string) {
   `).all() as any[];
 
   const status = m ? null : computeStockStatus();
+  const fOpen = m ? null : factoryOpening();
   // ส่วนต่าง "รับจริง − ใบส่งของ" ของช่วงที่กำลังดู และของยอดยกมา (ก่อนเริ่มเดือน)
   const flowVar = m ? varianceByProduct({ from: mRange.start, to: mRange.end }) : varianceByProduct();
   const carryVar = m ? varianceByProduct({ before: monthStart }) : new Map<number, number>();
@@ -923,7 +946,7 @@ function computeStockFlow(m: string) {
     // = รอแจกจ่าย + รอรับกลับ + พร้อมส่ง (ผลรวม 3 แถวที่โชว์ ตรงกันเสมอ)
     const available = in_warehouse + with_members + stock_ready;
     const balance = p.received + adj - in_warehouse - with_members - stock_ready - p.shipped - p.ret_waste - (p.ret_lost || 0);
-    return { ...p, in_warehouse, with_members, stock_ready, available, balance,
+    return { ...p, in_warehouse, with_members, stock_ready, available, balance, factory_open: fOpen!.get(p.id) || 0,
       wait_raw: st.wait_raw, ready_raw: st.ready_raw, ok: st.ready_raw >= 0 };
   });
 

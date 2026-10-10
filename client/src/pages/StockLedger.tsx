@@ -18,8 +18,6 @@ import { Link } from 'react-router-dom';
    2) รับ-ส่ง โรงงาน = รับเข้าจากโรงงาน − ส่งงานออกโรงงาน (ยอดที่โรงงานรับจริงถ้ายืนยันแล้ว)
       ค่าเริ่มต้นดูทั้งหมด ไม่ตัดที่ STOCK_CUTOFF เพราะเป็นการกระทบยอดกับโรงงานย้อนหลัง */
 const STOCK_CUTOFF = '2026-08-28';
-// กลุ่มย้ายมาเริ่มทำใหม่: งานที่รับตั้งแต่วันนี้ (ก่อนเริ่มรอบ ก.ย.) และยังไม่ได้ส่ง = ยอดยกมาของรอบ ก.ย. (มุมมองรับ-ส่งโรงงาน)
-const GROUP_START = '2026-08-26';
 
 const TH_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const dateTH = (iso: string) => {
@@ -543,16 +541,10 @@ export default function StockLedger() {
   // ── เดินยอดทีละวัน เก็บเฉพาะแถวที่อยู่ในช่วงที่เลือก ──
   const ledger = useMemo(() => {
     const bal: Record<number, number> = {};
-    // รับ-ส่งโรงงาน (เริ่มนับใหม่ที่รอบ ก.ย.): ยอดยกมาเริ่มต้น = รับเข้าตั้งแต่ GROUP_START ถึงก่อนวันเริ่มนับ
-    //   − ส่งออกของวันรอยต่อ (ส่งปิดรอบ ส.ค. = ส่งของล็อตนั้นออกไป) · ไม่ติดลบ (ส่งของเก่ากว่านั้น ไม่นับ)
+    // รับ-ส่งโรงงาน (เริ่มนับที่ 28 ส.ค.): ยอดยกมาเริ่มต้น = ของที่อยู่ที่กลุ่มจริง ณ วันนั้น (พร้อมส่ง + กับสมาชิก
+    //   − ส่งออกวันนั้น) คิดที่ server (factory_open) → คงค้างส่งคืนโรงงาน เทียบกับ "รวมของที่อยู่ที่กลุ่ม" ได้
     if (mode === 'factory' && countFrom) {
-      const recv: Record<number, number> = {};
-      for (const d of dates) {
-        if (d < GROUP_START || d >= countFrom) continue;
-        for (const [pid, q] of Object.entries(moves.get(d)!.in)) recv[+pid] = (recv[+pid] || 0) + q;
-      }
-      const seamShip = boundaries.has(countFrom) ? (moves.get(countFrom)?.ship || {}) : {};
-      for (const [pid, q] of Object.entries(recv)) bal[+pid] = Math.max(0, q - (seamShip[+pid] || 0));
+      for (const [pid, st] of statusOf) if (st.factory_open) bal[pid] = Number(st.factory_open) || 0;
     }
     const rows = new Map<string, any[]>();
     const EMPTY: Record<number, number> = {};
@@ -589,7 +581,7 @@ export default function StockLedger() {
       }
     }
     return { rows, closing: bal };
-  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext, boundaries]);
+  }, [dates, moves, groups, fromDate, toDate, countFrom, mode, shipBelongsToPrev, inBelongsToNext, boundaries, statusOf]);
 
   const shownGroups = groups.filter(g => scope === 'ALL' || g.key === scope);
 
@@ -785,7 +777,7 @@ export default function StockLedger() {
         const carryOut = (pid: number) => ledger.closing[pid] || 0;
         const carryIn = (pid: number) => carryOut(pid) - sumIn(pid) + sumOut(pid);
         const gCarryIn = g.items.reduce((s: number, p: any) => s + carryIn(p.id), 0);
-        // รอบ ก.ย.: ยกมา = งานที่รับตั้งแต่ 26 ส.ค. ที่ยังไม่ได้ส่ง · รอบถัดไป: ยกมา = คงค้างของรอบก่อน
+        // รอบ ก.ย.: ยกมา = ของที่อยู่ที่กลุ่ม ณ 28 ส.ค. · รอบถัดไป: ยกมา = คงค้างของรอบก่อน
         const showCarry = mode === 'factory' && !!fromDate;
         // แถว "ยกมาจากรอบก่อน" — งานที่รับจากโรงงานแล้วยังค้างส่งคืน ณ ต้นช่วง (ไล่สายตาจากบนลงล่าง: ยกมา → รายวัน → รวม)
         const carryRow = (
