@@ -1235,6 +1235,15 @@ function buildPayrollDetail(month: string) {
     ORDER BY i.issued_at, r.id
   `);
 
+  // งานที่เบิกในรอบนี้ แต่คืนหลังวันตัดยอด → ค่าแรงไปอยู่รอบถัดไป (บอกสมาชิกสั้นๆ ในใบเสร็จว่าทำไมได้เท่านี้)
+  const carryOutStmt = prepare(`
+    SELECT substr(i.issued_at, 1, 10) as issued_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
+      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
+    WHERE i.member_id = ? AND r.pay_cycle > ? AND substr(i.issued_at, 1, 10) BETWEEN ? AND ?
+    ORDER BY i.issued_at, p.name
+  `);
+
   const lineWage = (r: any) => returnWage(r, r.wage_per_unit, pol);
 
   const members = rawMembers.map((m: any) => {
@@ -1244,7 +1253,17 @@ function buildPayrollDetail(month: string) {
     // บรรทัดหัก/เตือนในใบเสร็จ — รอบเก่าเป็นบรรทัด "NG เกินเกณฑ์" แบบเดิม รอบใหม่แยก NG ตัดโดนสายไฟครั้งที่ 1/2/3, NG ดึงเชือก
     const deductions = deductionLines(mine, pol);
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
-    const rows = (detailRowsStmt.all(m.member_id, month) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
+    // carried_in = งานเบิกก่อนรอบนี้ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงในรอบนี้
+    const rows = (detailRowsStmt.all(m.member_id, month) as any[])
+      .map(r => ({ ...r, wage: lineWage(r), carried_in: String(r.issued_at).slice(0, 10) < cutoffStart }));
+    const carryOutAgg = new Map<string, any>();
+    for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, cutoff) as any[]) {
+      const k = `${r.issued_at}|${r.product_name}`;
+      const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0 };
+      e.qty += Number(r.good_qty) || 0; e.wage += lineWage(r);
+      carryOutAgg.set(k, e);
+    }
+    const carry_out = [...carryOutAgg.values()].filter(e => e.qty > 0 || e.wage > 0);
     const carryRaw = (carryRowsStmt.all(m.member_id, cutoff, `${month}%`) as any[]).map(r => ({ ...r, wage: lineWage(r) }));
     const carry_subtotal = carryRaw.reduce((s, r) => s + r.wage, 0);
     // ยอดค่าแรง/จำนวนที่ตัด แยกตามชนิดสายไฟ (เฉพาะรอบจ่ายนี้) — ใช้แสดงเป็นคอลัมน์แยกในตารางสรุปรวม
@@ -1256,7 +1275,7 @@ function buildPayrollDetail(month: string) {
     }
     return {
       ...m, ng_excess_qty, ng_deduction, deductions, total_wage, rows,
-      carry_rows: carryRaw, carry_subtotal,
+      carry_rows: carryRaw, carry_subtotal, carry_out,
       product_wages: Object.values(productAgg),
     };
   });

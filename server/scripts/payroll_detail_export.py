@@ -93,6 +93,7 @@ F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 F_NG, F_NET, F_CONFIRM, F_SIGN = 10, F_TABLE, 10.29, 11.55
 # บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
 F_NGLINE, H_NGLINE2 = 12, 20
+F_NOTE, H_NOTE = 9.5, 14   # หมายเหตุค่าแรงยกมา/ยกไป ใต้ยอดสุทธิ (ตัวเล็ก กินที่น้อย)
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
@@ -323,7 +324,8 @@ def write_pivot_table(ws, row, rows_list):
     for r in rows_list:
         dt = r["issued_at"]
         pname = r["product_name"]
-        e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}})
+        e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}, "carried": False})
+        e["carried"] = e["carried"] or bool(r.get("carried_in"))
         e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"]
         e["wage"] += r["wage"]
         e["wage_by_prod"][pname] = e["wage_by_prod"].get(pname, 0) + r["wage"]
@@ -333,7 +335,8 @@ def write_pivot_table(ws, row, rows_list):
     first_data_row = row
     for dt in sorted(date_agg.keys()):
         e = date_agg[dt]
-        vals = [date_th_short(dt)] + [e["qty"].get(n, 0) for n in product_order] + [e["wage"]]
+        # * = งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดรอบก่อน (อธิบายไว้ใต้ตาราง)
+        vals = [date_th_short(dt) + (" *" if e["carried"] else "")] + [e["qty"].get(n, 0) for n in product_order] + [e["wage"]]
         for ci, v in enumerate(vals, start=1):
             col = get_column_letter(ci)
             is_prod_col = 2 <= ci <= 1 + n_prod
@@ -585,8 +588,33 @@ def write_member_sheet(m, label=None):
     ws.row_dimensions[row].height = RH(H_NET)
     row += 1
 
-    # ไม่แสดงงานที่คืนหลังวันตัดยอด (ยกไปจ่ายรอบเดือนถัดไป) ในใบเสร็จนี้ — ใบเสร็จแสดงเฉพาะงานของรอบเดือนนั้นๆ
-    # งานพวกนั้นจะไปโผล่ในใบเสร็จของเดือนถัดไปเองอยู่แล้ว
+    # ── หมายเหตุสั้นๆ ใต้ยอดสุทธิ: ทำไมได้ค่าแรงเท่านี้ (ตัวเล็ก ไม่เกิน 2-3 บรรทัด) ──
+    #   * แถวที่มีดอกจัน = งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงรอบนี้
+    #   ยกไปรอบถัดไป = งานที่เบิกในรอบนี้ แต่คืนหลังวันตัดยอด (ไม่รวมในยอดข้างบน)
+    notes = []
+    if any(r.get("carried_in") for r in m["rows"]):
+        notes.append("* งานที่เบิกก่อนรอบนี้ และคืนหลังวันตัดยอดของรอบก่อน จึงได้ค่าแรงในรอบนี้")
+    co = m.get("carry_out") or []
+    if co:
+        def dm(iso):
+            y, mo, dd = str(iso)[:10].split("-")
+            return f"{int(dd)}/{int(mo)}"
+        def pl(n):
+            return (product_label.get(n) or short_label(n)).replace("\n", " ")
+        by_date = {}
+        for e in co:
+            by_date.setdefault(e["issued_at"], []).append(e)
+        parts = [f"เบิก {dm(dt)}: " + ", ".join(f"{pl(e['product_name'])} {e['qty']:,.0f}" for e in es) for dt, es in sorted(by_date.items())]
+        tot = sum(float(e["wage"]) for e in co)
+        nxt = max(e["pay_cycle"] for e in co)
+        notes.append(f"ยกไปจ่ายรอบ {month_th(nxt)} {tot:,.2f} บาท (คืนงานหลังวันตัดยอด {dm(d['cutoff'])}) — " + " · ".join(parts))
+    for t in notes:
+        ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
+        lines = 2 if len(t) > 110 else 1
+        cell(ws, f"A{row}", t, font=Font(name=FONT, size=FS(F_NOTE), color=AMBER),
+             align=Alignment(horizontal="left", vertical="center", wrap_text=True))
+        ws.row_dimensions[row].height = RH(H_NOTE * lines)
+        row += 1
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
     # ข้อความยืนยันชิดขวา แต่หยุดก่อนคอลัมน์สุดท้าย 1 ช่อง — เลื่อนทั้งบรรทัดมาทางซ้าย
