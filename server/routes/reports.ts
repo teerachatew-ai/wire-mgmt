@@ -1313,7 +1313,9 @@ function buildPayrollDetail(month: string) {
        ถือหลายใบพร้อมกันนับวันซ้ำครั้งเดียว — คนที่เบิกทีละหลายใบจึงไม่ถูกหารด้วยวันซ้ำๆ จนดูช้ากว่าจริง
    • จำนวนที่ตัดแล้ว = ดี + เสีย/NG + เศษ (ไม่นับที่คืนแบบยังไม่ได้ตัด / ของหาย)
    • นับเป็น "ชุด" ไม่ใช่เส้น: 1 ชุด = ครบทุกชนิดในโครงการเดียวกัน (COT091 ยาว+สั้น = 2 เส้น · COT102 สามสาย = 3 เส้น)
-       ชุด = เส้น ÷ จำนวนชนิดในโครงการ — เบิกไม่ครบคู่ก็หารแบบเดียวกัน (เจ้าของกำหนด) */
+       ชุด = เส้น ÷ จำนวนชนิดในโครงการ — เบิกไม่ครบคู่ก็หารแบบเดียวกัน (เจ้าของกำหนด)
+   • ความเร็วสูงสุด = รอบเบิกที่เร็วที่สุด: ใบเบิกวันเดียวกัน = 1 รอบ → ชุดของรอบนั้น ÷ จำนวนวันจนคืนครบทุกใบ (คืนวันเดียวกันนับ 1 วัน)
+       คิดเฉพาะรอบที่คืนครบทุกใบแล้ว · speed (เฉลี่ย) = ชุดทั้งหมด ÷ วันที่มีงานในมือ (ตามข้างบน) */
 router.get('/member-speed', (req, res) => {
   const iso = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
   const from = iso(req.query.from) || String(STOCK_CUTOFF).slice(0, 10);
@@ -1337,16 +1339,31 @@ router.get('/member-speed', (req, res) => {
   const by = new Map<number, any>();
   for (const r of rows) {
     const m = by.get(r.mid) || { member_id: r.mid, code: r.code, name: r.name, nickname: r.nickname, status: r.status,
-      issues_done: 0, issues_open: 0, qty_done: 0, days_sum: 0, max_days: 0, days: new Set<number>() };
+      issues_done: 0, issues_open: 0, qty_done: 0, days_sum: 0, max_days: 0, days: new Set<number>(),
+      batches: new Map<string, { sets: number; last: number; open: boolean }>() };
     by.set(r.mid, m);
     const complete = Number(r.done) >= Number(r.q) - 0.0001 && r.d1;
-    if (!complete) { m.issues_open++; continue; }
+    const bt = m.batches.get(r.d0) || { sets: 0, last: toDay(r.d0), open: false };
+    m.batches.set(r.d0, bt);
+    if (!complete) { m.issues_open++; bt.open = true; continue; }
     const a = toDay(r.d0), b = Math.max(a, toDay(r.d1));
-    m.issues_done++; m.qty_done += (Number(r.cut) || 0) / (setSize.get(String(r.project)) || 1);   // เป็นชุด
+    const sets = (Number(r.cut) || 0) / (setSize.get(String(r.project)) || 1);   // เป็นชุด
+    m.issues_done++; m.qty_done += sets;
+    bt.sets += sets; bt.last = Math.max(bt.last, b);
     m.days_sum += b - a; m.max_days = Math.max(m.max_days, b - a);
     for (let x = a; x < Math.max(b, a + 1); x++) m.days.add(x);
   }
+  const bestOf = (m: any) => {
+    let best = 0, bestDate: string | null = null;
+    for (const [d, bt] of m.batches) {
+      if (bt.open || bt.sets <= 0) continue;
+      const v = bt.sets / Math.max(1, bt.last - toDay(d));
+      if (v > best) { best = v; bestDate = d; }
+    }
+    return { best, bestDate };
+  };
   const members = [...by.values()].filter(m => m.issues_done > 0).map(m => ({
+    ...(({ best, bestDate }) => ({ max_speed: best, max_speed_date: bestDate }))(bestOf(m)),
     member_id: m.member_id, code: m.code, name: m.name, nickname: m.nickname, status: m.status,
     issues_done: m.issues_done, issues_open: m.issues_open, qty_done: m.qty_done,
     avg_days: m.days_sum / m.issues_done, max_days: m.max_days, work_days: m.days.size,
