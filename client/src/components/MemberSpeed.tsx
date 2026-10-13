@@ -12,11 +12,12 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 
 const BANDS = [
   { key: 'lt100', label: 'น้อยกว่า 100', min: 0, max: 100, color: '#bfdbfe', text: 'text-blue-900' },
-  { key: '100', label: '100–200', min: 100, max: 200, color: '#93c5fd', text: 'text-blue-900' },
-  { key: '200', label: '200–300', min: 200, max: 300, color: '#3b82f6', text: 'text-white' },
-  { key: 'gt300', label: 'มากกว่า 300', min: 300, max: Infinity, color: '#1d4ed8', text: 'text-white' },
+  { key: '100', label: '100–199', min: 100, max: 200, color: '#93c5fd', text: 'text-blue-900' },
+  { key: '200', label: '200–299', min: 200, max: 300, color: '#3b82f6', text: 'text-white' },
+  { key: 'gt300', label: '300 ขึ้นไป', min: 300, max: Infinity, color: '#1d4ed8', text: 'text-white' },
 ] as const;
-const bandOf = (speed: number) => BANDS.find(b => speed >= b.min && speed < b.max) || BANDS[0];
+// จัดช่วงจากตัวเลขที่ปัดแล้ว (ตัวเลขที่โชว์) — 300 พอดีอยู่กลุ่ม "300 ขึ้นไป" · 299.6 ที่โชว์เป็น 300 ก็เช่นกัน
+const bandOf = (speed: number) => { const v = Math.round(speed); return BANDS.find(b => v >= b.min && v < b.max) || BANDS[0]; };
 
 type Range = 'cutoff' | '30d' | 'month';
 
