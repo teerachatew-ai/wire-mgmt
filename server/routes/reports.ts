@@ -1249,7 +1249,7 @@ function buildPayrollDetail(month: string) {
   const prevLastRecv = (prepare(`SELECT MAX(substr(received_at, 1, 10)) d FROM receives WHERE received_at LIKE ?`).get(`${prevMonth(month)}%`) as any)?.d as string | null;
   const carryInBefore = prevLastRecv && prevLastRecv < cutoffStart ? prevLastRecv : cutoffStart;
   const carryOutStmt = prepare(`
-    SELECT substr(i.issued_at, 1, 10) as issued_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
+    SELECT substr(i.issued_at, 1, 10) as issued_at, substr(r.returned_at, 1, 10) as returned_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
       r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle > ? AND substr(i.issued_at, 1, 10) BETWEEN ? AND ?
@@ -1271,8 +1271,9 @@ function buildPayrollDetail(month: string) {
     const carryOutAgg = new Map<string, any>();
     for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, carryEnd) as any[]) {
       const k = `${r.issued_at}|${r.product_name}`;
-      const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0 };
+      const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0, returned: [] as string[] };
       e.qty += Number(r.good_qty) || 0; e.wage += lineWage(r);
+      if (r.returned_at && !e.returned.includes(r.returned_at)) e.returned.push(r.returned_at);
       carryOutAgg.set(k, e);
     }
     const carry_out = [...carryOutAgg.values()].filter(e => e.qty > 0 || e.wage > 0);

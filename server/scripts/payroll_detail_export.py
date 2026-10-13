@@ -602,15 +602,20 @@ def write_member_sheet(m, label=None):
         AMBER_BG = "FEF3C7"
         nxt = max(e["pay_cycle"] for e in co)
         by_date = {}
+        ret_by_date = {}
         for e in co:
             q = by_date.setdefault(e["issued_at"], {})
             q[e["product_name"]] = q.get(e["product_name"], 0) + float(e["qty"])
+            ret_by_date.setdefault(e["issued_at"], set()).update(e.get("returned") or [])
+        def dm(iso):
+            y, mo, dd = str(iso)[:10].split("-")
+            return f"{int(dd)}/{int(mo)}"
         fnt = Font(name=FONT, size=FS(F_DATA), bold=True, color=AMBER)
         first_carry = row
         for dt in sorted(by_date):
             cell(ws, f"A{row}", date_th_short(dt), font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER), fill=AMBER_BG, align=C, border=box)
             # เหตุผลบรรทัดเดียว: รวมช่องชนิดงานที่ว่างต่อท้ายแถว (ไม่มีงานยกไป) เข้ากับช่องขวาสุด
-            # ถ้าชนิดสุดท้ายมีงานยกไป (ไม่มีช่องว่างให้รวม) ใช้ 2 บรรทัดในช่องขวาสุดแทน
+            # ถ้าชนิดสุดท้ายมีงานยกไป (ไม่มีช่องว่างให้รวม) ใส่ในช่องขวาสุดช่องเดียว (ย่อตัวอักษร)
             last_used = max([ci for ci, n in enumerate(product_order, start=2) if by_date[dt].get(n, 0)] or [1])
             reason_from = last_used + 1
             for ci, n in enumerate(product_order, start=2):
@@ -621,10 +626,13 @@ def write_member_sheet(m, label=None):
                 for ci in range(reason_from, LAST_P + 1):
                     cell(ws, f"{get_column_letter(ci)}{row}", None, fill=AMBER_BG, border=box)
                 ws.merge_cells(f"{get_column_letter(reason_from)}{row}:{LAST_P_LETTER}{row}")
-            cell(ws, f"{get_column_letter(reason_from)}{row}", "คืนหลังวันตัดยอด" if one_line else "คืนหลัง\nวันตัดยอด",
+            # เหตุผล + (วันที่คืนจริง) บรรทัดเดียวเสมอ — ยาวเกินช่องให้ย่อตัวอักษรเอง ไม่ตัดบรรทัด
+            rets = sorted(ret_by_date.get(dt) or [])
+            reason = "คืนหลังวันตัดยอด" + (f" (คืน {', '.join(dm(x) for x in rets)})" if rets else "")
+            cell(ws, f"{get_column_letter(reason_from)}{row}", reason,
                  font=Font(name=FONT, size=FS(F_DATA if one_line else F_NOTE), bold=True, color=AMBER), fill=AMBER_BG,
-                 align=Alignment(horizontal="center", vertical="center", wrap_text=not one_line), border=box)
-            ws.row_dimensions[row].height = RH(H_DATA if one_line else max(H_DATA, H_NOTE * 2))
+                 align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True), border=box)
+            ws.row_dimensions[row].height = RH(H_DATA)
             row += 1
         carry_rows = (first_carry, row - 1, f"ยกไป {TH_SHORT[int(nxt[5:7])]}")
     if any(r.get("carried_in") for r in m["rows"]):
