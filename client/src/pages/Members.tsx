@@ -8,6 +8,7 @@ import BulkActionBar from '../components/BulkActionBar';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 import { compressImageToDataUrl } from '../utils/compressImage';
 import QRCode from 'qrcode';
+import MemberSpeed from '../components/MemberSpeed';
 
 // ลิงก์พอร์ทัลส่วนตัวของสมาชิก (ใช้ origin ของเว็บปัจจุบัน ใช้ได้ทั้ง local/deploy)
 function portalUrl(token?: string | null): string {
@@ -854,6 +855,8 @@ export default function Members() {
           </div>
         </div>
       </div>
+
+      <MemberSpeed />
 
       <div className="relative md:max-w-sm">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />

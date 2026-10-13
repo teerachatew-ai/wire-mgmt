@@ -100,6 +100,8 @@ export const managerApi = {
 export const reportApi = {
   dashboard: () => api.get('/reports/dashboard').then(r => r.data),
   performance: (month?: string) => api.get('/reports/performance', { params: month ? { month } : {} }).then(r => r.data),
+  // ความเร็วการตัดของสมาชิก (ใบเบิกที่คืนครบ) — หน้า สมาชิก
+  memberSpeed: (params: { from?: string; to?: string } = {}) => api.get('/reports/member-speed', { params }).then(r => r.data),
   outstanding: () => api.get('/reports/outstanding').then(r => r.data),
   payroll: (from: string, to: string) => api.get('/reports/payroll', { params: { from, to } }).then(r => r.data),
   payrollMonthly: (month: string) => api.get('/reports/payroll-monthly', { params: { month } }).then(r => r.data),

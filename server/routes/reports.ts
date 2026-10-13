@@ -1305,6 +1305,51 @@ function buildPayrollDetail(month: string) {
 // ── ตรวจสอบยอดรายบุคคล (กันโกง) ────────────────────────────────────────
 // เช็คความผิดปกติของยอดคืนงานแต่ละคนในรอบจ่ายหนึ่งๆ: ยอดต่อวันสูงผิดปกติเทียบกับค่าเฉลี่ยของตัวเอง
 // หมายเหตุ: ตรวจจับ "รูปแบบ" ที่น่าสงสัยเท่านั้น ไม่ได้พิสูจน์ยืนยันตัวตนจริง — ใช้ประกอบการตรวจสอบเพิ่มเติม (เช่น โทรสอบถามสมาชิก)
+/* ── ความเร็วการตัดของสมาชิก (หน้า สมาชิก) ─────────────────────────────────────
+   คิดเฉพาะใบเบิกที่ "คืนครบแล้ว" ในช่วงวันที่เบิกที่เลือก (ใบที่ยังคืนไม่ครบไม่เอามาคิด กันตัวเลขเพี้ยน)
+   • ใช้เวลาคืนงาน = วันที่คืนครั้งสุดท้าย − วันที่เบิก (เฉลี่ยทุกใบ · คืนวันเดียวกัน = 0 วัน)
+   • ความเร็ว (เส้น/วัน) = จำนวนที่ตัดแล้วของใบเหล่านั้น ÷ จำนวน "วันที่มีงานอยู่ในมือ"
+       วันที่มีงานในมือของใบหนึ่ง = ตั้งแต่วันเบิก ถึงก่อนวันคืน (คืนวันเดียวกันนับ 1 วัน)
+       ถือหลายใบพร้อมกันนับวันซ้ำครั้งเดียว — คนที่เบิกทีละหลายใบจึงไม่ถูกหารด้วยวันซ้ำๆ จนดูช้ากว่าจริง
+   • จำนวนที่ตัดแล้ว = ดี + เสีย/NG + เศษ (ไม่นับที่คืนแบบยังไม่ได้ตัด / ของหาย) */
+router.get('/member-speed', (req, res) => {
+  const iso = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
+  const from = iso(req.query.from) || String(STOCK_CUTOFF).slice(0, 10);
+  const to = iso(req.query.to) || todayThai();
+  const rows = prepare(`
+    SELECT m.id mid, m.code, m.name, m.nickname, m.status, i.id iid, substr(i.issued_at, 1, 10) d0, i.quantity q,
+      COALESCE(rt.done, 0) done, COALESCE(rt.cut, 0) cut, rt.last d1
+    FROM issues i JOIN members m ON i.member_id = m.id
+    LEFT JOIN (SELECT issue_id,
+        SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) done,
+        SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0)) cut,
+        MAX(substr(returned_at, 1, 10)) last
+      FROM returns GROUP BY issue_id) rt ON rt.issue_id = i.id
+    WHERE substr(i.issued_at, 1, 10) BETWEEN ? AND ? AND i.quantity > 0
+  `).all(from, to) as any[];
+  const dayMs = 86400000;
+  const toDay = (d: string) => Math.round(Date.parse(d + 'T00:00:00Z') / dayMs);
+  const by = new Map<number, any>();
+  for (const r of rows) {
+    const m = by.get(r.mid) || { member_id: r.mid, code: r.code, name: r.name, nickname: r.nickname, status: r.status,
+      issues_done: 0, issues_open: 0, qty_done: 0, days_sum: 0, max_days: 0, days: new Set<number>() };
+    by.set(r.mid, m);
+    const complete = Number(r.done) >= Number(r.q) - 0.0001 && r.d1;
+    if (!complete) { m.issues_open++; continue; }
+    const a = toDay(r.d0), b = Math.max(a, toDay(r.d1));
+    m.issues_done++; m.qty_done += Number(r.cut) || 0;
+    m.days_sum += b - a; m.max_days = Math.max(m.max_days, b - a);
+    for (let x = a; x < Math.max(b, a + 1); x++) m.days.add(x);
+  }
+  const members = [...by.values()].filter(m => m.issues_done > 0).map(m => ({
+    member_id: m.member_id, code: m.code, name: m.name, nickname: m.nickname, status: m.status,
+    issues_done: m.issues_done, issues_open: m.issues_open, qty_done: m.qty_done,
+    avg_days: m.days_sum / m.issues_done, max_days: m.max_days, work_days: m.days.size,
+    speed: m.days.size ? m.qty_done / m.days.size : 0,
+  })).sort((a, b) => b.speed - a.speed);
+  res.json({ from, to, members });
+});
+
 router.get('/member-reconcile', (req, res) => {
   const month = typeof req.query.month === 'string' && /^\d{4}-\d{2}$/.test(req.query.month)
     ? req.query.month : new Date().toISOString().substring(0, 7);
