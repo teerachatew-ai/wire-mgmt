@@ -67,19 +67,14 @@ export default function InOutCompare({
         <thead>
           <tr className="text-xs text-gray-500 border-b">
             <th className="px-2 py-2 font-medium text-left">ชนิดงาน</th>
-            {balance && (
-              <th className="px-2 py-2 font-medium text-right">
-                ยอดยกมา<div className="text-[10px] font-normal text-gray-400">ต้นช่วง</div>
-              </th>
-            )}
             <th className="px-2 py-2 font-medium text-right">
-              {balance && <span className="text-gray-400 mr-0.5">+</span>}📦 รับเข้า<div className="text-[10px] font-normal text-gray-400">ช่วงที่เลือก</div>
+              📦 รับเข้า<div className="text-[10px] font-normal text-gray-400">ช่วงที่เลือก</div>
             </th>
             <th className="px-2 py-2 font-medium text-right">
-              {balance && <span className="text-gray-400 mr-0.5">−</span>}↑ เบิกออก<div className="text-[10px] font-normal text-gray-400">ช่วงที่เลือก</div>
+              ↑ เบิกออก<div className="text-[10px] font-normal text-gray-400">ช่วงที่เลือก</div>
             </th>
             <th className="px-2 py-2 font-medium text-right bg-violet-50/60">
-              <span className="text-violet-700">{balance && <span className="text-violet-400 mr-0.5">=</span>}คงเหลือรอเบิก</span>
+              <span className="text-violet-700">คงเหลือรอเบิก</span>
               <div className="text-[10px] font-normal text-violet-400">{balance ? (endsNow ? 'ท้ายช่วง = ณ ตอนนี้' : 'ท้ายช่วง') : 'ณ ตอนนี้'}</div>
             </th>
           </tr>
@@ -97,12 +92,6 @@ export default function InOutCompare({
                     <span className="text-gray-700">{r.name}</span>
                   </span>
                 </td>
-                {balance && (
-                  <td className={`px-2 py-1.5 text-right ${numCls(b?.opening || 0, 'text-gray-600')}`}
-                    title={(b?.opening || 0) < 0 ? 'ติดลบ = ก่อนช่วงนี้เบิกเกินของที่รับจริง' : undefined}>
-                    {b?.opening ? fmt(b.opening) : <span className="text-gray-300">0</span>}
-                  </td>
-                )}
                 <td className="px-2 py-1.5 text-right font-medium text-emerald-700">{r.inQty ? fmt(r.inQty) : <span className="text-gray-300">–</span>}</td>
                 <td className="px-2 py-1.5 text-right font-medium text-blue-700">{r.outQty ? fmt(r.outQty) : <span className="text-gray-300">–</span>}</td>
                 <td className="px-2 py-1.5 text-right bg-violet-50/60">
@@ -121,7 +110,6 @@ export default function InOutCompare({
         <tfoot>
           <tr className="bg-gray-50 font-semibold">
             <td className="px-2 py-2 text-gray-700">รวมทั้งหมด</td>
-            {balance && <td className={`px-2 py-2 text-right ${numCls(sumB('opening'), 'text-gray-700')}`}>{fmt(sumB('opening'))}</td>}
             <td className="px-2 py-2 text-right text-emerald-800">{fmt(totalIn)}</td>
             <td className="px-2 py-2 text-right text-blue-800">{fmt(totalOut)}</td>
             <td className="px-2 py-2 text-right text-violet-800 bg-violet-50">
@@ -133,7 +121,7 @@ export default function InOutCompare({
 
       <p className="text-xs text-gray-400 mt-2 leading-relaxed">
         {balance
-          ? <>อ่านแต่ละแถว: <b className="text-gray-500">ยอดยกมา + รับเข้า − เบิกออก = คงเหลือรอเบิก</b></>
+          ? <><b className="text-gray-500">รับเข้า / เบิกออก</b> = ยอดในช่วงที่เลือก · <b className="text-violet-600">คงเหลือรอเบิก</b> = ของที่ยังไม่ได้แจก ณ ท้ายช่วง</>
           : <><b className="text-gray-500">รับเข้า / เบิกออก</b> = ยอดในช่วงวันที่ที่เลือกด้านบน · <b className="text-violet-600">คงเหลือรอเบิก</b> = ของที่ยังไม่ได้แจก ณ ตอนนี้</>}
         {' '}· <span className="text-rose-600 font-semibold">ตัวแดง ⚠</span> = ติดลบ คือเบิกเกินของที่รับจริง ต้องตรวจ
       </p>
