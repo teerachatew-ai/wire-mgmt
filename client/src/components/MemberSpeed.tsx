@@ -78,13 +78,13 @@ export default function MemberSpeed() {
             </div>
             <div className="rounded-xl bg-slate-50 p-3 text-center">
               <p className="text-2xl font-bold tabular-nums text-slate-800 leading-none">{fmt(median)}</p>
-              <p className="text-xs text-slate-500 mt-1.5">ความเร็วกลางของกลุ่ม (เส้น/วัน)</p>
+              <p className="text-xs text-slate-500 mt-1.5">ความเร็วกลางของกลุ่ม (ชุด/วัน)</p>
             </div>
           </div>
 
           {/* กราฟแท่ง: จำนวนสมาชิกในแต่ละช่วงความเร็ว */}
           <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">จำนวนสมาชิกตามความเร็วการตัด <span className="text-slate-400 font-normal">(เส้นต่อวัน · คลิกแท่งเพื่อดูรายชื่อ)</span></p>
+            <p className="text-sm font-medium text-slate-700 mb-2">จำนวนสมาชิกตามความเร็วการตัด <span className="text-slate-400 font-normal">(ชุดต่อวัน · คลิกแท่งเพื่อดูรายชื่อ)</span></p>
             <div className="relative h-48 border-b border-slate-200 flex items-end gap-3 px-2" role="list">
               {[0.25, 0.5, 0.75, 1].map(f => (
                 <div key={f} className="absolute left-0 right-0 border-t border-dashed border-slate-100" style={{ bottom: `${f * 100}%` }} aria-hidden />
@@ -94,7 +94,7 @@ export default function MemberSpeed() {
                 const active = band === b.key;
                 return (
                   <button key={b.key} type="button" role="listitem" onClick={() => setBand(active ? null : b.key)}
-                    title={`${b.label} เส้น/วัน: ${n} คน`} aria-pressed={active}
+                    title={`${b.label} ชุด/วัน: ${n} คน`} aria-pressed={active}
                     className="relative flex-1 h-full flex flex-col justify-end items-center group focus-visible:outline-none">
                     <span className="text-sm font-semibold tabular-nums text-slate-700 mb-1">{n} คน</span>
                     <span className={`w-full max-w-[120px] rounded-t transition-opacity ${band && !active ? 'opacity-40' : ''} group-hover:opacity-90 group-focus-visible:ring-2 group-focus-visible:ring-blue-300`}
@@ -118,7 +118,7 @@ export default function MemberSpeed() {
           {(band || showAll) && <div className="overflow-x-auto">
             <div className="flex items-center justify-between mb-1.5">
               <p className="text-sm font-medium text-slate-700">
-                รายชื่อ{band ? ` · ${BANDS.find(b => b.key === band)!.label} เส้น/วัน` : 'ทั้งหมด'} <span className="text-slate-400 font-normal">({shown.length} คน · เรียงเร็ว→ช้า)</span>
+                รายชื่อ{band ? ` · ${BANDS.find(b => b.key === band)!.label} ชุด/วัน` : 'ทั้งหมด'} <span className="text-slate-400 font-normal">({shown.length} คน · เรียงเร็ว→ช้า)</span>
               </p>
               <span className="flex gap-3">
                 {band && <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => { setBand(null); setShowAll(true); }}>แสดงทั้งหมด</button>}
@@ -130,9 +130,9 @@ export default function MemberSpeed() {
                 <tr className="text-xs text-slate-500 border-b">
                   <th className="px-2 py-2 text-left font-medium">สมาชิก</th>
                   <th className="px-2 py-2 text-right font-medium">ใบที่คืนครบ</th>
-                  <th className="px-2 py-2 text-right font-medium">ตัดแล้ว (เส้น)</th>
+                  <th className="px-2 py-2 text-right font-medium">ตัดแล้ว (ชุด)</th>
                   <th className="px-2 py-2 text-right font-medium">เบิกจนคืน เฉลี่ย</th>
-                  <th className="px-2 py-2 text-left font-medium w-[34%]">ความเร็ว (เส้น/วัน)</th>
+                  <th className="px-2 py-2 text-left font-medium w-[34%]">ความเร็ว (ชุด/วัน)</th>
                 </tr>
               </thead>
               <tbody>
@@ -150,7 +150,7 @@ export default function MemberSpeed() {
                       <td className="px-2 py-1.5 text-right text-slate-700">{fmt(m.qty_done)}</td>
                       <td className="px-2 py-1.5 text-right text-slate-700">{m.avg_days < 0.05 ? 'ภายในวัน' : `${fmt(m.avg_days, 1)} วัน`}</td>
                       <td className="px-2 py-1.5">
-                        <div className="flex items-center gap-2" title={`ตัด ${fmt(m.qty_done)} เส้น ใน ${m.work_days} วันที่มีงานในมือ`}>
+                        <div className="flex items-center gap-2" title={`ตัด ${fmt(m.qty_done)} ชุด ใน ${m.work_days} วันที่มีงานในมือ`}>
                           <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
                             <div className="h-full rounded-full" style={{ width: `${Math.max(2, (m.speed / maxSpeed) * 100)}%`, background: b.color }} />
                           </div>
@@ -163,7 +163,7 @@ export default function MemberSpeed() {
               </tbody>
             </table>
             <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-              ความเร็ว = จำนวนที่ตัดแล้ว ÷ จำนวนวันที่มีงานอยู่ในมือ (ถือหลายใบพร้อมกัน นับวันนั้นครั้งเดียว · คืนวันเดียวกับที่เบิก นับ 1 วัน) ·
+              1 ชุด = ครบทุกชนิดในงานเดียวกัน (ขาว/ชมพู = ยาว+สั้น 2 เส้น · สามสาย = 3 เส้น — เบิกไม่ครบคู่ก็หารแบบเดียวกัน) · ความเร็ว = ชุดที่ตัดแล้ว ÷ จำนวนวันที่มีงานอยู่ในมือ (ถือหลายใบพร้อมกัน นับวันนั้นครั้งเดียว · คืนวันเดียวกับที่เบิก นับ 1 วัน) ·
               เบิกจนคืน = วันที่คืนครั้งสุดท้าย − วันที่เบิก · ใบที่ยังคืนไม่ครบไม่นำมาคิด · "ข้อมูลน้อย" = คืนครบไม่ถึง 3 ใบ ตัวเลขอาจยังไม่นิ่ง
             </p>
           </div>}

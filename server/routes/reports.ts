@@ -1311,15 +1311,17 @@ function buildPayrollDetail(month: string) {
    • ความเร็ว (เส้น/วัน) = จำนวนที่ตัดแล้วของใบเหล่านั้น ÷ จำนวน "วันที่มีงานอยู่ในมือ"
        วันที่มีงานในมือของใบหนึ่ง = ตั้งแต่วันเบิก ถึงก่อนวันคืน (คืนวันเดียวกันนับ 1 วัน)
        ถือหลายใบพร้อมกันนับวันซ้ำครั้งเดียว — คนที่เบิกทีละหลายใบจึงไม่ถูกหารด้วยวันซ้ำๆ จนดูช้ากว่าจริง
-   • จำนวนที่ตัดแล้ว = ดี + เสีย/NG + เศษ (ไม่นับที่คืนแบบยังไม่ได้ตัด / ของหาย) */
+   • จำนวนที่ตัดแล้ว = ดี + เสีย/NG + เศษ (ไม่นับที่คืนแบบยังไม่ได้ตัด / ของหาย)
+   • นับเป็น "ชุด" ไม่ใช่เส้น: 1 ชุด = ครบทุกชนิดในโครงการเดียวกัน (COT091 ยาว+สั้น = 2 เส้น · COT102 สามสาย = 3 เส้น)
+       ชุด = เส้น ÷ จำนวนชนิดในโครงการ — เบิกไม่ครบคู่ก็หารแบบเดียวกัน (เจ้าของกำหนด) */
 router.get('/member-speed', (req, res) => {
   const iso = (v: any) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
   const from = iso(req.query.from) || String(STOCK_CUTOFF).slice(0, 10);
   const to = iso(req.query.to) || todayThai();
   const rows = prepare(`
-    SELECT m.id mid, m.code, m.name, m.nickname, m.status, i.id iid, substr(i.issued_at, 1, 10) d0, i.quantity q,
+    SELECT m.id mid, m.code, m.name, m.nickname, m.status, i.id iid, substr(i.issued_at, 1, 10) d0, i.quantity q, p.project,
       COALESCE(rt.done, 0) done, COALESCE(rt.cut, 0) cut, rt.last d1
-    FROM issues i JOIN members m ON i.member_id = m.id
+    FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     LEFT JOIN (SELECT issue_id,
         SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) done,
         SUM(COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0)) cut,
@@ -1327,6 +1329,9 @@ router.get('/member-speed', (req, res) => {
       FROM returns GROUP BY issue_id) rt ON rt.issue_id = i.id
     WHERE substr(i.issued_at, 1, 10) BETWEEN ? AND ? AND i.quantity > 0
   `).all(from, to) as any[];
+  const setSize = new Map<string, number>();
+  for (const r of prepare(`SELECT project, COUNT(*) n FROM products WHERE project IS NOT NULL AND project != '' GROUP BY project`).all() as any[])
+    setSize.set(String(r.project), Number(r.n) || 1);
   const dayMs = 86400000;
   const toDay = (d: string) => Math.round(Date.parse(d + 'T00:00:00Z') / dayMs);
   const by = new Map<number, any>();
@@ -1337,7 +1342,7 @@ router.get('/member-speed', (req, res) => {
     const complete = Number(r.done) >= Number(r.q) - 0.0001 && r.d1;
     if (!complete) { m.issues_open++; continue; }
     const a = toDay(r.d0), b = Math.max(a, toDay(r.d1));
-    m.issues_done++; m.qty_done += Number(r.cut) || 0;
+    m.issues_done++; m.qty_done += (Number(r.cut) || 0) / (setSize.get(String(r.project)) || 1);   // เป็นชุด
     m.days_sum += b - a; m.max_days = Math.max(m.max_days, b - a);
     for (let x = a; x < Math.max(b, a + 1); x++) m.days.add(x);
   }
