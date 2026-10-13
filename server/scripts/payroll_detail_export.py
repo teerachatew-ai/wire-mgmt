@@ -93,7 +93,7 @@ F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 F_NG, F_NET, F_CONFIRM, F_SIGN = 10, F_TABLE, 10.29, 11.55
 # บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
 F_NGLINE, H_NGLINE2 = 12, 20
-F_NOTE, H_NOTE = 9.5, 14   # หมายเหตุค่าแรงยกมา/ยกไป ใต้ยอดสุทธิ (ตัวเล็ก กินที่น้อย)
+F_NOTE, H_NOTE = 12, 18   # หมายเหตุค่าแรงยกมา/ยกไป ใต้ยอดสุทธิ (ตัวเล็ก กินที่น้อย)
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
@@ -610,7 +610,7 @@ def write_member_sheet(m, label=None):
         notes.append(f"ยกไปจ่ายรอบ {month_th(nxt)} {tot:,.2f} บาท (คืนงานหลังวันตัดยอด {dm(d['cutoff'])}) — " + " · ".join(parts))
     for t in notes:
         ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-        lines = 2 if len(t) > 110 else 1
+        lines = 2 if len(t) > 95 else 1
         cell(ws, f"A{row}", t, font=Font(name=FONT, size=FS(F_NOTE), color=AMBER),
              align=Alignment(horizontal="left", vertical="center", wrap_text=True))
         ws.row_dimensions[row].height = RH(H_NOTE * lines)
