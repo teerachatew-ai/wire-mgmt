@@ -1236,6 +1236,15 @@ function buildPayrollDetail(month: string) {
   `);
 
   // งานที่เบิกในรอบนี้ แต่คืนหลังวันตัดยอด → ค่าแรงไปอยู่รอบถัดไป (บอกสมาชิกสั้นๆ ในใบเสร็จว่าทำไมได้เท่านี้)
+  // เฉพาะใบเบิกก่อน "วันรับของจากโรงงานครั้งสุดท้ายของเดือน" — งานรอบรับ-ส่งสุดท้าย (เช่น เบิก 30 ก.ย.)
+  // เป็นของรอบหน้าอยู่แล้ว ไม่ต้องบอกว่ายกไป (เจ้าของขอ)
+  const lastRecv = (prepare(`SELECT MAX(substr(received_at, 1, 10)) d FROM receives WHERE received_at LIKE ?`).get(`${month}%`) as any)?.d as string | null;
+  const carryEnd = (() => {
+    if (!lastRecv) return cutoff;
+    const x = new Date(lastRecv + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() - 1);
+    const dayBefore = x.toISOString().slice(0, 10);
+    return dayBefore < cutoff ? dayBefore : cutoff;
+  })();
   const carryOutStmt = prepare(`
     SELECT substr(i.issued_at, 1, 10) as issued_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
       r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
@@ -1257,7 +1266,7 @@ function buildPayrollDetail(month: string) {
     const rows = (detailRowsStmt.all(m.member_id, month) as any[])
       .map(r => ({ ...r, wage: lineWage(r), carried_in: String(r.issued_at).slice(0, 10) < cutoffStart }));
     const carryOutAgg = new Map<string, any>();
-    for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, cutoff) as any[]) {
+    for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, carryEnd) as any[]) {
       const k = `${r.issued_at}|${r.product_name}`;
       const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0 };
       e.qty += Number(r.good_qty) || 0; e.wage += lineWage(r);
