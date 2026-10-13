@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prepare } from '../db';
-import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, todayThai, monthCutoffRange } from '../payCycle';
+import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, prevMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
 import { varianceByProduct, lotVariances, lotKey, computeLots } from '../receivedActual';
 import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines } from '../wagePolicy';
@@ -1245,6 +1245,9 @@ function buildPayrollDetail(month: string) {
     const dayBefore = x.toISOString().slice(0, 10);
     return dayBefore < cutoff ? dayBefore : cutoff;
   })();
+  // ฝั่งยกมา (*) ใช้กติกาเดียวกัน: งานรอบรับ-ส่งสุดท้ายของเดือนก่อน (ตั้งแต่วันรับของครั้งสุดท้ายของเดือนก่อน) เป็นของรอบนี้อยู่แล้ว
+  const prevLastRecv = (prepare(`SELECT MAX(substr(received_at, 1, 10)) d FROM receives WHERE received_at LIKE ?`).get(`${prevMonth(month)}%`) as any)?.d as string | null;
+  const carryInBefore = prevLastRecv && prevLastRecv < cutoffStart ? prevLastRecv : cutoffStart;
   const carryOutStmt = prepare(`
     SELECT substr(i.issued_at, 1, 10) as issued_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
       r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
@@ -1264,7 +1267,7 @@ function buildPayrollDetail(month: string) {
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
     // carried_in = งานเบิกก่อนรอบนี้ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงในรอบนี้
     const rows = (detailRowsStmt.all(m.member_id, month) as any[])
-      .map(r => ({ ...r, wage: lineWage(r), carried_in: String(r.issued_at).slice(0, 10) < cutoffStart }));
+      .map(r => ({ ...r, wage: lineWage(r), carried_in: String(r.issued_at).slice(0, 10) < carryInBefore }));
     const carryOutAgg = new Map<string, any>();
     for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, carryEnd) as any[]) {
       const k = `${r.issued_at}|${r.product_name}`;

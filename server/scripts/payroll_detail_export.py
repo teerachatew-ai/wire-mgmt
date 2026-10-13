@@ -588,32 +588,38 @@ def write_member_sheet(m, label=None):
     ws.row_dimensions[row].height = RH(H_NET)
     row += 1
 
-    # ── หมายเหตุสั้นๆ ใต้ยอดสุทธิ: ทำไมได้ค่าแรงเท่านี้ (ตัวเล็ก ไม่เกิน 2-3 บรรทัด) ──
-    #   * แถวที่มีดอกจัน = งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงรอบนี้
-    #   ยกไปรอบถัดไป = งานที่เบิกในรอบนี้ แต่คืนหลังวันตัดยอด (ไม่รวมในยอดข้างบน)
+    # ── งานยกไปรอบถัดไป = 1 แถวท้ายตาราง (สีส้มอ่อน แยกจากยอดที่จ่าย — ไม่รวมในยอดสุทธิ) ──
+    #   งานที่เบิกในรอบนี้ (ก่อนรอบรับ-ส่งสุดท้ายของเดือน) แต่คืนหลังวันตัดยอด → ค่าแรงไปจ่ายรอบถัดไป
+    #   * ที่วันที่เบิก = งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงรอบนี้
+    def dm(iso):
+        y, mo, dd = str(iso)[:10].split("-")
+        return f"{int(dd)}/{int(mo)}"
+    TH_SHORT = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
     notes = []
-    if any(r.get("carried_in") for r in m["rows"]):
-        notes.append("* งานที่เบิกก่อนรอบนี้ และคืนหลังวันตัดยอดของรอบก่อน จึงได้ค่าแรงในรอบนี้")
     co = m.get("carry_out") or []
     if co:
-        def dm(iso):
-            y, mo, dd = str(iso)[:10].split("-")
-            return f"{int(dd)}/{int(mo)}"
-        def pl(n):
-            return (product_label.get(n) or short_label(n)).replace("\n", " ")
-        by_date = {}
-        for e in co:
-            by_date.setdefault(e["issued_at"], []).append(e)
-        parts = [f"เบิก {dm(dt)}: " + ", ".join(f"{pl(e['product_name'])} {e['qty']:,.0f}" for e in es) for dt, es in sorted(by_date.items())]
-        tot = sum(float(e["wage"]) for e in co)
+        AMBER_BG = "FEF3C7"
         nxt = max(e["pay_cycle"] for e in co)
-        notes.append(f"ยกไปจ่ายรอบ {month_th(nxt)} {tot:,.2f} บาท (คืนงานหลังวันตัดยอด {dm(d['cutoff'])}) — " + " · ".join(parts))
+        qty_by = {}
+        for e in co:
+            qty_by[e["product_name"]] = qty_by.get(e["product_name"], 0) + float(e["qty"])
+        tot = sum(float(e["wage"]) for e in co)
+        fnt = Font(name=FONT, size=FS(F_DATA), bold=True, color=AMBER)
+        cell(ws, f"A{row}", f"ยกไป {TH_SHORT[int(nxt[5:7])]}", font=fnt, fill=AMBER_BG, align=C, border=box)
+        for ci, n in enumerate(product_order, start=2):
+            cell(ws, f"{get_column_letter(ci)}{row}", qty_by.get(n, 0), font=fnt, fill=AMBER_BG, align=R, border=box, fmt=NUM_Z)
+        cell(ws, f"{LAST_P_LETTER}{row}", tot, font=fnt, fill=AMBER_BG, align=R, border=box, fmt=MONEY)
+        ws.row_dimensions[row].height = RH(H_DATA)
+        row += 1
+        dates = ", ".join(dm(x) for x in sorted({e["issued_at"] for e in co}))
+        notes.append(f"ยกไป = งานเบิก {dates} ที่คืนหลังวันตัดยอด ({dm(d['cutoff'])}) จ่ายในรอบ{month_th(nxt)} ไม่รวมในยอดข้างบน")
+    if any(r.get("carried_in") for r in m["rows"]):
+        notes.append("* งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดของรอบก่อน จึงได้ค่าแรงในรอบนี้")
     for t in notes:
         ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")
-        lines = 2 if len(t) > 95 else 1
         cell(ws, f"A{row}", t, font=Font(name=FONT, size=FS(F_NOTE), color=AMBER),
-             align=Alignment(horizontal="left", vertical="center", wrap_text=True))
-        ws.row_dimensions[row].height = RH(H_NOTE * lines)
+             align=Alignment(horizontal="left", vertical="center", shrink_to_fit=True))
+        ws.row_dimensions[row].height = RH(H_NOTE)
         row += 1
 
     # ── ช่องเซ็นรับเงิน (ระยะห่างกระชับ กันเนื้อหาล้นไปหน้าถัดไปตอนมีหลายแถว) ──
