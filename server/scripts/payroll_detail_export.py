@@ -609,12 +609,22 @@ def write_member_sheet(m, label=None):
         first_carry = row
         for dt in sorted(by_date):
             cell(ws, f"A{row}", date_th_short(dt), font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER), fill=AMBER_BG, align=C, border=box)
+            # เหตุผลบรรทัดเดียว: รวมช่องชนิดงานที่ว่างต่อท้ายแถว (ไม่มีงานยกไป) เข้ากับช่องขวาสุด
+            # ถ้าชนิดสุดท้ายมีงานยกไป (ไม่มีช่องว่างให้รวม) ใช้ 2 บรรทัดในช่องขวาสุดแทน
+            last_used = max([ci for ci, n in enumerate(product_order, start=2) if by_date[dt].get(n, 0)] or [1])
+            reason_from = last_used + 1
             for ci, n in enumerate(product_order, start=2):
+                if ci >= reason_from: continue
                 cell(ws, f"{get_column_letter(ci)}{row}", by_date[dt].get(n, 0), font=fnt, fill=AMBER_BG, align=R, border=box, fmt=NUM_Z)
-            # เหตุผล 2 บรรทัดในช่องขวาสุด (ช่องแคบ — บรรทัดเดียวต้องย่อจนอ่านไม่ออก)
-            cell(ws, f"{LAST_P_LETTER}{row}", "คืนหลัง\nวันตัดยอด", font=Font(name=FONT, size=FS(F_NOTE), bold=True, color=AMBER),
-                 fill=AMBER_BG, align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
-            ws.row_dimensions[row].height = RH(max(H_DATA, H_NOTE * 2))
+            one_line = reason_from < LAST_P
+            if one_line:
+                for ci in range(reason_from, LAST_P + 1):
+                    cell(ws, f"{get_column_letter(ci)}{row}", None, fill=AMBER_BG, border=box)
+                ws.merge_cells(f"{get_column_letter(reason_from)}{row}:{LAST_P_LETTER}{row}")
+            cell(ws, f"{get_column_letter(reason_from)}{row}", "คืนหลังวันตัดยอด" if one_line else "คืนหลัง\nวันตัดยอด",
+                 font=Font(name=FONT, size=FS(F_DATA if one_line else F_NOTE), bold=True, color=AMBER), fill=AMBER_BG,
+                 align=Alignment(horizontal="center", vertical="center", wrap_text=not one_line), border=box)
+            ws.row_dimensions[row].height = RH(H_DATA if one_line else max(H_DATA, H_NOTE * 2))
             row += 1
         carry_rows = (first_carry, row - 1, f"ยกไป {TH_SHORT[int(nxt[5:7])]}")
     if any(r.get("carried_in") for r in m["rows"]):
