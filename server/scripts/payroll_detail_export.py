@@ -6,7 +6,9 @@ import sys, json, re, math, warnings
 warnings.simplefilter("ignore")
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, column_index_from_string
+from openpyxl.formula.translate import Translator
+from openpyxl.worksheet.cell_range import CellRange
 
 dataf, out = sys.argv[1], sys.argv[2]
 d = json.load(open(dataf, encoding="utf-8-sig"))
@@ -588,31 +590,33 @@ def write_member_sheet(m, label=None):
     ws.row_dimensions[row].height = RH(H_NET)
     row += 1
 
-    # ── งานยกไปรอบถัดไป = 1 แถวท้ายตาราง (สีส้มอ่อน แยกจากยอดที่จ่าย — ไม่รวมในยอดสุทธิ) ──
+    # ── งานยกไปรอบถัดไป = แถวท้ายตาราง 1 แถวต่อวันที่เบิก (สีส้มอ่อน แยกจากยอดที่จ่าย) ──
     #   งานที่เบิกในรอบนี้ (ก่อนรอบรับ-ส่งสุดท้ายของเดือน) แต่คืนหลังวันตัดยอด → ค่าแรงไปจ่ายรอบถัดไป
+    #   แสดงแค่จำนวนชิ้นแต่ละชนิด (ไม่แสดงเงิน) + เหตุผลในช่องขวาสุด · ป้าย "ยกไป ต.ค." อยู่นอกตารางด้านซ้าย
     #   * ที่วันที่เบิก = งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงรอบนี้
-    def dm(iso):
-        y, mo, dd = str(iso)[:10].split("-")
-        return f"{int(dd)}/{int(mo)}"
     TH_SHORT = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
     notes = []
+    carry_rows = None
     co = m.get("carry_out") or []
     if co:
         AMBER_BG = "FEF3C7"
         nxt = max(e["pay_cycle"] for e in co)
-        qty_by = {}
+        by_date = {}
         for e in co:
-            qty_by[e["product_name"]] = qty_by.get(e["product_name"], 0) + float(e["qty"])
-        tot = sum(float(e["wage"]) for e in co)
+            q = by_date.setdefault(e["issued_at"], {})
+            q[e["product_name"]] = q.get(e["product_name"], 0) + float(e["qty"])
         fnt = Font(name=FONT, size=FS(F_DATA), bold=True, color=AMBER)
-        cell(ws, f"A{row}", f"ยกไป {TH_SHORT[int(nxt[5:7])]}", font=fnt, fill=AMBER_BG, align=C, border=box)
-        for ci, n in enumerate(product_order, start=2):
-            cell(ws, f"{get_column_letter(ci)}{row}", qty_by.get(n, 0), font=fnt, fill=AMBER_BG, align=R, border=box, fmt=NUM_Z)
-        cell(ws, f"{LAST_P_LETTER}{row}", tot, font=fnt, fill=AMBER_BG, align=R, border=box, fmt=MONEY)
-        ws.row_dimensions[row].height = RH(H_DATA)
-        row += 1
-        dates = ", ".join(dm(x) for x in sorted({e["issued_at"] for e in co}))
-        notes.append(f"ยกไป = งานเบิก {dates} ที่คืนหลังวันตัดยอด ({dm(d['cutoff'])}) จ่ายในรอบ{month_th(nxt)} ไม่รวมในยอดข้างบน")
+        first_carry = row
+        for dt in sorted(by_date):
+            cell(ws, f"A{row}", date_th_short(dt), font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER), fill=AMBER_BG, align=C, border=box)
+            for ci, n in enumerate(product_order, start=2):
+                cell(ws, f"{get_column_letter(ci)}{row}", by_date[dt].get(n, 0), font=fnt, fill=AMBER_BG, align=R, border=box, fmt=NUM_Z)
+            # เหตุผล 2 บรรทัดในช่องขวาสุด (ช่องแคบ — บรรทัดเดียวต้องย่อจนอ่านไม่ออก)
+            cell(ws, f"{LAST_P_LETTER}{row}", "คืนหลัง\nวันตัดยอด", font=Font(name=FONT, size=FS(F_NOTE), bold=True, color=AMBER),
+                 fill=AMBER_BG, align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
+            ws.row_dimensions[row].height = RH(max(H_DATA, H_NOTE * 2))
+            row += 1
+        carry_rows = (first_carry, row - 1, f"ยกไป {TH_SHORT[int(nxt[5:7])]}")
     if any(r.get("carried_in") for r in m["rows"]):
         notes.append("* งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดของรอบก่อน จึงได้ค่าแรงในรอบนี้")
     for t in notes:
@@ -666,6 +670,39 @@ def write_member_sheet(m, label=None):
     ws.print_options.verticalCentered = False
     ws.page_margins.left = ws.page_margins.right = 0.25
     ws.page_margins.top = ws.page_margins.bottom = 0.4
+    if carry_rows:
+        add_left_label(ws, row, *carry_rows)
+
+# ป้าย "ยกไป ต.ค." นอกตารางด้านซ้าย: เลื่อนทั้งชีตไปขวา 1 คอลัมน์ (เฉพาะคนที่มีงานยกไป) แล้วใส่ป้ายในคอลัมน์ A
+# insert_cols ไม่ขยับ merge/สูตร/ความกว้างคอลัมน์ให้ — ทำเองทั้งหมด
+def add_left_label(ws, last_row, r1, r2, text):
+    merges = [rng.coord for rng in ws.merged_cells.ranges]
+    for mc in merges:
+        ws.unmerge_cells(mc)
+    dims = {}
+    for letter, dim in list(ws.column_dimensions.items()):
+        dims[column_index_from_string(letter)] = (dim.width, dim.hidden)
+    ws.insert_cols(1)
+    for row_cells in ws.iter_rows():
+        for c in row_cells:
+            if isinstance(c.value, str) and c.value.startswith("="):
+                origin = f"{get_column_letter(c.column - 1)}{c.row}"
+                c.value = Translator(c.value, origin=origin).translate_formula(c.coordinate)
+    for mc in merges:
+        rng = CellRange(mc); rng.shift(col_shift=1)
+        ws.merge_cells(rng.coord)
+    for idx in sorted(dims, reverse=True):
+        w, h = dims[idx]
+        nd = ws.column_dimensions[get_column_letter(idx + 1)]
+        if w: nd.width = w
+        nd.hidden = h
+    ws.column_dimensions["A"].width = 15
+    ws.column_dimensions["A"].hidden = False
+    if r2 > r1:
+        ws.merge_cells(f"A{r1}:A{r2}")
+    cell(ws, f"A{r1}", text, font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER),
+         align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True))
+    ws.print_area = f"A1:{get_column_letter(LAST_P + 1)}{last_row}"
 
 for m in d["members"]:
     if duplicate_for_pdf:
