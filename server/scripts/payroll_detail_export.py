@@ -294,6 +294,10 @@ H_HEAD = max(
 # ── ตารางแบบ pivot (ชีตรายบุคคล): วันที่เบิก + คอลัมน์แต่ละชนิดสายไฟ (จำนวน) + ค่าแรงรวมของวันนั้น ──
 # แถวรวมท้ายตารางใช้สูตร =SUM(...) อ้างอิงแถวข้อมูลจริง ไม่ใช่ตัวเลขคงที่ — แก้ตัวเลขในแถวไหนใน Excel
 # แล้วยอดรวม/ค่าแรงสุทธิท้ายชีตจะคำนวณตามให้อัตโนมัติ
+REWORK_PCT = float(d.get("rework_pct") or 0)
+def rework_deduct(r):  # ค่าแรงที่หักจากงานแก้ไขของรายการรับคืนนี้ (บาท)
+    return float(r.get("rework_qty") or 0) * float(r.get("wage_per_unit") or 0) * REWORK_PCT
+
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
     widths = [W_DATE_EFF] + [W_PROD] * n_prod + [W_WAGE]
@@ -329,8 +333,10 @@ def write_pivot_table(ws, row, rows_list):
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}, "carried": False})
         e["carried"] = e["carried"] or bool(r.get("carried_in"))
         e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"]
-        e["wage"] += r["wage"]
-        e["wage_by_prod"][pname] = e["wage_by_prod"].get(pname, 0) + r["wage"]
+        # ตารางแสดงค่าแรงเต็ม (ก่อนหักงานแก้ไข) — ส่วนที่หักแสดงเป็นบรรทัดแยกใต้ตาราง ให้สมาชิกเห็นว่าโดนหักตรงไหน
+        gross = r["wage"] + rework_deduct(r)
+        e["wage"] += gross
+        e["wage_by_prod"][pname] = e["wage_by_prod"].get(pname, 0) + gross
         if pname not in rates:
             rates[pname] = r.get("wage_per_unit") or 0
 
@@ -530,6 +536,32 @@ def write_member_sheet(m, label=None):
     row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
 
     net_formula_parts = [wage_total_ref]
+    # ── งานแก้ไข: หักค่าแรง X% — 1 บรรทัดต่อ วันที่เบิก+ชนิดงาน พร้อมเหตุผล (หมายเหตุตอนรับคืน ถ้ามี) ──
+    rw = {}
+    for r in m["rows"]:
+        q = float(r.get("rework_qty") or 0)
+        if q <= 0 or REWORK_PCT <= 0: continue
+        k = (str(r["issued_at"])[:10], r["product_name"])
+        e = rw.setdefault(k, {"qty": 0.0, "amt": 0.0, "ret": set(), "why": []})
+        e["qty"] += q; e["amt"] += rework_deduct(r); e["ret"].add(str(r["returned_at"])[:10])
+        why = (r.get("notes") or r.get("ng_note") or "").strip()
+        if why and why not in e["why"]: e["why"].append(why)
+    if rw:
+        def dmy(iso):
+            y, mo, dd = iso.split("-"); return f"{int(dd)}/{int(mo)}"
+        for (dt, pname), e in sorted(rw.items()):
+            why = " · ".join(e["why"]) or "งานต้องนำกลับมาแก้ไขก่อนส่งโรงงาน"
+            lbl = (product_label.get(pname) or short_label(pname)).replace("\n", " ")
+            text = (f"งานแก้ไข หักค่าแรง {REWORK_PCT * 100:g}% · เบิก {dmy(dt)} · {lbl} {e['qty']:,.0f} เส้น"
+                    f" (คืน {', '.join(dmy(x) for x in sorted(e['ret']))}) — {why}")
+            ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
+            cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
+                 align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)
+            ref = f"{LAST_P_LETTER}{row}"
+            cell(ws, ref, -round(e["amt"], 2), font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
+            net_formula_parts.append(ref)
+            ws.row_dimensions[row].height = RH(H_NG)
+            row += 1
     # กติกาใหม่ (งานจากล็อตตั้งแต่ 28 ส.ค. 2569): 1 บรรทัดต่อ "NG ครั้งที่ X" (นับสะสม · 1 วันที่เบิก = 1 ครั้ง)
     # เช่น "NG ครั้งที่ 2 · งานเบิก 12 ก.ย. · ตัดโดนสายไฟ 2 เส้น×5฿" ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines)
     # ครั้งที่ 1 = ตักเตือน (ไม่มีตัวเงิน) · ปิดท้ายด้วยบรรทัด "รวมถูกหักค่าแรง" ซึ่งเป็นยอดเดียวที่เอาไปลบจากค่าแรง
