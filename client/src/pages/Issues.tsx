@@ -5,8 +5,9 @@ import { issueApi, memberApi, productApi, reportApi, receiveApi, issueRequestApi
 import MemberSelect from '../components/MemberSelect';
 import { colorDot } from '../colorDot';
 import { projectLabel } from '../projectLabel';
-import { Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2, ArrowRightLeft } from 'lucide-react';
+import { Upload, Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2, ArrowRightLeft } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
+import ImportIssuesModal from '../components/ImportIssuesModal';
 import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import { useNgGate } from '../components/NgWarning';
 import { sortByColorGroup } from '../productOrder';
@@ -1825,6 +1826,7 @@ function DayPickDialog({ days, format, onClose, onExport }: {
 export default function Issues() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);   // นำเข้าใบเบิกจากรูป/Excel
   const [detailId, setDetailId] = useState<number | null>(null);
   const [editing, setEditing] = useState<any>(null);
   const [deleting, setDeleting] = useState<any>(null);
@@ -2058,6 +2060,11 @@ export default function Issues() {
           </button>
           {dayPick && <DayPickDialog days={issueDays} format={dayPick.format} onClose={() => setDayPick(null)}
             onExport={dates => downloadIssueDaily(dayPick.format, dates)} />}
+          <button type="button" className="btn-secondary btn-sm flex items-center gap-1.5" onClick={() => setShowImport(true)}
+            title="อัปโหลดรูป/Excel ใบรายชื่อผู้รับสายไฟรายวัน แล้วสร้างใบเบิกให้ทุกคนในครั้งเดียว">
+            <Upload size={14} /> นำเข้าจากรูป/Excel
+          </button>
+          {showImport && <ImportIssuesModal onClose={() => setShowImport(false)} />}
           <button className="btn-primary btn-sm" onClick={() => setShowModal(true)}>
             <Plus size={18} /> สร้างใบเบิก
           </button>

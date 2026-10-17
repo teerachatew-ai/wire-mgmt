@@ -83,6 +83,63 @@ router.post('/read-form', upload.single('image'), async (req, res) => {
   }
 });
 
+/* ── อ่านใบรายชื่อผู้รับสายไฟรายวัน (รูป / PDF / Excel) → ร่างใบเบิกหลายคน ──
+   ส่งได้ 2 แบบ: multipart "file" (รูป/PDF) หรือ JSON { csv } (หน้าเว็บแปลง Excel เป็น CSV ให้แล้ว)
+   ส่งรายชื่อสินค้า + สมาชิก (ชื่อเล่น) ไปด้วย ให้จับคู่คอลัมน์/ชื่อเป็น id เลย — หน้าเว็บให้ตรวจ/แก้ก่อนบันทึกเสมอ
+   ไม่บันทึกอะไรลงฐานข้อมูล (แค่อ่าน) */
+router.post('/read-issue-sheet', upload.single('file'), async (req, res) => {
+  const csv = typeof req.body?.csv === 'string' ? req.body.csv : '';
+  if (!req.file && !csv.trim()) return res.status(400).json({ error: 'กรุณาแนบรูป / PDF / Excel' });
+  if (!requireApiKey(req, res)) return;
+  const products = prepare(`SELECT id, name, project FROM products WHERE active = 1 ORDER BY project, id`).all() as any[];
+  const members = prepare(`SELECT id, code, name, nickname FROM members WHERE status = 'active' ORDER BY code`).all() as any[];
+  const prompt = `นี่คือใบ "รายชื่อผู้รับสายไฟรายวัน" ของกลุ่มตัดสายไฟ: แถว = สมาชิก (ชื่อเล่น), คอลัมน์ = ชนิดสายไฟ, ตัวเลขในช่อง = จำนวนเส้นที่เบิกไป
+หัวคอลัมน์มักมีหัวกลุ่ม (เช่น ป้ายขาว / ป้ายชมพู / 3 สาย ป้ายเหลือง / COT109) และรหัส+ชนิด (เช่น 676 ยาว, 633 สั้น, 652 กลาง)
+
+รายชื่อสินค้าในระบบ (id | ชื่อ | โครงการ):
+${products.map(p => `${p.id} | ${p.name} | ${p.project || '-'}`).join('\n')}
+คำแนะนำจับคู่: ป้ายขาว = COT091 · ป้ายชมพู = COT092 · 3 สาย/ป้ายเหลือง = COT102 · COT109 = ชมพูใหม่ (รหัสซ้ำกันข้ามกลุ่มได้ เช่น 676 ยาว ในป้ายขาว ≠ 676 สั้น ในป้ายชมพู ให้ดูหัวกลุ่มด้วย)
+
+รายชื่อสมาชิก (id | รหัส | ชื่อ | ชื่อเล่น):
+${members.map(m => `${m.id} | ${m.code} | ${m.name} | ${m.nickname || '-'}`).join('\n')}
+จับคู่ชื่อในใบกับสมาชิก: ใช้ชื่อเล่น/ชื่อที่ใกล้ที่สุด (คำนำหน้า พี่/น้า/ป้า/น้อง/ยาย ไม่ต้องสนใจ, วงเล็บ เช่น (ทีมพี่ฝน) เป็นส่วนเสริม) ถ้าไม่แน่ใจให้ member_id = null
+
+ตอบเป็น JSON เท่านั้น:
+{
+  "date": "YYYY-MM-DD หรือ null (วันที่ในหัวกระดาษ ถ้าเป็น พ.ศ. ให้แปลงเป็น ค.ศ.)",
+  "columns": [{ "header": "ข้อความหัวคอลัมน์", "product_id": id หรือ null }],
+  "rows": [{ "sheet_name": "ชื่อตามที่เขียนในใบ", "member_id": id หรือ null, "member_confidence": "high/medium/low",
+             "lines": [{ "product_id": id, "qty": จำนวน }] }],
+  "notes": "สิ่งที่อ่านไม่ชัด หรือ null"
+}
+- ใส่เฉพาะแถวสมาชิก ไม่เอาแถวสรุป (จ่ายงานออกทั้งหมด / งานคงเหลือ / งานรวม / ขาด-เกิน)
+- lines ใส่เฉพาะช่องที่มีตัวเลข > 0 · ช่องว่าง/ขีด = ไม่มี`;
+  try {
+    const client = new Anthropic();
+    const content: any[] = req.file
+      ? [fileBlock(req.file.path, req.file.mimetype), { type: 'text', text: prompt }]
+      : [{ type: 'text', text: `ข้อมูลจากไฟล์ Excel (CSV):\n${csv.slice(0, 60000)}\n\n${prompt}` }];
+    const ask = (model: string) => client.messages.create({ model, max_tokens: 8192, messages: [{ role: 'user', content }] });
+    let response: any;
+    try { response = await ask('claude-opus-5-5'); } catch { response = await ask('claude-opus-4-5'); }
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+    const text = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return res.status(422).json({ error: 'อ่านใบไม่ออก ลองถ่ายรูปให้ชัดขึ้น', raw: text });
+    const out = JSON.parse(match[0]);
+    const pid = new Set(products.map(p => p.id)), mid = new Set(members.map(m => m.id));
+    out.rows = (out.rows || []).map((r: any) => ({
+      ...r, member_id: mid.has(Number(r.member_id)) ? Number(r.member_id) : null,
+      lines: (r.lines || []).filter((l: any) => pid.has(Number(l.product_id)) && Number(l.qty) > 0)
+        .map((l: any) => ({ product_id: Number(l.product_id), qty: Number(l.qty) })),
+    })).filter((r: any) => r.lines.length > 0);
+    res.json(out);
+  } catch (err: any) {
+    if (req.file) try { fs.unlinkSync(req.file.path); } catch {}
+    res.status(500).json({ error: err.message || 'เกิดข้อผิดพลาด' });
+  }
+});
+
 /* ── OCR บัตรประชาชน ── */
 router.post('/read-id-card', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'กรุณาแนบรูปบัตรประชาชน' });
