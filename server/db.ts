@@ -117,6 +117,9 @@ async function pgFlush() {
     if (dirty && !genConflict && !flushTimer) flushTimer = setTimeout(() => { flushTimer = null; pgFlush(); }, 1500);
   }
 }
+// ให้ส่วนอื่นใช้ Postgres ตรงๆ ได้ (เช่นเก็บรูป — ดู imageStore.ts) · null = โหมด local ไม่มี Postgres
+export function getPgPool(): any { return USE_PG ? pgPool : null; }
+
 // ให้ส่วนอื่นเช็คได้ว่าตอนนี้ยังบันทึกลงฐานกลางได้อยู่ไหม
 export function dbWriteBlocked() { return genConflict; }
 function scheduleFlush() {
@@ -597,6 +600,37 @@ CREATE TABLE IF NOT EXISTS managers (
   db.exec(`CREATE INDEX IF NOT EXISTS idx_shipment_items_product_id ON shipment_items(product_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_shipments_shipped_at ON shipments(shipped_at)`);
   save();
+
+  // LINE Chatbot — บัญชี LINE ที่เคยพิมพ์ในกลุ่ม (ผูกกับสมาชิกได้) + รูปงาน NG ที่สมาชิกส่งเข้ากลุ่ม
+  // ตัวไฟล์รูปไม่ได้เก็บในฐานนี้ (ฐานถูกเขียนทับทั้งก้อนทุกครั้ง รูปจะทำให้ช้า) — ดู server/imageStore.ts
+  db.exec(`CREATE TABLE IF NOT EXISTS line_users (
+    user_id TEXT PRIMARY KEY,
+    display_name TEXT,
+    member_id INTEGER,
+    linked_at TEXT,
+    linked_by TEXT,
+    first_seen TEXT DEFAULT (datetime('now')),
+    last_seen TEXT
+  )`);
+  // image_key = ชื่อไฟล์รูป (สุ่ม เดาไม่ได้) · product_source: text = สมาชิกพิมพ์รุ่นมาเอง, guess = เดาจากงานที่เบิกล่าสุด,
+  // pick = กดเลือกในไลน์, admin = แก้ในเว็บ · sent_at = เวลาที่ส่งในไลน์ (เวลาไทย)
+  db.exec(`CREATE TABLE IF NOT EXISTS ng_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_key TEXT UNIQUE NOT NULL,
+    line_message_id TEXT UNIQUE,
+    line_user_id TEXT,
+    group_id TEXT,
+    member_id INTEGER,
+    sender_name TEXT,
+    product_id INTEGER,
+    product_source TEXT,
+    note TEXT,
+    sent_at TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    deleted_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_ng_photos_sent ON ng_photos(sent_at)`);
 
   // default settings
   const defaults = [

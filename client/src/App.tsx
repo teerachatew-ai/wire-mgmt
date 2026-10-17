@@ -23,6 +23,7 @@ import Login from './pages/Login';
 import Assets from './pages/Assets';
 import FinancialStatements from './pages/FinancialStatements';
 import AuditLog from './pages/AuditLog';
+import NgAlbum from './pages/NgAlbum';
 import { AuthProvider, useAuth, canAccess, homePath } from './auth';
 
 // จำกัดสิทธิ์ตาม role — ถ้าเข้าไม่ได้ ส่งกลับหน้าแรกของ role นั้น
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="/stock" element={<Guard path="/stock"><StockFlow /></Guard>} />
         <Route path="/stock-ledger" element={<Guard path="/stock-ledger"><StockLedger /></Guard>} />
         <Route path="/stock-adjustments" element={<Guard path="/stock-adjustments"><StockAdjustments /></Guard>} />
+        <Route path="/ng-album" element={<Guard path="/ng-album"><NgAlbum /></Guard>} />
         <Route path="/shipments" element={<Guard path="/shipments"><Shipments /></Guard>} />
         <Route path="/packing-plan" element={<Guard path="/packing-plan"><PackingPlan /></Guard>} />
         <Route path="/shipment-plan" element={<Guard path="/shipment-plan"><ShipmentPlan /></Guard>} />

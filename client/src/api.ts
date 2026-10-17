@@ -246,4 +246,15 @@ export const issueRequestApi = {
   reject: (id: number, reason?: string) => api.post(`/issue-requests/${id}/reject`, { reason }).then(r => r.data),
 };
 
+// อัลบั้มรูปงาน NG จากกลุ่มไลน์ + บัญชี LINE ที่ผูกกับสมาชิก (ดู server/routes/ngPhotos.ts)
+export const ngPhotoApi = {
+  list: (params?: any) => api.get('/ng-photos', { params }).then(r => r.data),
+  update: (id: number, data: any) => api.put(`/ng-photos/${id}`, data).then(r => r.data),
+  delete: (id: number) => api.delete(`/ng-photos/${id}`).then(r => r.data),
+  imageUrl: (p: { image_key: string; updated_at?: string }, kind?: 'o') =>
+    `/api/ng-photos/image/${p.image_key}?v=${encodeURIComponent(p.updated_at || '')}${kind ? `&kind=${kind}` : ''}`,
+  lineUsers: () => api.get('/ng-photos/line-users').then(r => r.data),
+  linkLineUser: (userId: string, member_id: number | null) => api.put(`/ng-photos/line-users/${encodeURIComponent(userId)}`, { member_id }).then(r => r.data),
+};
+
 export default api;

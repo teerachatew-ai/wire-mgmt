@@ -18,6 +18,9 @@ RUN fc-cache -f
 # ติดตั้ง dependencies ของ backend (รวม devDeps สำหรับ build, ข้าม optional=pcsclite ที่ build ไม่ได้บน Linux)
 COPY package*.json ./
 RUN npm install --omit=optional
+# sharp (ประทับข้อความบนรูป NG) เก็บ binary ของแต่ละ OS เป็น optional dependency ซึ่งถูกข้ามด้วย --omit=optional ข้างบน
+# จึงติดตั้ง binary ของ Linux แยกเอง — เวอร์ชันต้องตรงกับ sharp ใน package.json (ดู node_modules/sharp/package.json)
+RUN npm install --no-save --omit=optional @img/sharp-linux-x64@0.34.4 @img/sharp-libvips-linux-x64@1.2.3     && node -e "require('sharp')"
 
 # ติดตั้ง + build frontend
 COPY client/package*.json ./client/

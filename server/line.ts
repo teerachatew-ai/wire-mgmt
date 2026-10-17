@@ -43,28 +43,59 @@ function rememberGroupId(groupId: string) {
   }
 }
 
-type LineMessage = { type: 'text'; text: string };
+// ข้อความที่ส่งไลน์ — ใช้แค่ text (+ quickReply ปุ่มลัดใต้ข้อความ) ตามรูปแบบ Messaging API
+type LineMessage = { type: 'text'; text: string; quickReply?: any };
 export const textMessage = (text: string): LineMessage => ({ type: 'text', text });
+
+async function lineApi(url: string, body?: any): Promise<Response | null> {
+  if (!CHANNEL_ACCESS_TOKEN) { console.error('LINE: ไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN'); return null; }
+  try {
+    const r = await fetch(url, body === undefined
+      ? { headers: { Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` } }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` }, body: JSON.stringify(body) });
+    if (!r.ok) { console.error('LINE API ล้มเหลว:', url.replace(/\/[^/]{20,}/g, '/…'), r.status, await r.text().catch(() => '')); return null; }
+    return r;
+  } catch (e: any) {
+    console.error('LINE API error:', e?.message);
+    return null;
+  }
+}
+
+// ตอบกลับด้วย replyToken (ฟรี ไม่นับโควตาข้อความ ต่างจาก push) — token ใช้ได้ครั้งเดียวและหมดอายุเร็ว
+export async function replyMessage(replyToken: string, messages: LineMessage[]): Promise<boolean> {
+  if (!replyToken) return false;
+  return !!(await lineApi('https://api.line.me/v2/bot/message/reply', { replyToken, messages }));
+}
+
+// ดาวน์โหลดไฟล์รูปที่สมาชิกส่งมา (LINE เก็บไว้ให้ดึงได้ระยะหนึ่งหลังส่ง)
+export async function getMessageContent(messageId: string): Promise<Buffer | null> {
+  const r = await lineApi(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`);
+  return r ? Buffer.from(await r.arrayBuffer()) : null;
+}
+
+// ชื่อที่แสดงในไลน์ของผู้ส่ง (ในกลุ่มต้องใช้ API ของกลุ่ม — คนที่ยังไม่ได้แอดบอทเป็นเพื่อนก็อ่านได้)
+export async function getDisplayName(userId: string, groupId?: string | null): Promise<string | null> {
+  const url = groupId
+    ? `https://api.line.me/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`
+    : `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
+  const r = await lineApi(url);
+  if (!r) return null;
+  const j: any = await r.json().catch(() => null);
+  return j?.displayName || null;
+}
+
+// ที่อยู่เว็บของระบบ (ใส่ลิงก์อัลบั้มในข้อความตอบกลับ) — ตั้ง PUBLIC_BASE_URL ได้ ไม่งั้นจำจาก host ที่ LINE ยิง webhook มา
+export function getPublicBaseUrl(): string {
+  return (process.env.PUBLIC_BASE_URL || getSetting('public_base_url') || '').replace(/\/+$/, '');
+}
+export function rememberPublicBaseUrl(url: string) {
+  if (!process.env.PUBLIC_BASE_URL && url && getSetting('public_base_url') !== url) setSetting('public_base_url', url);
+}
 
 // ส่งข้อความเข้ากลุ่ม/ผู้ใช้ (push = ส่งเองได้ทุกเมื่อ ไม่ต้องรอมีคนทักมาก่อน)
 export async function pushMessage(to: string, messages: LineMessage[]): Promise<boolean> {
-  if (!CHANNEL_ACCESS_TOKEN) { console.error('LINE: ไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN'); return false; }
   if (!to) { console.error('LINE: ยังไม่รู้ Group ID (รอให้มีคนพิมพ์อะไรในกลุ่มสักครั้งก่อน)'); return false; }
-  try {
-    const r = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CHANNEL_ACCESS_TOKEN}` },
-      body: JSON.stringify({ to, messages }),
-    });
-    if (!r.ok) {
-      console.error('LINE push ล้มเหลว:', r.status, await r.text().catch(() => ''));
-      return false;
-    }
-    return true;
-  } catch (e: any) {
-    console.error('LINE push error:', e?.message);
-    return false;
-  }
+  return !!(await lineApi('https://api.line.me/v2/bot/message/push', { to, messages }));
 }
 
 // ส่งข้อความเข้ากลุ่มที่จำ Group ID ไว้แล้ว (ทางลัดสำหรับ feature ต่างๆ ที่ยิงเข้ากลุ่มเดียว)
@@ -94,5 +125,8 @@ export async function handleLineEvent(ev: any): Promise<void> {
 
   if (ev.type === 'memberJoined' && src.type === 'group' && src.groupId) {
     await pushMessage(src.groupId, [textMessage(getWelcomeMessage())]);
+    return;
   }
+  // ข้อความ/รูป/การกดปุ่ม → ผู้ช่วยในกลุ่ม (ผูกบัญชี, เก็บรูปงาน NG ฯลฯ) ดู lineBot.ts
+  await require('./lineBot').handleBotEvent(ev);
 }
