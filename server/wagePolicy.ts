@@ -237,16 +237,26 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
   if (excess > 0 && pol.legacyRate > 0) {
     lines.push({ label: `หัก NG เกินเกณฑ์ (${fmtN(excess)} เส้น × ${fmtN(pol.legacyRate)} บาท)`, amount: excess * pol.legacyRate });
   }
+  /* 1 ครั้ง แยกเป็นบรรทัดละ 1 ประเภท (NG สมาชิก / ดึงเชือก) — แต่ละบรรทัดบอกชัดว่า "ปรับ" หรือ "ตักเตือน" พร้อมเงินของบรรทัดนั้น
+     (เดิมรวมบรรทัดเดียว เช่น "NG สมาชิก … + ดึงเชือก … — NG สมาชิกตักเตือน" อ่านแล้วงงว่าเงินที่หักมาจากอันไหน) */
   for (const s of strikeSummaries(rows)) {
     const title = `NG ครั้งที่ ${s.strike} · งานเบิก ${thDay(s.issue_date)}`;
-    // ครั้งแรก: NG สมาชิกตักเตือน แต่ดึงเชือกหักเลย (ถ้าตั้งอัตราไว้) — มีเงินหักเมื่อไหร่ก็เป็นบรรทัดหักเงิน
-    const hasCut = Object.keys(s.cut_items).length > 0;
-    const suffix = s.strike === 1
-      ? (s.amount > 0 ? (hasCut ? ' — NG สมาชิกตักเตือน' : '') : ' — ตักเตือน')
-      : s.amount <= 0 ? ' — ยังไม่ได้ตั้งอัตราค่าปรับ' : '';
-    const detail = strikeDetail(s) + suffix;
-    lines.push({ label: `${title} · ${detail}`, title, detail, amount: s.amount > 0 ? s.amount : 0,
-      note: s.amount <= 0 ? 'warn' : undefined, strike: s.strike, issue_date: s.issue_date });
+    const items = (it: Record<string, number>) => Object.entries(it).map(([m, q]) => `${m} ${fmtN(q)} เส้น`).join(', ');
+    const extra = [s.cut_allowed > 0 ? `ไม่รวมที่อยู่ในเกณฑ์ ${fmtN(s.cut_allowed)} เส้น` : '', ...s.notes].filter(Boolean).join(' · ');
+    let extraUsed = false;   // หมายเหตุ/เกณฑ์ ใส่บรรทัดแรกของครั้งนี้บรรทัดเดียว
+    const part = (kind: string, it: Record<string, number>, qty: number, rate: number) => {
+      if (qty <= 0) return;
+      const amount = qty * rate;
+      const verdict = amount > 0
+        ? `ปรับ ${fmtN(qty)} เส้น × ${fmtN(rate)} บาท`
+        : s.strike === 1 && kind === 'NG สมาชิก' ? 'ตักเตือน (ไม่หักเงิน)' : 'ยังไม่ได้ตั้งอัตราค่าปรับ (ไม่หักเงิน)';
+      const detail = `${kind} ${items(it)} — ${verdict}${extra && !extraUsed ? ` · ${extra}` : ''}`;
+      extraUsed = true;
+      lines.push({ label: `${title} · ${detail}`, title, detail, amount: amount > 0 ? amount : 0,
+        note: amount > 0 ? undefined : 'warn', strike: s.strike, issue_date: s.issue_date });
+    };
+    part('NG สมาชิก', s.cut_items, s.ng_cut, s.cut_rate);
+    part('ดึงเชือก', s.rope_items, s.ng_rope, s.rope_rate);
   }
   return lines;
 }
