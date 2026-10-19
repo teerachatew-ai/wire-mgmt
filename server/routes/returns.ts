@@ -109,9 +109,10 @@ router.post('/ng-preview', (req, res) => {
 
 /* ── NG แจ้งภายหลัง ── โรงงานเจองานตัดเสียหลังรับคืนไปแล้ว (สมาชิกไม่ได้แจ้ง NG ตอนคืน)
    บันทึกเป็นรายการรับคืน kind='late_ng' ผูกใบเบิกเดิม:
-     good_qty = −(NG สมาชิก + NG ดึงเชือก + ไม่ได้ตัด)  · defect_qty/ng_cut/ng_rope = ตามที่แจ้ง · uncut_qty = ไม่ได้ตัด
-   → ยอดคืนรวมของใบไม่เปลี่ยน (งานดีย้ายไปเป็นของเสีย) · ไม่ได้ตัด = ของกลับเป็นรอเบิก (ลดยอดเบิกแบบเดียวกับคืนไม่ได้ตัด)
-   → ค่าแรง: หักค่าแรงส่วนนั้นคืน (WAGE_SQL งานดีติดลบ) + ค่าปรับ NG ตามขั้นบันได (computePenalties นับเป็นครั้งของวันที่เบิกนั้น)
+     ng_cut / ng_rope = ตามที่แจ้ง (ใช้คิดค่าปรับเท่านั้น) · good_qty = −ไม่ได้ตัด · defect_qty = 0 · uncut_qty = ไม่ได้ตัด
+   → NG สมาชิก / ดึงเชือก: ค่าแรงจ่ายตามปกติ (ไม่หักคืน — เจ้าของกำหนด) แต่โดนค่าปรับ NG ตามขั้นบันได
+     (computePenalties นับเป็นครั้งของวันที่เบิกนั้น) · WAGE_SQL ไม่คิดค่าแรงส่วน NG ของ late_ng ซ้ำ
+   → ไม่ได้ตัด: หักค่าแรงคืน + ของกลับเป็นรอเบิก (ลดยอดเบิกแบบเดียวกับคืนไม่ได้ตัด)
      ทั้งหมดอยู่ในรอบค่าแรงของ "วันที่โรงงานแจ้ง" — รอบเก่าที่จ่ายไปแล้วไม่ถูกแก้ย้อนหลัง
    ยกเลิก = ลบรายการนี้ (ปุ่ม Undo / หน้า รับคืนงาน) */
 router.post('/late-ng', (req, res) => {
@@ -134,10 +135,9 @@ router.post('/late-ng', (req, res) => {
   const created: any[] = [];
   for (const l of valid) {
     const code = nextDateCode('RT', 'returns', reported_at);
-    const bad = l.ng_cut + l.ng_rope;
     prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, uncut_qty, ng_note, inspector, notes, pay_cycle, created_by, kind)
       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, 0, 0, ?, ?, NULL, ?, ?, ?, 'late_ng')`)
-      .run(code, l.issue_id, reported_at, -(bad + l.uncut), bad, l.ng_cut, l.ng_rope, l.uncut, note, 'NG แจ้งภายหลัง (โรงงานแจ้ง)', payCycle, by);
+      .run(code, l.issue_id, reported_at, -l.uncut, 0, l.ng_cut, l.ng_rope, l.uncut, note, 'NG แจ้งภายหลัง (โรงงานแจ้ง)', payCycle, by);
     shiftIssueForUncut(l.issue_id, l.uncut);
     updateIssueStatus(l.issue_id);
     created.push({ code, issue_id: l.issue_id });

@@ -553,8 +553,12 @@ def write_member_sheet(m, label=None):
         cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
              align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)
         ref = f"{LAST_P_LETTER}{row}"
-        cell(ws, ref, round(float(r["wage"]), 2), font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
-        net_formula_parts.append(ref)
+        amt = round(float(r["wage"]), 2)   # หักคืนเฉพาะ "ไม่ได้ตัด" — NG ได้ค่าแรงปกติ ค่าปรับอยู่ในบรรทัด NG ครั้งที่…
+        if amt:
+            cell(ws, ref, amt, font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
+            net_formula_parts.append(ref)
+        else:
+            cell(ws, ref, "-", font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, border=box)
         ws.row_dimensions[row].height = RH(H_NG)
         row += 1
     # ── งานแก้ไข: หักค่าแรง X% — 1 บรรทัดต่อ วันที่เบิก+ชนิดงาน พร้อมเหตุผล (หมายเหตุตอนรับคืน ถ้ามี) ──

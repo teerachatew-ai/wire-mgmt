@@ -1579,8 +1579,6 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: reportApi.getSettings });
-  const defectPct = (parseFloat(settings?.defect_wage_percent) || 0) / 100;
 
   useEffect(() => {
     let alive = true;
@@ -1601,8 +1599,9 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   const setV = (id: number, k: string, x: string) => setVals(s => ({ ...s, [id]: { ...v(id), [k]: x } }));
   const sumOf = (id: number) => n(v(id).ng_cut) + n(v(id).ng_rope) + n(v(id).uncut_qty);
   const deductOf = (it: any) => {
+    // NG สมาชิก / ดึงเชือก ค่าแรงจ่ายตามปกติ (โดนแค่ค่าปรับ) — หักคืนเฉพาะ "ไม่ได้ตัด"
     const w = Number(it.wage_per_unit) || 0, x = v(it.id);
-    return (n(x.ng_cut) + n(x.ng_rope)) * w * (1 - defectPct) + n(x.uncut_qty) * w;
+    return n(x.uncut_qty) * w;
   };
   const filled = (items || []).filter(it => sumOf(it.id) > 0);
   const over = filled.filter(it => sumOf(it.id) > it.good + 0.001);
@@ -1654,8 +1653,8 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
         </div>
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
           ใช้เมื่อคืนงานไปแล้ว แต่โรงงานแจ้งทีหลังว่าเจองานตัดเสียของคนนี้ (สมาชิกไม่ได้แจ้ง NG ตอนคืน) ·
-          ค่าแรงของจำนวนที่กรอกจะถูก <b>หักคืนในรอบค่าแรงของวันที่โรงงานแจ้ง</b> และนับเป็น NG ตามกติกาค่าปรับ (เตือนก่อนบันทึก) ·
-          "ไม่ได้ตัด" = ของกลับมาเป็นงานรอเบิก
+          <b>NG สมาชิก / ดึงเชือก</b>: ค่าแรงยังจ่ายตามปกติ แต่ <b>หักค่าปรับ NG</b> ตามครั้งที่ ·
+          <b>ไม่ได้ตัด</b>: หักค่าแรงคืน และของกลับมาเป็นงานรอเบิก · ทั้งหมดหักในรอบค่าแรงของวันที่โรงงานแจ้ง
         </p>
         <div className="flex flex-wrap gap-3 items-end">
           <label className="text-sm">
@@ -1699,7 +1698,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
                       <td className="px-2 py-1.5">{cellInput(it, 'uncut_qty', '!border-slate-400 bg-slate-100', 'ไม่ได้ตัด')}</td>
                       <td className="px-3 py-1.5 text-right">
                         {bad ? <span className="text-xs text-rose-600">เกินงานดีที่คืน</span>
-                          : sumOf(it.id) > 0 ? <span className="font-semibold text-rose-700">−{fmtB(deductOf(it))}</span> : <span className="text-gray-300">–</span>}
+                          : deductOf(it) > 0 ? <span className="font-semibold text-rose-700">−{fmtB(deductOf(it))}</span> : <span className="text-gray-300">–</span>}
                       </td>
                     </tr>
                   );
@@ -1711,7 +1710,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
         {filled.length > 0 && !over.length && (
           <div className="text-sm bg-rose-50 border border-rose-200 rounded-xl divide-y divide-rose-100">
             <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-rose-800">① ค่าแรงที่หักคืน <span className="text-xs text-rose-700/70">(ค่าแรงของเส้นที่เสีย/ไม่ได้ตัด ที่เคยจ่ายไปแล้ว)</span></span>
+              <span className="text-rose-800">① ค่าแรงที่หักคืน <span className="text-xs text-rose-700/70">(เฉพาะ "ไม่ได้ตัด" — NG ยังได้ค่าแรงปกติ)</span></span>
               <b className="text-rose-700 tabular-nums">−{fmtB(totalDeduct)}</b>
             </div>
             <div className="px-3 py-2">

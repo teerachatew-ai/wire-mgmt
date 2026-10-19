@@ -65,8 +65,9 @@ export function loadWagePolicy(cfg?: Record<string, any>): WagePolicy {
 
 /** ค่าแรง (ก่อนหักค่าปรับ) ต่อรายการรับคืน — ใช้ใน SQL ที่มี alias r (returns) และ p (products)
     ต้องส่งพารามิเตอร์ 2 ตัวตามลำดับ: wageParams(policy) */
+// NG แจ้งภายหลัง (kind='late_ng') — ng_cut/ng_rope มีไว้คิดค่าปรับอย่างเดียว ค่าแรงจ่ายไปแล้วกับรายการรับคืนเดิม (ไม่คิดซ้ำ)
 export const WAGE_SQL = `((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit
-  + (r.ng_cut + COALESCE(r.ng_rope, 0)) * p.wage_per_unit * ?
+  + (CASE WHEN r.kind = 'late_ng' THEN 0 ELSE r.ng_cut + COALESCE(r.ng_rope, 0) END) * p.wage_per_unit * ?
   - COALESCE(r.rework_qty, 0) * p.wage_per_unit * ?)`;
 export const wageParams = (pol: WagePolicy) => [pol.defectPct, pol.reworkPct];
 
@@ -75,7 +76,7 @@ export function returnWage(r: any, wagePerUnit: number, pol: WagePolicy): number
   const w = Number(wagePerUnit) || 0;
   const n = (k: string) => Number(r[k]) || 0;
   return (n('good_qty') + n('ng_factory') + n('lost_qty')) * w
-    + (n('ng_cut') + n('ng_rope')) * w * pol.defectPct
+    + (r.kind === 'late_ng' ? 0 : (n('ng_cut') + n('ng_rope')) * w * pol.defectPct)
     - n('rework_qty') * w * pol.reworkPct;
 }
 
