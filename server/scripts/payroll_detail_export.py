@@ -89,21 +89,22 @@ def RH(height):  # ขยายความสูงแถวตามสัด�
 F_TABLE = 15
 # ชื่อสมาชิกใหญ่ที่สุดในใบ — สมาชิกหยิบใบเสร็จมาดูว่าใช่ของตัวเองไหมก่อนเป็นอย่างแรก
 # ใบเสร็จรับเงิน +10% (16.5 → 18.15) · บรรทัดชื่อกลุ่ม/รอบจ่าย เล็กกว่าหัวเรื่องแค่ 1 ขั้น (16) · ข้อความยืนยัน = ขนาดเดียวกับ "ลงชื่อ"
-F_TITLE, F_REPRINT, F_SUB, F_NAME, F_BANK = 20, 16.5, 17.6, 17.6, 9.35   # นอกตาราง +10% (ขอ 19 ต.ค. 69)
+F_TITLE, F_REPRINT, F_SUB, F_NAME, F_BANK = 22, 18.15, 19.36, 19.36, 10.3   # นอกตาราง +10% อีกรอบ (ขอ 19 ต.ค. 69)
+F_LABEL = 16.5   # ป้าย "ยกไป ต.ค." นอกตารางซ้าย (ตาราง 15 +10%)
 F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 # ค่าแรงสุทธิรอบนี้ = ส่วนหนึ่งของตาราง จึงใช้ขนาดเดียวกับตัวเลขในตาราง
 # ข้อความยืนยันการรับเงินขยายอีก 10% จากเดิม (เจ้าของขอ — เป็นข้อความที่สมาชิกต้องอ่านก่อนเซ็น)
-F_NG, F_NET, F_SIGN = 10, F_TABLE, 15.4   # ลงชื่อ/วันที่ (11.55 → 12.7 → 14 → 15.4)
+F_NG, F_NET, F_SIGN = 10, F_TABLE, 16.94   # ลงชื่อ/วันที่ (11.55 → 12.7 → 14 → 15.4 → 16.94)
 F_CONFIRM = F_SIGN
 # บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
 F_NGLINE, H_NGLINE2 = 12, 20
-F_NOTE, H_NOTE = 13.2, 20   # หมายเหตุค่าแรงยกมา/ยกไป ใต้ยอดสุทธิ (ตัวเล็ก กินที่น้อย)
+F_NOTE, H_NOTE = 14.5, 22   # หมายเหตุค่าแรงยกมา/ยกไป ใต้ยอดสุทธิ (ตัวเล็ก กินที่น้อย)
 # ── ความสูงแถว (หน่วยก่อนคูณสเกล) ของใบเสร็จรายคน — ตั้งครบทุกแถว รวมแถวว่าง ──
 # (แถวที่ไม่ได้ตั้งความสูงจะคงที่ 15pt ไม่ย่อ/ขยายตามฟอนต์ ทำให้สัดส่วนหน้าเพี้ยน)
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
-H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP = 29, 24, 24, 14, 6
+H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP = 32, 27, 27, 15, 6
 H_DATA, H_TOTAL, H_WAGEROW, H_NG, H_NET = 17, 21, 21, 15, 21
-H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 22, 15, 22, 18, 22
+H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 24, 15, 24, 18, 24
 LINE_H = 1.35  # ความสูงต่อบรรทัดของ TH SarabunPSK เทียบกับขนาดฟอนต์
 
 # ── ขนาดตัวหนังสือบนกระดาษ: ปล่อยให้ตัวแปลง PDF เป็นคนย่อให้พอดี 1 หน้า ──────────
@@ -707,7 +708,8 @@ def write_member_sheet(m, label=None):
     # ข้อความยืนยันชิดขวา แต่หยุดก่อนคอลัมน์สุดท้าย 1 ช่อง — เลื่อนทั้งบรรทัดมาทางซ้าย
     # ให้คำว่า "ข้าพเจ้า" เริ่มราวๆ กึ่งกลางหน้ากระดาษ (เดิมเริ่มเลยกึ่งกลางไปทางขวา)
     ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(F_CONFIRM), italic=True, color="111827"), align=RW)
+    cell(ws, f"A{row}", CONFIRM_TEXT, font=Font(name=FONT, size=FS(F_CONFIRM), italic=True, color="111827"),
+         align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True))
     ws.row_dimensions[row].height = RH(H_CONFIRM)
     row += 1
     ws.row_dimensions[row].height = RH(H_SIGNGAP)  # ที่ว่างไว้เซ็นชื่อจริง
@@ -777,7 +779,7 @@ def add_left_label(ws, last_row, r1, r2, text):
     ws.column_dimensions["A"].hidden = False
     if r2 > r1:
         ws.merge_cells(f"A{r1}:A{r2}")
-    cell(ws, f"A{r1}", text, font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER),
+    cell(ws, f"A{r1}", text, font=Font(name=FONT, size=FS(F_LABEL), bold=True, color=AMBER),
          align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True))
     # คอลัมน์ป้ายด้านซ้ายทำให้ตารางเยื้องขวาตอนจัดกึ่งกลางหน้า → ใส่คอลัมน์ว่างกว้างเท่ากันด้านขวาให้สมดุล
     # (คอลัมน์ซ่อนที่คั่นอยู่ไม่กินที่บนกระดาษ) — ตารางจึงอยู่กึ่งกลางหน้าพอดี
