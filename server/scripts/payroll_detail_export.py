@@ -545,13 +545,11 @@ def write_member_sheet(m, label=None):
     def dmy2(iso):
         y, mo, dd = str(iso)[:10].split("-"); return f"{int(dd)}/{int(mo)}"
     for r in sorted(late_rows, key=lambda x: (str(x["issued_at"]), x["product_name"])):
-        parts = []
-        if float(r.get("ng_cut") or 0): parts.append(f"NG สมาชิก {float(r['ng_cut']):,.0f}")
-        if float(r.get("ng_rope") or 0): parts.append(f"NG ดึงเชือก {float(r['ng_rope']):,.0f}")
-        if float(r.get("uncut_qty") or 0): parts.append(f"ไม่ได้ตัด {float(r['uncut_qty']):,.0f}")
+        if not float(r.get("uncut_qty") or 0): continue   # NG สมาชิก/ดึงเชือก: ค่าแรงไม่หัก ค่าปรับอยู่บรรทัด "NG ที่โรงงานแจ้ง ครั้งที่…"
+        parts = [f"ไม่ได้ตัด {float(r['uncut_qty']):,.0f}"]
         lbl = (product_label.get(r["product_name"]) or short_label(r["product_name"])).replace("\n", " ")
         why = (r.get("ng_note") or "").strip()
-        text = f"NG แจ้งภายหลัง (โรงงานแจ้ง {dmy2(r['returned_at'])}) · งานเบิก {dmy2(r['issued_at'])} · {lbl} · {' · '.join(parts)} เส้น" + (f" — {why}" if why else "")
+        text = f"โรงงานแจ้ง {dmy2(r['returned_at'])} · งานเบิก {dmy2(r['issued_at'])} · {lbl} · {' · '.join(parts)} เส้น — หักค่าแรงคืน" + (f" · {why}" if why else "")
         ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
         cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
              align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)

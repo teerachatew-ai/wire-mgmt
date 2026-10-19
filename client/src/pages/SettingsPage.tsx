@@ -189,6 +189,7 @@ export default function SettingsPage() {
             </div>
           </div>
           <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG ดึงเชือก <span className="font-normal text-gray-400">(ไม่มีตักเตือน — ครั้งแรกหักเลย)</span></div>
+          {/* อัตราข้างบนทั้งหมด = NG ที่สมาชิกแจ้งเองตอนคืนงาน · ชุดล่างนี้ = NG ที่โรงงานพบแล้วแจ้งภายหลัง (นับครั้งแยก) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">ครั้งแรก <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
@@ -197,6 +198,34 @@ export default function SettingsPage() {
             <div>
               <label className="label">ครั้งที่ 2 ขึ้นไป <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
               <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate || ''} onChange={e => set('ng_rope_rate', e.target.value)} />
+            </div>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-3 space-y-2">
+            <div className="text-xs font-medium text-rose-800">ค่าปรับ NG ที่โรงงานพบแล้วแจ้งภายหลัง <span className="font-normal text-rose-700/70">(สมาชิกไม่ได้แจ้งเอง · นับครั้งแยก · ใช้กับทั้ง NG สมาชิกและดึงเชือก · ค่าแรงยังจ่ายปกติ)</span></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([['late_ng_rate_1', 'ครั้งแรก'], ['late_ng_rate_2', 'ครั้งที่ 2 ขึ้นไป']] as const).map(([k, label]) => {
+                const raw = current[k];
+                const val = raw === undefined || raw === null || raw === '' ? '5' : String(raw);   // ไม่เคยตั้ง = 5 บาท
+                const warn = parseFloat(val) === 0;
+                return (
+                  <div key={k}>
+                    <label className="label">{label}</label>
+                    <div className="flex gap-2">
+                      <select className="input w-32" value={warn ? 'warn' : 'fine'}
+                        onChange={e => set(k, e.target.value === 'warn' ? '0' : (warn ? '5' : val))}>
+                        <option value="warn">ตักเตือน</option>
+                        <option value="fine">ปรับ</option>
+                      </select>
+                      {!warn && (
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <input type="number" min="0.5" step="0.5" className="input" value={val} onChange={e => set(k, e.target.value)} />
+                          <span className="text-xs text-gray-500 whitespace-nowrap">บาท/เส้น</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

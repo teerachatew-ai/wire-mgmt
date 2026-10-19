@@ -39,6 +39,8 @@ export type WagePolicy = {
   groupRate3: number;  // NG ตัดโดนสายไฟ ครั้งที่ 3 ขึ้นไป (บาท/เส้น)
   ropeRate: number;    // NG ดึงเชือก ตั้งแต่ครั้งที่ 2 (บาท/เส้น)
   ropeRate1: number;   // NG ดึงเชือก ครั้งแรก (บาท/เส้น) — หักเลย ไม่มีตักเตือน
+  lateRate1: number;   // NG ที่โรงงานพบแล้วแจ้งภายหลัง — ครั้งแรก (บาท/เส้น · 0 = ตักเตือน)
+  lateRate2: number;   // NG ที่โรงงานพบแล้วแจ้งภายหลัง — ครั้งที่ 2 ขึ้นไป (บาท/เส้น · 0 = ตักเตือน)
   cutAllow: number;    // เกณฑ์ NG ตัดโดนสายไฟที่ยอมรับได้ต่อใบเบิก (0 = ไม่มีเกณฑ์)
   cutAllowUnit: 'percent' | 'pieces';
 };
@@ -58,6 +60,9 @@ export function loadWagePolicy(cfg?: Record<string, any>): WagePolicy {
     groupRate3: num('ng_group_rate_3', 0),
     ropeRate: num('ng_rope_rate', 0),
     ropeRate1: num('ng_rope_rate_1', 0),
+    // ค่าเริ่มต้น 5 บาท/เส้น ทั้งครั้งแรกและครั้งต่อไป (ไม่มีตักเตือน) — ตั้ง 0 ในหน้าตั้งค่า = ตักเตือน
+    lateRate1: num('late_ng_rate_1', 5),
+    lateRate2: num('late_ng_rate_2', 5),
     cutAllow: Math.max(0, num('ng_cut_allow', 0)),
     cutAllowUnit: c.ng_cut_allow_unit === 'pieces' ? 'pieces' : 'percent',
   };
@@ -91,10 +96,11 @@ export type PenaltyRow = {
   strike: number | null;        // กติกาใหม่: NG ครั้งที่เท่าไหร่ (สะสม) ของสมาชิกคนนี้
   cut_rate: number; rope_rate: number;
   amount: number;               // ค่าปรับของรายการนี้ (บาท)
+  late?: boolean;               // NG ที่โรงงานพบแล้วแจ้งภายหลัง (นับครั้ง/อัตราแยก)
 };
 
 /** รายการรับคืนสมมติ (ยังไม่บันทึก) สำหรับพรีวิวก่อนกดยืนยัน */
-export type VirtualReturn = { issue_id: number; returned_at: string; ng_cut: number; ng_rope: number; good_qty?: number; ng_note?: string };
+export type VirtualReturn = { issue_id: number; returned_at: string; ng_cut: number; ng_rope: number; good_qty?: number; ng_note?: string; kind?: string };
 
 const tierRates = (pol: WagePolicy, strike: number, date: string) =>
   strike <= 1 ? { cut: 0, rope: String(date) >= ROPE_FIRST_FROM ? pol.ropeRate1 : 0 }
@@ -109,7 +115,7 @@ export function computePenalties(pol: WagePolicy,
     SELECT r.id, i.member_id, r.pay_cycle, substr(r.returned_at, 1, 10) d, r.good_qty, r.ng_cut,
       COALESCE(r.ng_rope, 0) ng_rope, p.defect_tolerance tol, p.name product_name,
       substr(i.issued_at, 1, 10) issue_date, COALESCE(i.lot_date, substr(i.issued_at, 1, 10)) lot,
-      i.id issue_id, i.quantity issue_qty, r.ng_note
+      i.id issue_id, i.quantity issue_qty, r.ng_note, r.kind
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE (r.ng_cut > 0 OR COALESCE(r.ng_rope, 0) > 0)`).all() as any[];
   const rows = excludeId ? base.filter(r => r.id !== excludeId) : base;
@@ -121,7 +127,7 @@ export function computePenalties(pol: WagePolicy,
     rows.push({ id: -(k + 1), member_id: i.member_id, pay_cycle: null, d: String(v.returned_at).slice(0, 10),
       good_qty: Number(v.good_qty) || 0, ng_cut: Number(v.ng_cut) || 0, ng_rope: Number(v.ng_rope) || 0,
       tol: i.tol, product_name: i.product_name, issue_date: i.issue_date, lot: i.lot, issue_id: i.id, issue_qty: i.quantity,
-      ng_note: v.ng_note || null });
+      ng_note: v.ng_note || null, kind: v.kind || null });
   });
   // ลำดับครั้ง: ตามวันที่รับคืน แล้วตามลำดับบันทึก (รายการสมมติต่อท้ายวันเดียวกัน)
   rows.sort((a, b) => a.member_id - b.member_id || String(a.d).localeCompare(String(b.d))
@@ -130,9 +136,10 @@ export function computePenalties(pol: WagePolicy,
   const out: PenaltyRow[] = [];
   let member = -1;
   let strikeOf = new Map<string, number>();
+  let lateStrikeOf = new Map<string, number>();   // NG ที่โรงงานแจ้งภายหลัง นับครั้งแยกจาก NG ที่สมาชิกแจ้งเอง
   const allowLeft = new Map<number, number>();   // เกณฑ์ที่ยอมรับได้ที่ยังเหลือ ต่อใบเบิก
   for (const r of rows) {
-    if (r.member_id !== member) { member = r.member_id; strikeOf = new Map(); }
+    if (r.member_id !== member) { member = r.member_id; strikeOf = new Map(); lateStrikeOf = new Map(); }
     const ngCut = Number(r.ng_cut) || 0;
     const ngRope = Number(r.ng_rope) || 0;
     const legacy = String(r.lot) < EFFECTIVE_LOT_FROM;
@@ -141,6 +148,17 @@ export function computePenalties(pol: WagePolicy,
       issue_date: r.issue_date, ng_cut: ngCut, ng_rope: ngRope, ng_note: r.ng_note || null, ng_cut_allowed: 0, legacy, legacy_excess: 0,
       strike: null, cut_rate: 0, rope_rate: 0, amount: 0,
     };
+    if (r.kind === 'late_ng') {
+      // โรงงานพบ NG แล้วแจ้งภายหลัง (สมาชิกไม่ได้แจ้งเอง) — ไม่มีเกณฑ์ยกเว้น · อัตราของตัวเอง (ทั้ง NG สมาชิก + ดึงเชือก)
+      row.late = true;
+      if (!lateStrikeOf.has(r.issue_date)) lateStrikeOf.set(r.issue_date, lateStrikeOf.size + 1);
+      row.strike = lateStrikeOf.get(r.issue_date)!;
+      const rate = row.strike === 1 ? pol.lateRate1 : pol.lateRate2;
+      row.cut_rate = rate; row.rope_rate = rate;
+      row.amount = (ngCut + ngRope) * rate;
+      out.push(row);
+      continue;
+    }
     if (legacy) {
       // เหมือน SQL เดิมเป๊ะ: MAX(0, ng_cut − ROUND(tol/100 × (good + ng_cut))) — ถ้า tol เป็น NULL ใน SQL ได้ 0
       if (r.tol !== null && r.tol !== undefined) {
@@ -184,6 +202,7 @@ export const thDay = (d: string) => { const [, mo, da] = String(d).split('-'); r
 const fmtN = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
 export type StrikeSummary = {
+  late?: boolean;        // ครั้งของ NG ที่โรงงานแจ้งภายหลัง (นับแยก)
   strike: number; issue_date: string; ng_cut: number; ng_rope: number; cut_rate: number; rope_rate: number; amount: number;
   cut_items: Record<string, number>; rope_items: Record<string, number>;   // รุ่น -> จำนวนเส้น (เฉพาะส่วนที่ปรับ)
   cut_allowed: number;   // NG ตัดโดนสายไฟที่อยู่ในเกณฑ์ (ไม่ปรับ) ของครั้งนี้
@@ -202,10 +221,11 @@ export function modelLabel(name: string): string {
 
 /** รวมรายการตาม "ครั้ง" (วันที่เบิก) — ใช้ทั้งบรรทัดใบเสร็จและหน้าต่างเตือน */
 export function strikeSummaries(rows: PenaltyRow[]): StrikeSummary[] {
-  const m = new Map<number, StrikeSummary>();
+  const m = new Map<string, StrikeSummary>();   // คีย์ = ชนิด (แจ้งเอง/โรงงานแจ้ง) + ครั้งที่
   for (const r of rows) {
     if (r.strike === null) continue;
-    const s = m.get(r.strike) || { strike: r.strike, issue_date: r.issue_date, ng_cut: 0, ng_rope: 0, cut_rate: r.cut_rate, rope_rate: r.rope_rate, amount: 0, cut_items: {}, rope_items: {}, cut_allowed: 0, notes: [] };
+    const key = `${r.late ? 'L' : 'N'}${r.strike}`;
+    const s = m.get(key) || { late: !!r.late, strike: r.strike, issue_date: r.issue_date, ng_cut: 0, ng_rope: 0, cut_rate: r.cut_rate, rope_rate: r.rope_rate, amount: 0, cut_items: {}, rope_items: {}, cut_allowed: 0, notes: [] };
     const cutPen = r.ng_cut - (r.ng_cut_allowed || 0);
     s.ng_cut += cutPen; s.ng_rope += r.ng_rope; s.amount += r.amount; s.cut_allowed += r.ng_cut_allowed || 0;
     const ml = modelLabel(r.product_name);
@@ -213,9 +233,9 @@ export function strikeSummaries(rows: PenaltyRow[]): StrikeSummary[] {
     if (r.ng_rope > 0) s.rope_items[ml] = (s.rope_items[ml] || 0) + r.ng_rope;
     const note = String(r.ng_note || '').trim();
     if (note && !s.notes.includes(note)) s.notes.push(note);
-    m.set(r.strike, s);
+    m.set(key, s);
   }
-  return [...m.values()].sort((a, b) => a.strike - b.strike);
+  return [...m.values()].sort((a, b) => (a.late ? 1 : 0) - (b.late ? 1 : 0) || a.strike - b.strike);
 }
 
 /** ข้อความรายละเอียดของครั้งหนึ่ง ระบุรุ่น+จำนวนเส้น เช่น
@@ -240,7 +260,7 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
   /* 1 ครั้ง แยกเป็นบรรทัดละ 1 ประเภท (NG สมาชิก / ดึงเชือก) — แต่ละบรรทัดบอกชัดว่า "ปรับ" หรือ "ตักเตือน" พร้อมเงินของบรรทัดนั้น
      (เดิมรวมบรรทัดเดียว เช่น "NG สมาชิก … + ดึงเชือก … — NG สมาชิกตักเตือน" อ่านแล้วงงว่าเงินที่หักมาจากอันไหน) */
   for (const s of strikeSummaries(rows)) {
-    const title = `NG ครั้งที่ ${s.strike} · งานเบิก ${thDay(s.issue_date)}`;
+    const title = `${s.late ? 'NG ที่โรงงานแจ้ง ' : 'NG '}ครั้งที่ ${s.strike} · งานเบิก ${thDay(s.issue_date)}`;
     const items = (it: Record<string, number>) => Object.entries(it).map(([m, q]) => `${m} ${fmtN(q)} เส้น`).join(', ');
     const extra = [s.cut_allowed > 0 ? `ไม่รวมที่อยู่ในเกณฑ์ ${fmtN(s.cut_allowed)} เส้น` : '', ...s.notes].filter(Boolean).join(' · ');
     let extraUsed = false;   // หมายเหตุ/เกณฑ์ ใส่บรรทัดแรกของครั้งนี้บรรทัดเดียว
@@ -249,7 +269,7 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
       const amount = qty * rate;
       const verdict = amount > 0
         ? `ปรับ ${fmtN(qty)} เส้น × ${fmtN(rate)} บาท`
-        : s.strike === 1 && kind === 'NG สมาชิก' ? 'ตักเตือน (ไม่หักเงิน)' : 'ยังไม่ได้ตั้งอัตราค่าปรับ (ไม่หักเงิน)';
+        : s.late || (s.strike === 1 && kind === 'NG สมาชิก') ? 'ตักเตือน (ไม่หักเงิน)' : 'ยังไม่ได้ตั้งอัตราค่าปรับ (ไม่หักเงิน)';
       const detail = `${kind} ${items(it)} — ${verdict}${extra && !extraUsed ? ` · ${extra}` : ''}`;
       extraUsed = true;
       lines.push({ label: `${title} · ${detail}`, title, detail, amount: amount > 0 ? amount : 0,

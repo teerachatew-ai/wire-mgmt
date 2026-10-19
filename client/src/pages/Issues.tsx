@@ -1615,7 +1615,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   const [pen, setPen] = useState<{ amount: number; strikes: any[]; loading: boolean } | null>(null);
   useEffect(() => {
     const k = JSON.parse(penKey);
-    const lines = k.l.filter((x: any) => x[1] > 0 || x[2] > 0).map((x: any) => ({ issue_id: x[0], ng_cut: x[1], ng_rope: x[2], good_qty: -x[3] }));
+    const lines = k.l.filter((x: any) => x[1] > 0 || x[2] > 0).map((x: any) => ({ issue_id: x[0], ng_cut: x[1], ng_rope: x[2], good_qty: -x[3], kind: 'late_ng' }));
     if (!lines.length) { setPen(null); return; }
     let alive = true;
     setPen(p => ({ amount: p?.amount || 0, strikes: p?.strikes || [], loading: true }));
@@ -1632,7 +1632,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
     setBusy(true); setError('');
     const lines = filled.map(it => ({ issue_id: it.id, ng_cut: n(v(it.id).ng_cut), ng_rope: n(v(it.id).ng_rope), uncut_qty: n(v(it.id).uncut_qty) }));
     // ค่าปรับ NG ตามขั้นบันได — เตือนก่อนบันทึกเหมือนตอนรับคืน
-    const ok = await gate({ returned_at: date, lines: lines.map(l => ({ issue_id: l.issue_id, ng_cut: l.ng_cut, ng_rope: l.ng_rope, good_qty: -(l.ng_cut + l.ng_rope + l.uncut_qty) })) } as any);
+    const ok = await gate({ returned_at: date, lines: lines.map(l => ({ issue_id: l.issue_id, ng_cut: l.ng_cut, ng_rope: l.ng_rope, good_qty: -(l.ng_cut + l.ng_rope + l.uncut_qty), kind: 'late_ng' })) } as any);
     if (!ok) { setBusy(false); return; }
     try {
       await returnApi.lateNg({ reported_at: date, ng_note: note, lines });
@@ -1656,7 +1656,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
         </div>
         <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
           ใช้เมื่อคืนงานไปแล้ว แต่โรงงานแจ้งทีหลังว่าเจองานตัดเสียของคนนี้ (สมาชิกไม่ได้แจ้ง NG ตอนคืน) ·
-          <b>NG สมาชิก / ดึงเชือก</b>: ค่าแรงยังจ่ายตามปกติ แต่ <b>หักค่าปรับ NG</b> ตามครั้งที่ ·
+          <b>NG สมาชิก / ดึงเชือก</b>: ค่าแรงยังจ่ายตามปกติ แต่ <b>หักค่าปรับ NG ที่โรงงานแจ้ง</b> (นับครั้งแยกจาก NG ที่สมาชิกแจ้งเอง) ·
           <b>ไม่ได้ตัด</b>: หักค่าแรงคืน และของกลับมาเป็นงานรอเบิก · ทั้งหมดหักในรอบค่าแรงของวันที่โรงงานแจ้ง
         </p>
         <div className="flex flex-wrap gap-3 items-end">
@@ -1728,14 +1728,14 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
             </div>
             <div className="px-3 py-2">
               <div className="flex items-center justify-between">
-                <span className="text-rose-800">② ค่าปรับ NG <span className="text-xs text-rose-700/70">(ตามครั้งที่ · อัตราในหน้าตั้งค่า)</span></span>
+                <span className="text-rose-800">② ค่าปรับ NG ที่โรงงานแจ้ง <span className="text-xs text-rose-700/70">(นับครั้งแยก · อัตราในหน้าตั้งค่า)</span></span>
                 {pen?.loading ? <Loader2 size={14} className="animate-spin text-rose-400" />
                   : <b className="text-rose-700 tabular-nums">{(pen?.amount || 0) > 0 ? `−${fmtB(pen!.amount)}` : '0.00'}</b>}
               </div>
               {(pen?.strikes || []).map((st: any) => (
                 <div key={st.strike} className="text-[11px] text-rose-700/80 mt-0.5">
-                  NG ครั้งที่ {st.strike} · งานเบิก {st.issue_day} · {st.detail}
-                  {st.amount <= 0 && (st.strike === 1 ? ' — ตักเตือน / ยังไม่ได้ตั้งอัตราครั้งแรก' : ' — ยังไม่ได้ตั้งอัตรา')}
+                  โรงงานแจ้งครั้งที่ {st.strike} · งานเบิก {st.issue_day} · {st.detail}
+                  {st.amount <= 0 && ' — ตักเตือน (ไม่หักเงิน)'}
                   {!st.is_new && ' (นับรวมกับครั้งเดิมของวันเบิกนี้)'}
                 </div>
               ))}

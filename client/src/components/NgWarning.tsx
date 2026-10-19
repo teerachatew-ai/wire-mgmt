@@ -64,7 +64,7 @@ function NgWarningDialog({ data, onCancel, onConfirm }: { data: any; onCancel: (
                 {m.strikes.map((s: any) => (
                   <div key={s.strike} className="flex items-center gap-3 px-3 py-2.5">
                     <span className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-bold ${strikeTone(s.strike)}`}>
-                      {s.strike === 1 ? 'ครั้งแรก' : `ครั้งที่ ${s.strike}`}
+                      {s.late ? 'โรงงานแจ้ง ' : ''}{s.strike === 1 ? 'ครั้งแรก' : `ครั้งที่ ${s.strike}`}
                     </span>
                     <div className="flex-1 min-w-0 text-sm">
                       <div className="text-gray-800">งานเบิก {s.issue_day} · {s.detail}</div>

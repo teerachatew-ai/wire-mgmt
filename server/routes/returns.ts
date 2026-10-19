@@ -81,7 +81,8 @@ router.post('/ng-preview', (req, res) => {
   if (!returned_at || !Array.isArray(lines)) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
   const pol = loadWagePolicy();
   const virt = lines.map((l: any) => ({ issue_id: Number(l.issue_id), returned_at: String(returned_at),
-    ng_cut: parseFloat(l.ng_cut) || 0, ng_rope: parseFloat(l.ng_rope) || 0, good_qty: parseFloat(l.good_qty) || 0 }));
+    ng_cut: parseFloat(l.ng_cut) || 0, ng_rope: parseFloat(l.ng_rope) || 0, good_qty: parseFloat(l.good_qty) || 0,
+    kind: l.kind === 'late_ng' ? 'late_ng' : undefined }));
   const all = computePenalties(pol, {}, virt, exclude_return_id ? Number(exclude_return_id) : undefined);
   const fresh = all.filter(r => r.id < 0 && r.strike !== null);
   const byMember = new Map<number, any>();
@@ -89,14 +90,14 @@ router.post('/ng-preview', (req, res) => {
     if (!byMember.has(r.member_id)) {
       const m = prepare(`SELECT id, code, name, nickname FROM members WHERE id = ?`).get(r.member_id) as any;
       // ครั้งที่มีอยู่แล้วก่อนรายการนี้ (ไม่นับรายการสมมติ)
-      const before = new Set(all.filter(x => x.member_id === r.member_id && x.id > 0 && x.strike !== null).map(x => x.strike)).size;
+      const before = new Set(all.filter(x => x.member_id === r.member_id && x.id > 0 && x.strike !== null && !!x.late === !!r.late).map(x => x.strike)).size;
       byMember.set(r.member_id, { member_id: r.member_id, code: m?.code, name: m?.name, nickname: m?.nickname, strikes_before: before, rows: [] });
     }
     byMember.get(r.member_id).rows.push(r);
   }
   const members = [...byMember.values()].map(m => {
     const summaries = strikeSummaries(m.rows).map(s => {
-      const existed = all.some(x => x.member_id === m.member_id && x.id > 0 && x.strike === s.strike);
+      const existed = all.some(x => x.member_id === m.member_id && x.id > 0 && x.strike === s.strike && !!x.late === !!s.late);
       return { ...s, issue_day: thDay(s.issue_date), detail: strikeDetail(s), is_new: !existed };
     });
     const strikes_after = Math.max(m.strikes_before, ...summaries.map((s: any) => s.strike));
