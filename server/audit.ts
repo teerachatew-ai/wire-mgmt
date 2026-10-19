@@ -60,6 +60,7 @@ const ACTIONS: [RegExp, string, string][] = [
   [/^DELETE \/issues\/\d+$/, 'ลบใบเบิก', 'เบิก'],
   [/^POST \/returns$/, 'รับคืนงาน', 'รับคืน'],
   [/^POST \/returns\/batch$/, 'รับคืนงาน (เป็นชุด)', 'รับคืน'],
+  [/^POST \/returns\/late-ng$/, 'แจ้ง NG ภายหลัง (โรงงานแจ้ง)', 'รับคืน'],
   [/^PUT \/returns\/\d+$/, 'แก้รายการรับคืน', 'รับคืน'],
   [/^DELETE \/returns\/\d+$/, 'ยกเลิกการคืน (Undo)', 'รับคืน'],
   [/^POST \/return-requests\/\d+\/confirm$/, 'ยืนยันคำขอคืนงานจากสมาชิก', 'รับคืน'],

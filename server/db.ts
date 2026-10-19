@@ -559,6 +559,8 @@ CREATE TABLE IF NOT EXISTS managers (
   // uncut_qty = คืนมาแบบยังไม่ได้ตัด (ไม่จ่ายค่าแรง · กลับเป็นของรอเบิก — ยอดเบิกของใบลดลงเท่านี้ ดู routes/returns.ts)
   // ng_note = รายละเอียด NG โดยสมาชิก (เช่น ตัดโดนอะไร) — ขึ้นในใบเสร็จค่าแรงรายคน
   if (!returnCols.includes('uncut_qty')) db.exec(`ALTER TABLE returns ADD COLUMN uncut_qty REAL NOT NULL DEFAULT 0`);
+  // kind = 'late_ng' → "NG แจ้งภายหลัง" (โรงงานเจองานเสียหลังรับคืน/จ่ายเงินไปแล้ว) — งานดีติดลบเท่าที่เสีย ดู routes/returns.ts /late-ng
+  if (!returnCols.includes('kind')) db.exec(`ALTER TABLE returns ADD COLUMN kind TEXT`);
   if (!returnCols.includes('ng_note')) db.exec(`ALTER TABLE returns ADD COLUMN ng_note TEXT`);
   // ค่าใช้จ่ายบริหารจัดการ: ระบุผู้รับเงินได้ (general/member/manager) — ถ้าจ่ายให้สมาชิก/ผู้บริหาร นับรวมค่าตอบแทนผู้บริหาร
   const expCols = db.exec(`PRAGMA table_info(expenses)`)[0]?.values.map(r => r[1]) ?? [];

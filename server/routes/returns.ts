@@ -107,6 +107,44 @@ router.post('/ng-preview', (req, res) => {
   res.json({ members, rates: { cut2: pol.groupRate2, cut3: pol.groupRate3, rope: pol.ropeRate } });
 });
 
+/* ── NG แจ้งภายหลัง ── โรงงานเจองานตัดเสียหลังรับคืนไปแล้ว (สมาชิกไม่ได้แจ้ง NG ตอนคืน)
+   บันทึกเป็นรายการรับคืน kind='late_ng' ผูกใบเบิกเดิม:
+     good_qty = −(NG สมาชิก + NG ดึงเชือก + ไม่ได้ตัด)  · defect_qty/ng_cut/ng_rope = ตามที่แจ้ง · uncut_qty = ไม่ได้ตัด
+   → ยอดคืนรวมของใบไม่เปลี่ยน (งานดีย้ายไปเป็นของเสีย) · ไม่ได้ตัด = ของกลับเป็นรอเบิก (ลดยอดเบิกแบบเดียวกับคืนไม่ได้ตัด)
+   → ค่าแรง: หักค่าแรงส่วนนั้นคืน (WAGE_SQL งานดีติดลบ) + ค่าปรับ NG ตามขั้นบันได (computePenalties นับเป็นครั้งของวันที่เบิกนั้น)
+     ทั้งหมดอยู่ในรอบค่าแรงของ "วันที่โรงงานแจ้ง" — รอบเก่าที่จ่ายไปแล้วไม่ถูกแก้ย้อนหลัง
+   ยกเลิก = ลบรายการนี้ (ปุ่ม Undo / หน้า รับคืนงาน) */
+router.post('/late-ng', (req, res) => {
+  const { reported_at, lines, ng_note } = req.body || {};
+  if (!reported_at || !/^\d{4}-\d{2}-\d{2}$/.test(String(reported_at)) || !Array.isArray(lines)) return res.status(400).json({ error: 'ข้อมูลไม่ครบ' });
+  const num = (v: any) => Math.max(0, parseFloat(v) || 0);
+  const valid = lines.map((l: any) => ({ issue_id: Number(l.issue_id), ng_cut: num(l.ng_cut), ng_rope: num(l.ng_rope), uncut: num(l.uncut_qty) }))
+    .filter((l: any) => l.issue_id && l.ng_cut + l.ng_rope + l.uncut > 0);
+  if (!valid.length) return res.status(400).json({ error: 'ยังไม่ได้กรอกจำนวน' });
+  // ตรวจก่อนทั้งชุด: แจ้งได้ไม่เกินงานดีที่คืนไปแล้วของใบนั้น
+  for (const l of valid) {
+    const iss = prepare(`SELECT i.code, p.unit FROM issues i JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(l.issue_id) as any;
+    if (!iss) return res.status(400).json({ error: 'ไม่พบใบเบิก' });
+    const g = Number((prepare(`SELECT COALESCE(SUM(good_qty), 0) g FROM returns WHERE issue_id = ?`).get(l.issue_id) as any).g) || 0;
+    if (l.ng_cut + l.ng_rope + l.uncut > g + 0.001) return res.status(400).json({ error: `${iss.code}: แจ้งได้ไม่เกินงานดีที่คืนแล้ว (${g} ${iss.unit})` });
+  }
+  const payCycle = payCycleFor(String(reported_at));
+  const by = userOf(req);
+  const note = String(ng_note ?? '').trim() || null;
+  const created: any[] = [];
+  for (const l of valid) {
+    const code = nextDateCode('RT', 'returns', reported_at);
+    const bad = l.ng_cut + l.ng_rope;
+    prepare(`INSERT INTO returns (code, issue_id, returned_at, good_qty, defect_qty, ng_cut, ng_factory, ng_rope, rework_qty, waste_qty, lost_qty, uncut_qty, ng_note, inspector, notes, pay_cycle, created_by, kind)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, 0, 0, ?, ?, NULL, ?, ?, ?, 'late_ng')`)
+      .run(code, l.issue_id, reported_at, -(bad + l.uncut), bad, l.ng_cut, l.ng_rope, l.uncut, note, 'NG แจ้งภายหลัง (โรงงานแจ้ง)', payCycle, by);
+    shiftIssueForUncut(l.issue_id, l.uncut);
+    updateIssueStatus(l.issue_id);
+    created.push({ code, issue_id: l.issue_id });
+  }
+  res.json({ created, pay_cycle: payCycle });
+});
+
 router.get('/', (req, res) => {
   const { issue_id, date, from, to } = req.query;
   let sql = `SELECT r.*, i.code as issue_code, i.issued_at as issued_at, m.name as member_name, m.nickname as member_nickname, p.name as product_name, p.color as product_color FROM returns r
@@ -226,6 +264,7 @@ router.put('/:id', (req, res) => {
   const { returned_at, inspector, notes } = req.body;
   const ret = prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) as any;
   if (!ret) return res.status(404).json({ error: 'ไม่พบรายการรับคืน' });
+  if (ret.kind === 'late_ng') return res.status(400).json({ error: 'รายการ NG แจ้งภายหลัง แก้ไม่ได้ — ลบ (Undo) แล้วแจ้งใหม่' });
   if (!returned_at) return res.status(400).json({ error: 'กรุณากรอกวันที่' });
 
   const issue = prepare(`SELECT i.*, p.unit, p.defect_tolerance FROM issues i JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(ret.issue_id) as any;

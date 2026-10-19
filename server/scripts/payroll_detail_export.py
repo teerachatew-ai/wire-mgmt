@@ -533,9 +533,30 @@ def write_member_sheet(m, label=None):
     ws.row_dimensions[5].height = RH(H_GAP)  # ช่องไฟก่อนตาราง (ตั้งความสูงไว้ให้โมเดลคำนวณหน้าตรงกับของจริง)
 
     row = 6
-    row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, m["rows"])
+    # NG แจ้งภายหลัง (kind=late_ng) ไม่อยู่ในตาราง — แสดงเป็นบรรทัดหักแยกด้านล่าง
+    late_rows = [r for r in m["rows"] if r.get("kind") == "late_ng"]
+    row, _col_totals, _wage_total, wage_total_ref = write_pivot_table(ws, row, [r for r in m["rows"] if r.get("kind") != "late_ng"])
 
     net_formula_parts = [wage_total_ref]
+    # ── NG แจ้งภายหลัง (โรงงานเจองานเสียหลังรับคืน) — หักค่าแรงส่วนที่จ่ายเป็นงานดีไปแล้วคืน ──
+    def dmy2(iso):
+        y, mo, dd = str(iso)[:10].split("-"); return f"{int(dd)}/{int(mo)}"
+    for r in sorted(late_rows, key=lambda x: (str(x["issued_at"]), x["product_name"])):
+        parts = []
+        if float(r.get("ng_cut") or 0): parts.append(f"NG สมาชิก {float(r['ng_cut']):,.0f}")
+        if float(r.get("ng_rope") or 0): parts.append(f"NG ดึงเชือก {float(r['ng_rope']):,.0f}")
+        if float(r.get("uncut_qty") or 0): parts.append(f"ไม่ได้ตัด {float(r['uncut_qty']):,.0f}")
+        lbl = (product_label.get(r["product_name"]) or short_label(r["product_name"])).replace("\n", " ")
+        why = (r.get("ng_note") or "").strip()
+        text = f"NG แจ้งภายหลัง (โรงงานแจ้ง {dmy2(r['returned_at'])}) · งานเบิก {dmy2(r['issued_at'])} · {lbl} · {' · '.join(parts)} เส้น" + (f" — {why}" if why else "")
+        ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
+        cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
+             align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)
+        ref = f"{LAST_P_LETTER}{row}"
+        cell(ws, ref, round(float(r["wage"]), 2), font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
+        net_formula_parts.append(ref)
+        ws.row_dimensions[row].height = RH(H_NG)
+        row += 1
     # ── งานแก้ไข: หักค่าแรง X% — 1 บรรทัดต่อ วันที่เบิก+ชนิดงาน พร้อมเหตุผล (หมายเหตุตอนรับคืน ถ้ามี) ──
     rw = {}
     for r in m["rows"]:
@@ -667,7 +688,7 @@ def write_member_sheet(m, label=None):
             ws.row_dimensions[row].height = RH(H_DATA)
             row += 1
         carry_rows = (first_carry, row - 1, f"ยกไป {TH_SHORT[int(nxt[5:7])]}")
-    if any(r.get("carried_in") for r in m["rows"]):
+    if any(r.get("carried_in") and r.get("kind") != "late_ng" for r in m["rows"]):
         notes.append("* งานเบิกก่อนรอบนี้ ที่คืนหลังวันตัดยอดของรอบก่อน จึงได้ค่าแรงในรอบนี้")
     for t in notes:
         ws.merge_cells(f"A{row}:{LAST_P_LETTER}{row}")

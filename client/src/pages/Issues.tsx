@@ -1493,7 +1493,9 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
   }, [row]);
 
   const chosen = (rets || []).filter((r: any) => picked[r.id]);
-  const qtyOf = (r: any) => (Number(r.good_qty) || 0) + (Number(r.defect_qty) || 0) + (Number(r.waste_qty) || 0) + (Number(r.lost_qty) || 0);
+  const qtyOf = (r: any) => r.kind === 'late_ng'
+    ? (Number(r.ng_cut) || 0) + (Number(r.ng_rope) || 0) + (Number(r.uncut_qty) || 0)
+    : (Number(r.good_qty) || 0) + (Number(r.defect_qty) || 0) + (Number(r.waste_qty) || 0) + (Number(r.lost_qty) || 0);
   const oldCycle = chosen.filter((r: any) => r.pay_cycle && r.pay_cycle < thisMonth);
 
   const doUndo = async () => {
@@ -1531,8 +1533,9 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
                   <span className="flex-1 min-w-0">
                     <span className="font-medium">{r.product_name}</span>
                     <span className="text-[11px] font-mono text-blue-600 ml-1.5">{r.code}</span>
+                    {r.kind === 'late_ng' && <span className="ml-1.5 text-[10px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1">NG แจ้งภายหลัง</span>}
                     <span className="block text-[11px] text-gray-400">
-                      คืนวันที่ {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
+                      {r.kind === 'late_ng' ? 'โรงงานแจ้งวันที่' : 'คืนวันที่'} {r.returned_at}{r.pay_cycle ? ` · รอบค่าแรง ${r.pay_cycle}` : ''}
                       {Number(r.ng_factory) > 0 && ` · NG โรงงาน ${r.ng_factory}`}{Number(r.ng_cut) > 0 && ` · NG โดยสมาชิก ${r.ng_cut}${r.ng_note ? ` (${r.ng_note})` : ''}`}
                       {Number(r.uncut_qty) > 0 && ` · ไม่ได้ตัด ${r.uncut_qty}`}
                       {Number(r.ng_rope) > 0 && ` · NG ดึงเชือก ${r.ng_rope}`}{Number(r.rework_qty) > 0 && ` · งานแก้ไข ${r.rework_qty}`}
@@ -1560,6 +1563,150 @@ function UndoReturnDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: (
           )}
         </div>
       </div>
+    </Modal>
+  );
+}
+
+/* ── NG แจ้งภายหลัง ──
+   โรงงานแจ้งมาทีหลังว่าเจองานตัดเสียของคนนี้ (สมาชิกไม่ได้แจ้งตอนคืน) → กรอก NG สมาชิก / NG ดึงเชือก / ไม่ได้ตัด
+   ค่าแรงส่วนนั้นถูกหักคืนในรอบค่าแรงของ "วันที่โรงงานแจ้ง" + ค่าปรับ NG ตามขั้นบันได (เตือนก่อนบันทึก)
+   ยกเลิกได้ด้วยปุ่ม Undo ของบรรทัดเดิม */
+function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () => void; onDone: () => void }) {
+  const { gate, dialog } = useNgGate();
+  const [items, setItems] = useState<any[] | null>(null);
+  const [vals, setVals] = useState<Record<number, { ng_cut: string; ng_rope: string; uncut_qty: string }>>({});
+  const [date, setDate] = useState(new Intl.DateTimeFormat('en-CA').format(new Date()));
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: reportApi.getSettings });
+  const defectPct = (parseFloat(settings?.defect_wage_percent) || 0) / 100;
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const details = await Promise.all(row.items.map((i: any) => issueApi.get(i.id)));
+        const list = details.map((d: any) => ({ ...d, product_color: (row.items.find((x: any) => x.id === d.id) as any)?.color,
+          good: (d.returns || []).reduce((s: number, r: any) => s + (Number(r.good_qty) || 0), 0) }))
+          .filter((d: any) => d.good > 0);
+        if (alive) setItems(list);
+      } catch (e: any) { if (alive) { setItems([]); setError(e?.response?.data?.error || 'โหลดข้อมูลไม่สำเร็จ'); } }
+    })();
+    return () => { alive = false; };
+  }, [row]);
+
+  const n = (x: any) => Math.max(0, parseFloat(x) || 0);
+  const v = (id: number) => vals[id] || { ng_cut: '', ng_rope: '', uncut_qty: '' };
+  const setV = (id: number, k: string, x: string) => setVals(s => ({ ...s, [id]: { ...v(id), [k]: x } }));
+  const sumOf = (id: number) => n(v(id).ng_cut) + n(v(id).ng_rope) + n(v(id).uncut_qty);
+  const deductOf = (it: any) => {
+    const w = Number(it.wage_per_unit) || 0, x = v(it.id);
+    return (n(x.ng_cut) + n(x.ng_rope)) * w * (1 - defectPct) + n(x.uncut_qty) * w;
+  };
+  const filled = (items || []).filter(it => sumOf(it.id) > 0);
+  const over = filled.filter(it => sumOf(it.id) > it.good + 0.001);
+  const totalDeduct = filled.reduce((s, it) => s + deductOf(it), 0);
+  const fmtB = (x: number) => x.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const save = async () => {
+    if (!filled.length || over.length) return;
+    setBusy(true); setError('');
+    const lines = filled.map(it => ({ issue_id: it.id, ng_cut: n(v(it.id).ng_cut), ng_rope: n(v(it.id).ng_rope), uncut_qty: n(v(it.id).uncut_qty) }));
+    // ค่าปรับ NG ตามขั้นบันได — เตือนก่อนบันทึกเหมือนตอนรับคืน
+    const ok = await gate({ returned_at: date, lines: lines.map(l => ({ issue_id: l.issue_id, ng_cut: l.ng_cut, ng_rope: l.ng_rope, good_qty: -(l.ng_cut + l.ng_rope + l.uncut_qty) })) } as any);
+    if (!ok) { setBusy(false); return; }
+    try {
+      await returnApi.lateNg({ reported_at: date, ng_note: note, lines });
+      onDone(); onClose();
+    } catch (e: any) { setError(e?.response?.data?.error || 'บันทึกไม่สำเร็จ'); }
+    finally { setBusy(false); }
+  };
+
+  const cellInput = (it: any, k: 'ng_cut' | 'ng_rope' | 'uncut_qty', tone: string, label: string) => (
+    <input type="number" min="0" inputMode="numeric" placeholder="0"
+      className={`input !min-h-0 !h-9 !py-0 !px-2 w-full text-right tabular-nums ${n(v(it.id)[k]) > 0 ? tone : ''}`}
+      value={v(it.id)[k]} onChange={e => setV(it.id, k, e.target.value)} aria-label={`${label} ${it.product_name}`} />
+  );
+
+  return (
+    <Modal title="แจ้ง NG ภายหลัง (โรงงานเจองานเสีย)" onClose={onClose} wide>
+      <div className="space-y-3">
+        <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span><span className="font-mono text-xs text-gray-400 mr-1">{row.memberCode}</span><b className="text-gray-800">{row.memberName}</b></span>
+          <span className="text-gray-400 text-xs">งานที่เบิกวันที่ {row.date}</span>
+        </div>
+        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
+          ใช้เมื่อคืนงานไปแล้ว แต่โรงงานแจ้งทีหลังว่าเจองานตัดเสียของคนนี้ (สมาชิกไม่ได้แจ้ง NG ตอนคืน) ·
+          ค่าแรงของจำนวนที่กรอกจะถูก <b>หักคืนในรอบค่าแรงของวันที่โรงงานแจ้ง</b> และนับเป็น NG ตามกติกาค่าปรับ (เตือนก่อนบันทึก) ·
+          "ไม่ได้ตัด" = ของกลับมาเป็นงานรอเบิก
+        </p>
+        <div className="flex flex-wrap gap-3 items-end">
+          <label className="text-sm">
+            <span className="block text-xs text-gray-500 mb-1">วันที่โรงงานแจ้ง</span>
+            <input type="date" className="input !min-h-[38px]" value={date} onChange={e => setDate(e.target.value)} />
+          </label>
+          <label className="text-sm flex-1 min-w-[220px]">
+            <span className="block text-xs text-gray-500 mb-1">รายละเอียด (แสดงในใบเสร็จค่าแรง)</span>
+            <input type="text" className="input !min-h-[38px] w-full" placeholder="เช่น โรงงานแจ้งตัดโดนสายไฟ / ตัดสั้นเกิน" value={note} onChange={e => setNote(e.target.value)} />
+          </label>
+        </div>
+        {items === null ? (
+          <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> กำลังโหลด...</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-3">ยังไม่มีงานดีที่คืนแล้วในบรรทัดนี้</p>
+        ) : (
+          <div className="overflow-x-auto border rounded-xl">
+            <table className="w-full text-sm tabular-nums">
+              <thead className="bg-gray-50 text-xs text-gray-600">
+                <tr>
+                  <th className="px-3 py-2 text-left">ชนิดงาน</th>
+                  <th className="px-2 py-2 text-right">คืนงานดีแล้ว</th>
+                  <th className="px-2 py-2 text-right w-28 text-rose-700">NG สมาชิก</th>
+                  <th className="px-2 py-2 text-right w-28 text-rose-700">NG ดึงเชือก</th>
+                  <th className="px-2 py-2 text-right w-28 text-slate-700">ไม่ได้ตัด</th>
+                  <th className="px-3 py-2 text-right">หักค่าแรง</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(it => {
+                  const bad = sumOf(it.id) > it.good + 0.001;
+                  return (
+                    <tr key={it.id} className={`border-t ${bad ? 'bg-rose-50' : ''}`}>
+                      <td className="px-3 py-1.5">
+                        <span className="flex items-center gap-1.5">{it.product_color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ background: it.product_color }} />}<span className="font-medium text-gray-800">{it.product_name}</span></span>
+                        <span className="text-[11px] font-mono text-blue-600">{it.code}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right text-gray-700">{it.good.toLocaleString('th-TH')}</td>
+                      <td className="px-2 py-1.5">{cellInput(it, 'ng_cut', '!border-rose-300 bg-rose-50', 'NG สมาชิก')}</td>
+                      <td className="px-2 py-1.5">{cellInput(it, 'ng_rope', '!border-rose-300 bg-rose-50', 'NG ดึงเชือก')}</td>
+                      <td className="px-2 py-1.5">{cellInput(it, 'uncut_qty', '!border-slate-400 bg-slate-100', 'ไม่ได้ตัด')}</td>
+                      <td className="px-3 py-1.5 text-right">
+                        {bad ? <span className="text-xs text-rose-600">เกินงานดีที่คืน</span>
+                          : sumOf(it.id) > 0 ? <span className="font-semibold text-rose-700">−{fmtB(deductOf(it))}</span> : <span className="text-gray-300">–</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {filled.length > 0 && !over.length && (
+          <div className="flex items-center justify-between text-sm bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+            <span className="text-rose-800">หักค่าแรงคืนรวม <span className="text-xs text-rose-700/80">(+ ค่าปรับ NG ถ้ามี จะแจ้งก่อนบันทึก)</span></span>
+            <b className="text-rose-700 tabular-nums">−{fmtB(totalDeduct)} บาท</b>
+          </div>
+        )}
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || !filled.length || over.length > 0} onClick={save}>
+            {busy ? 'กำลังบันทึก...' : 'บันทึก NG ภายหลัง'}
+          </button>
+        </div>
+      </div>
+      {dialog}
     </Modal>
   );
 }
@@ -1955,6 +2102,8 @@ export default function Issues() {
   const openDeleteRow = useCallback((row: MatrixRow) => setDeleteRow(row), []);
   const [undoRow, setUndoRow] = useState<MatrixRow | null>(null);
   const openUndoRow = useCallback((row: MatrixRow) => setUndoRow(row), []);
+  const [lateNgRow, setLateNgRow] = useState<MatrixRow | null>(null);   // แจ้ง NG ภายหลัง (โรงงานเจองานเสีย)
+  const openLateNgRow = useCallback((row: MatrixRow) => setLateNgRow(row), []);
   const handleQtySaved = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -2218,7 +2367,7 @@ export default function Issues() {
             </div>
           )}
           <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow}
-            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} />
+            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} onLateNgRow={openLateNgRow} />
         </>
       )}
 
@@ -2352,6 +2501,9 @@ export default function Issues() {
       )}
       {undoRow && (
         <UndoReturnDialog row={undoRow} onClose={() => setUndoRow(null)} onDone={handleQtySaved} />
+      )}
+      {lateNgRow && (
+        <LateNgDialog row={lateNgRow} onClose={() => setLateNgRow(null)} onDone={handleQtySaved} />
       )}
       {returnRow && (
         <QuickReturnModal row={returnRow} onClose={() => setReturnRow(null)} onSaved={handleQtySaved} />

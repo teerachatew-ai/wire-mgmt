@@ -48,11 +48,12 @@ export interface MatrixCell { date: string; memberCode: string; memberName: stri
 // แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
 export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow }: {
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow, onLateNgRow }: {
   issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
   onReturnRow?: (row: MatrixRow) => void;
   onDeleteRow?: (row: MatrixRow) => void;       // ลบใบเบิกทุกชนิดของคนนี้วันนี้ (ทั้งบรรทัด)
   onUndoReturnRow?: (row: MatrixRow) => void;   // ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่งเหมือนเดิม
+  onLateNgRow?: (row: MatrixRow) => void;       // แจ้ง NG ภายหลัง (โรงงานเจองานเสียหลังรับคืนแล้ว)
 }) {
   if (issues.length === 0) return null;
 
@@ -285,6 +286,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                     Undo
                                   </button>
                                 )}
+                                {onLateNgRow && m.returned > 0 && (
+                                  <button type="button"
+                                    onClick={() => onLateNgRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                                    title="แจ้ง NG ภายหลัง — โรงงานเจองานตัดเสียของคนนี้หลังรับคืนแล้ว (หักค่าแรงย้อนหลัง)"
+                                    className="inline-flex items-center rounded border border-rose-200 bg-white px-1.5 py-px text-[10px] font-semibold text-rose-600 md:opacity-60 md:group-hover:opacity-100 focus-visible:opacity-100 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 transition whitespace-nowrap">
+                                    + NG
+                                  </button>
+                                )}
                               </div>
                             )}
                             {(() => {
@@ -350,6 +359,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                 {onEditRow && <span className="flex items-center gap-1.5"><Pencil size={12} /> คลิกที่ชื่อสมาชิกเพื่อแก้จำนวน/ย้ายวันที่ของงานทุกชนิดที่เบิกวันนั้นทีเดียว</span>}
                 {onReturnRow && <span className="flex items-center gap-1.5"><RotateCcw size={12} /> คลิกที่ยอดค้างส่ง (สีส้ม) เพื่อรับคืนงานทุกชนิดที่ค้างของคนนั้นทีเดียว</span>}
                 {onUndoReturnRow && <span className="flex items-center gap-1.5"><span className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-500">Undo</span> = ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่ง</span>}
+                {onLateNgRow && <span className="flex items-center gap-1.5"><span className="rounded border border-rose-200 bg-white px-1 text-[10px] font-semibold text-rose-600">+ NG</span> = โรงงานแจ้ง NG ภายหลัง (หักค่าแรงย้อนหลัง)</span>}
                 {onDeleteRow && <span className="flex items-center gap-1.5"><Trash2 size={12} /> ถังขยะหน้าชื่อ = ลบใบเบิกทั้งบรรทัดของคนนั้น</span>}
                 {!onEdit && onOpen && <span className="flex items-center gap-1.5"><Eye size={12} /> คลิกที่ตัวเลขเพื่อดูรายละเอียดใบเบิก (เฉพาะช่องที่มีใบเดียว)</span>}
                 <span className="flex items-center gap-1.5 flex-wrap">

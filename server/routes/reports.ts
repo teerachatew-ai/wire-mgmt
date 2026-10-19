@@ -1221,7 +1221,7 @@ function buildPayrollDetail(month: string) {
   const detailRowsStmt = prepare(`
     SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
       p.name as product_name, p.color, p.unit, p.wage_per_unit,
-      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty, r.notes, r.ng_note
+      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty, r.uncut_qty, r.notes, r.ng_note, r.kind
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle = ?
     ORDER BY i.issued_at, r.id
