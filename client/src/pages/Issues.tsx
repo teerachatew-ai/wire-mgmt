@@ -1608,6 +1608,22 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   const over = filled.filter(it => sumOf(it.id) > it.good + 0.001);
   const totalDeduct = filled.reduce((s, it) => s + deductOf(it), 0);
   const fmtB = (x: number) => x.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // ค่าปรับ NG (ขั้นบันได) คิดแยกจากค่าแรงที่หักคืน — พรีวิวสดขณะกรอก
+  const penKey = useDebounced(JSON.stringify({ date, l: filled.map(it => [it.id, n(v(it.id).ng_cut), n(v(it.id).ng_rope), sumOf(it.id)]) }), 400);
+  const [pen, setPen] = useState<{ amount: number; strikes: any[]; loading: boolean } | null>(null);
+  useEffect(() => {
+    const k = JSON.parse(penKey);
+    const lines = k.l.filter((x: any) => x[1] > 0 || x[2] > 0).map((x: any) => ({ issue_id: x[0], ng_cut: x[1], ng_rope: x[2], good_qty: -x[3] }));
+    if (!lines.length) { setPen(null); return; }
+    let alive = true;
+    setPen(p => ({ amount: p?.amount || 0, strikes: p?.strikes || [], loading: true }));
+    returnApi.ngPreview({ returned_at: k.date, lines }).then((d: any) => {
+      if (!alive) return;
+      const m = (d.members || [])[0];
+      setPen({ amount: m?.amount || 0, strikes: m?.strikes || [], loading: false });
+    }).catch(() => alive && setPen(null));
+    return () => { alive = false; };
+  }, [penKey]);
 
   const save = async () => {
     if (!filled.length || over.length) return;
@@ -1665,7 +1681,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
                   <th className="px-2 py-2 text-right w-28 text-rose-700">NG สมาชิก</th>
                   <th className="px-2 py-2 text-right w-28 text-rose-700">NG ดึงเชือก</th>
                   <th className="px-2 py-2 text-right w-28 text-slate-700">ไม่ได้ตัด</th>
-                  <th className="px-3 py-2 text-right">หักค่าแรง</th>
+                  <th className="px-3 py-2 text-right">ค่าแรงที่หักคืน</th>
                 </tr>
               </thead>
               <tbody>
@@ -1693,9 +1709,32 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
           </div>
         )}
         {filled.length > 0 && !over.length && (
-          <div className="flex items-center justify-between text-sm bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-            <span className="text-rose-800">หักค่าแรงคืนรวม <span className="text-xs text-rose-700/80">(+ ค่าปรับ NG ถ้ามี จะแจ้งก่อนบันทึก)</span></span>
-            <b className="text-rose-700 tabular-nums">−{fmtB(totalDeduct)} บาท</b>
+          <div className="text-sm bg-rose-50 border border-rose-200 rounded-xl divide-y divide-rose-100">
+            <div className="flex items-center justify-between px-3 py-2">
+              <span className="text-rose-800">① ค่าแรงที่หักคืน <span className="text-xs text-rose-700/70">(ค่าแรงของเส้นที่เสีย/ไม่ได้ตัด ที่เคยจ่ายไปแล้ว)</span></span>
+              <b className="text-rose-700 tabular-nums">−{fmtB(totalDeduct)}</b>
+            </div>
+            <div className="px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-rose-800">② ค่าปรับ NG <span className="text-xs text-rose-700/70">(ตามครั้งที่ · อัตราในหน้าตั้งค่า)</span></span>
+                {pen?.loading ? <Loader2 size={14} className="animate-spin text-rose-400" />
+                  : <b className="text-rose-700 tabular-nums">{(pen?.amount || 0) > 0 ? `−${fmtB(pen!.amount)}` : '0.00'}</b>}
+              </div>
+              {(pen?.strikes || []).map((st: any) => (
+                <div key={st.strike} className="text-[11px] text-rose-700/80 mt-0.5">
+                  NG ครั้งที่ {st.strike} · งานเบิก {st.issue_day} · {st.detail}
+                  {st.amount <= 0 && (st.strike === 1 ? ' — ตักเตือน / ยังไม่ได้ตั้งอัตราครั้งแรก' : ' — ยังไม่ได้ตั้งอัตรา')}
+                  {!st.is_new && ' (นับรวมกับครั้งเดิมของวันเบิกนี้)'}
+                </div>
+              ))}
+              {!pen?.loading && !(pen?.strikes || []).length && filled.some(it => n(v(it.id).ng_cut) > 0 || n(v(it.id).ng_rope) > 0) && (
+                <div className="text-[11px] text-rose-700/70 mt-0.5">อยู่ในเกณฑ์ที่ยอมรับได้ — ไม่ปรับ ไม่นับครั้ง</div>
+              )}
+            </div>
+            <div className="flex items-center justify-between px-3 py-2 font-semibold">
+              <span className="text-rose-900">รวมหักจากค่าแรง (รอบของวันที่โรงงานแจ้ง)</span>
+              <span className="text-rose-700 tabular-nums">−{fmtB(totalDeduct + (pen?.amount || 0))} บาท</span>
+            </div>
           </div>
         )}
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
