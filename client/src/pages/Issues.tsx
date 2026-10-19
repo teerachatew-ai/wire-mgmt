@@ -1576,7 +1576,10 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   const [items, setItems] = useState<any[] | null>(null);
   const [vals, setVals] = useState<Record<number, { ng_cut: string; ng_rope: string; uncut_qty: string }>>({});
   const [date, setDate] = useState(new Intl.DateTimeFormat('en-CA').format(new Date()));
-  const [note, setNote] = useState('');
+  // รายละเอียด: เลือกจากรายการ · "อื่นๆ" จึงพิมพ์เองได้
+  const [reason, setReason] = useState('ตัดโดนสายไฟ');
+  const [custom, setCustom] = useState('');
+  const note = reason === 'อื่นๆ' ? custom.trim() : reason;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -1661,10 +1664,20 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
             <span className="block text-xs text-gray-500 mb-1">วันที่โรงงานแจ้ง</span>
             <input type="date" className="input !min-h-[38px]" value={date} onChange={e => setDate(e.target.value)} />
           </label>
-          <label className="text-sm flex-1 min-w-[220px]">
+          <div className="text-sm flex-1 min-w-[220px]">
             <span className="block text-xs text-gray-500 mb-1">รายละเอียด (แสดงในใบเสร็จค่าแรง)</span>
-            <input type="text" className="input !min-h-[38px] w-full" placeholder="เช่น โรงงานแจ้งตัดโดนสายไฟ / ตัดสั้นเกิน" value={note} onChange={e => setNote(e.target.value)} />
-          </label>
+            <div className="flex gap-2">
+              <select className="input !min-h-[38px] w-auto" value={reason} onChange={e => setReason(e.target.value)} aria-label="รายละเอียด NG">
+                <option value="ตัดโดนสายไฟ">ตัดโดนสายไฟ</option>
+                <option value="ตัดโดนยางปลอกหุ้มสีดำ">ตัดโดนยางปลอกหุ้มสีดำ</option>
+                <option value="อื่นๆ">อื่นๆ (พิมพ์เอง)</option>
+              </select>
+              {reason === 'อื่นๆ' && (
+                <input type="text" className="input !min-h-[38px] flex-1 min-w-0" placeholder="พิมพ์รายละเอียด" autoFocus
+                  value={custom} onChange={e => setCustom(e.target.value)} aria-label="รายละเอียดอื่นๆ" />
+              )}
+            </div>
+          </div>
         </div>
         {items === null ? (
           <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> กำลังโหลด...</p>
@@ -1739,7 +1752,7 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600">{error}</div>}
         <div className="flex gap-2 justify-end">
           <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
-          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || !filled.length || over.length > 0} onClick={save}>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || !filled.length || over.length > 0 || !note} onClick={save}>
             {busy ? 'กำลังบันทึก...' : 'บันทึก NG ภายหลัง'}
           </button>
         </div>
