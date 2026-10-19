@@ -16,7 +16,7 @@ import { prepare } from './db';
      นับ "ครั้ง" ต่อสมาชิก สะสมต่อเนื่อง (ไม่รีเซ็ตรายเดือน) นับรวม NG ตัดโดนสายไฟ + NG ดึงเชือก
        1 ครั้ง = งานที่เบิกไป "วันที่เบิกเดียวกัน" ที่คืนมามี NG (กี่เส้น กี่ชนิดงาน คืนกี่รอบ ก็ยังเป็นครั้งเดียว)
        เรียงลำดับครั้งตามวันที่รับคืนรายการแรกที่เจอ NG ของวันที่เบิกนั้น
-     ครั้งที่ 1 = ตักเตือน (ไม่หักเงิน ทั้งสองชนิด)
+     ครั้งที่ 1 = NG ตัดโดนสายไฟ ตักเตือน (ไม่หักเงิน) · NG ดึงเชือก หักเลย × ng_rope_rate_1 (ตั้งแต่ ROPE_FIRST_FROM)
      ครั้งที่ 2 = NG ตัดโดนสายไฟ × ng_group_rate_2 + NG ดึงเชือก × ng_rope_rate
      ครั้งที่ 3 ขึ้นไป = NG ตัดโดนสายไฟ × ng_group_rate_3 + NG ดึงเชือก × ng_rope_rate
      ค่าปรับหักในรอบค่าแรงของรายการรับคืนที่มี NG นั้น
@@ -28,6 +28,8 @@ import { prepare } from './db';
    ค่าปรับคิด "ต่อรายการรับคืน" ได้ทั้งหมด จึงรวมย่อยตามสินค้า/วันที่ แล้วบวกกันได้เท่ายอดรวมเป๊ะ */
 
 export const EFFECTIVE_LOT_FROM = '2026-08-28';
+// NG ดึงเชือก "ครั้งแรกหักเลย" มีผลกับรายการรับคืนตั้งแต่วันนี้ — ก่อนหน้านั้นครั้งแรกยังเป็นตักเตือน (ไม่แก้ของอดีต)
+export const ROPE_FIRST_FROM = '2026-10-19';
 
 export type WagePolicy = {
   defectPct: number;   // ค่าแรงของ NG ตัดโดนสายไฟ/NG ดึงเชือก (สัดส่วนของค่าแรงเต็ม)
@@ -36,6 +38,7 @@ export type WagePolicy = {
   groupRate2: number;  // NG ตัดโดนสายไฟ ครั้งที่ 2 (บาท/เส้น)
   groupRate3: number;  // NG ตัดโดนสายไฟ ครั้งที่ 3 ขึ้นไป (บาท/เส้น)
   ropeRate: number;    // NG ดึงเชือก ตั้งแต่ครั้งที่ 2 (บาท/เส้น)
+  ropeRate1: number;   // NG ดึงเชือก ครั้งแรก (บาท/เส้น) — หักเลย ไม่มีตักเตือน
   cutAllow: number;    // เกณฑ์ NG ตัดโดนสายไฟที่ยอมรับได้ต่อใบเบิก (0 = ไม่มีเกณฑ์)
   cutAllowUnit: 'percent' | 'pieces';
 };
@@ -54,6 +57,7 @@ export function loadWagePolicy(cfg?: Record<string, any>): WagePolicy {
     groupRate2: num('ng_group_rate_2', 0),
     groupRate3: num('ng_group_rate_3', 0),
     ropeRate: num('ng_rope_rate', 0),
+    ropeRate1: num('ng_rope_rate_1', 0),
     cutAllow: Math.max(0, num('ng_cut_allow', 0)),
     cutAllowUnit: c.ng_cut_allow_unit === 'pieces' ? 'pieces' : 'percent',
   };
@@ -91,8 +95,9 @@ export type PenaltyRow = {
 /** รายการรับคืนสมมติ (ยังไม่บันทึก) สำหรับพรีวิวก่อนกดยืนยัน */
 export type VirtualReturn = { issue_id: number; returned_at: string; ng_cut: number; ng_rope: number; good_qty?: number; ng_note?: string };
 
-const tierRates = (pol: WagePolicy, strike: number) =>
-  strike <= 1 ? { cut: 0, rope: 0 } : { cut: strike === 2 ? pol.groupRate2 : pol.groupRate3, rope: pol.ropeRate };
+const tierRates = (pol: WagePolicy, strike: number, date: string) =>
+  strike <= 1 ? { cut: 0, rope: String(date) >= ROPE_FIRST_FROM ? pol.ropeRate1 : 0 }
+    : { cut: strike === 2 ? pol.groupRate2 : pol.groupRate3, rope: pol.ropeRate };
 
 /** ค่าปรับรายรายการรับคืน — นับครั้งจากประวัติทั้งหมดเสมอ แล้วค่อยกรองรอบ/สมาชิกตอนส่งออก
     extra = รายการสมมติ (id ติดลบ) ใช้พรีวิว · excludeId = รายการที่กำลังแก้ไข (ไม่นับของเดิม) */
@@ -153,7 +158,7 @@ export function computePenalties(pol: WagePolicy,
       if (cutPen > 0 || ngRope > 0) {
         if (!strikeOf.has(r.issue_date)) strikeOf.set(r.issue_date, strikeOf.size + 1);
         row.strike = strikeOf.get(r.issue_date)!;
-        const t = tierRates(pol, row.strike);
+        const t = tierRates(pol, row.strike, r.d);
         row.cut_rate = t.cut; row.rope_rate = t.rope;
         row.amount = cutPen * t.cut + ngRope * t.rope;
       }
@@ -233,10 +238,14 @@ export function deductionLines(rows: PenaltyRow[], pol: WagePolicy): DeductionLi
   }
   for (const s of strikeSummaries(rows)) {
     const title = `NG ครั้งที่ ${s.strike} · งานเบิก ${thDay(s.issue_date)}`;
-    const suffix = s.strike === 1 ? ' — ตักเตือน' : s.amount <= 0 ? ' — ยังไม่ได้ตั้งอัตราค่าปรับ' : '';
+    // ครั้งแรก: NG สมาชิกตักเตือน แต่ดึงเชือกหักเลย (ถ้าตั้งอัตราไว้) — มีเงินหักเมื่อไหร่ก็เป็นบรรทัดหักเงิน
+    const hasCut = Object.keys(s.cut_items).length > 0;
+    const suffix = s.strike === 1
+      ? (s.amount > 0 ? (hasCut ? ' — NG สมาชิกตักเตือน' : '') : ' — ตักเตือน')
+      : s.amount <= 0 ? ' — ยังไม่ได้ตั้งอัตราค่าปรับ' : '';
     const detail = strikeDetail(s) + suffix;
-    lines.push({ label: `${title} · ${detail}`, title, detail, amount: s.amount > 0 && s.strike > 1 ? s.amount : 0,
-      note: s.strike === 1 || s.amount <= 0 ? 'warn' : undefined, strike: s.strike, issue_date: s.issue_date });
+    lines.push({ label: `${title} · ${detail}`, title, detail, amount: s.amount > 0 ? s.amount : 0,
+      note: s.amount <= 0 ? 'warn' : undefined, strike: s.strike, issue_date: s.issue_date });
   }
   return lines;
 }

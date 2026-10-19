@@ -188,12 +188,18 @@ export default function SettingsPage() {
               <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_group_rate_3 || ''} onChange={e => set('ng_group_rate_3', e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG ดึงเชือก <span className="font-normal text-gray-400">(ไม่มีตักเตือน — ครั้งแรกหักเลย)</span></div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">NG ดึงเชือก <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
-              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate || ''} onChange={e => set('ng_rope_rate', e.target.value)} />
-              <p className="text-xs text-gray-400 mt-1">ตั้งแต่ครั้งที่ 2 (ครั้งแรกตักเตือน)</p>
+              <label className="label">ครั้งแรก <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
+              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate_1 || ''} onChange={e => set('ng_rope_rate_1', e.target.value)} />
             </div>
+            <div>
+              <label className="label">ครั้งที่ 2 ขึ้นไป <span className="text-[11px] text-gray-400 font-normal">บาท/เส้น</span></label>
+              <input type="number" min="0" step="0.5" className="input" placeholder="0" value={current.ng_rope_rate || ''} onChange={e => set('ng_rope_rate', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">งานแก้ไข <span className="text-[11px] text-gray-400 font-normal">หักค่าแรง %</span></label>
               <input type="number" min="0" max="100" step="1" className="input" placeholder="0" value={current.rework_deduct_percent || ''} onChange={e => set('rework_deduct_percent', e.target.value)} />

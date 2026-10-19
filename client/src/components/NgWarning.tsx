@@ -4,7 +4,7 @@ import { returnApi } from '../api';
 
 /* ── หน้าต่างเตือนงาน NG ก่อนยืนยันรับคืน ──────────────────────────────────
    กติกา (server/wagePolicy.ts): งานจากล็อตตั้งแต่ 28 ส.ค. 2569 · นับครั้งสะสมต่อสมาชิก
-   รวม NG โดยสมาชิก + NG ดึงเชือก · 1 วันที่เบิก = 1 ครั้ง · ครั้งที่ 1 ตักเตือน ครั้งที่ 2 ขึ้นไปมีค่าปรับ
+   รวม NG โดยสมาชิก + NG ดึงเชือก · 1 วันที่เบิก = 1 ครั้ง · ครั้งที่ 1: NG สมาชิกตักเตือน แต่ดึงเชือกหักเลย · ครั้งที่ 2 ขึ้นไปมีค่าปรับ
    ใช้: const { gate, dialog } = useNgGate(); ... if (!(await gate({ returned_at, lines }))) return; ... {dialog}
    ถ้าไม่มี NG หรือพรีวิวไม่สำเร็จ gate จะผ่านทันที (ไม่ขวางการรับคืน) */
 
@@ -71,10 +71,10 @@ function NgWarningDialog({ data, onCancel, onConfirm }: { data: any; onCancel: (
                       {!s.is_new && <div className="text-[11px] text-gray-500">นับรวมกับครั้งที่ {s.strike} เดิม (งานวันที่เบิกเดียวกัน ไม่นับเพิ่ม)</div>}
                     </div>
                     <div className="shrink-0 text-right">
-                      {s.strike === 1 ? (
-                        <span className="text-xs font-medium text-amber-700">ตักเตือน<br /><span className="text-gray-400 font-normal">ยังไม่มีค่าปรับ</span></span>
-                      ) : s.amount > 0 ? (
+                      {s.amount > 0 ? (
                         <span className="text-rose-600 font-bold tabular-nums">−{money(s.amount)} ฿</span>
+                      ) : s.strike === 1 ? (
+                        <span className="text-xs font-medium text-amber-700">ตักเตือน<br /><span className="text-gray-400 font-normal">ยังไม่มีค่าปรับ</span></span>
                       ) : (
                         <span className="text-[11px] text-gray-500">ยังไม่ได้ตั้ง<br />อัตราค่าปรับ</span>
                       )}
