@@ -1762,6 +1762,111 @@ function LateNgDialog({ row, onClose, onDone }: { row: MatrixRow; onClose: () =>
   );
 }
 
+/* ── ย้ายล็อตของใบเบิก ── (คลิกป้ายล็อตในตาราง)
+   เบิกไปแล้วเพิ่งรู้ว่าของมาจากล็อตอื่น → เลือกล็อตใหม่ทีละใบ (ช่องหนึ่งอาจมีหลายใบ)
+   เลือกได้เฉพาะล็อตของชนิดงานเดียวกันที่มาถึงแล้ว ณ วันที่เบิก · แสดงของคงเหลือของแต่ละล็อต + ผลหลังย้าย */
+function MoveLotDialog({ cell, onClose, onDone }: { cell: MatrixCell; onClose: () => void; onDone: () => void }) {
+  const items: any[] = cell.items || [];
+  const pid = items[0]?.product_id;
+  const { data: lots = [], isLoading } = useQuery({ queryKey: ['receive-lots', 'product', pid], queryFn: () => receiveApi.lots(pid), enabled: !!pid });
+  const [pick, setPick] = useState<Record<number, string>>(() => Object.fromEntries(items.map((i: any) => [i.id, i.lot_date || ''])));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const issueDay = (i: any) => String(i.issued_at).slice(0, 10);
+  const lotList = (lots as any[]).slice().sort((a, b) => b.lot_date.localeCompare(a.lot_date));
+  const remainOf = (d: string) => Number((lotList.find(l => l.lot_date === d) || {}).remaining_qty) || 0;
+  const changed = items.filter((i: any) => pick[i.id] && pick[i.id] !== (i.lot_date || ''));
+  // คงเหลือของล็อตปลายทางหลังย้าย (ล็อตต้นทางได้คืน ล็อตปลายทางถูกหัก)
+  const after = (d: string) => {
+    let v = remainOf(d);
+    for (const i of changed) {
+      const q = Number(i.quantity) || 0;
+      if (pick[i.id] === d) v -= q;
+      if ((i.lot_date || '') === d) v += q;
+    }
+    return v;
+  };
+  const touched = [...new Set(changed.flatMap((i: any) => [pick[i.id], i.lot_date].filter(Boolean)))].sort() as string[];
+
+  const save = async () => {
+    setBusy(true); setError('');
+    const failed: string[] = [];
+    for (const i of changed) {
+      try { await issueApi.moveLot(i.id, pick[i.id]); }
+      catch (e: any) { failed.push(`${i.code}: ${e?.response?.data?.error || 'ย้ายไม่สำเร็จ'}`); }
+    }
+    setBusy(false);
+    onDone();
+    if (failed.length) setError(failed.join('\n')); else onClose();
+  };
+
+  return (
+    <Modal title="ย้ายล็อตของใบเบิก" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="text-sm bg-gray-50 rounded-xl px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span><span className="font-mono text-xs text-gray-400 mr-1">{cell.memberCode}</span><b className="text-gray-800">{cell.memberName}</b></span>
+          <span className="flex items-center gap-1.5 text-gray-600">
+            {cell.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300" style={{ background: cell.color }} />}{cell.productName}
+          </span>
+          <span className="text-gray-400 text-xs">เบิกวันที่ {cell.date}</span>
+        </div>
+        {isLoading ? (
+          <p className="text-sm text-gray-400 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> กำลังโหลดล็อต...</p>
+        ) : (
+          <div className="border rounded-xl divide-y">
+            {items.map((i: any) => {
+              const opts = lotList.filter(l => l.lot_date <= issueDay(i));
+              const moved = pick[i.id] && pick[i.id] !== (i.lot_date || '');
+              return (
+                <div key={i.id} className={`flex flex-wrap items-center gap-3 px-3 py-2.5 ${moved ? 'bg-blue-50/50' : ''}`}>
+                  <div className="flex-1 min-w-[140px]">
+                    <span className="font-mono text-[11px] text-blue-600">{i.code}</span>
+                    <span className="ml-2 font-semibold tabular-nums">{Number(i.quantity).toLocaleString('th-TH')} {i.unit || 'เส้น'}</span>
+                    <div className="text-[11px] text-gray-400">ล็อตเดิม: {i.lot_date ? shortLot(i.lot_date) : 'ไม่ระบุ'}</div>
+                  </div>
+                  <label className="text-xs text-gray-500 flex items-center gap-2">
+                    ย้ายไปล็อต
+                    <select className="input !min-h-[36px] !py-0 text-sm w-60" value={pick[i.id] || ''} onChange={e => setPick(p => ({ ...p, [i.id]: e.target.value }))}>
+                      {!i.lot_date && <option value="">— เลือกล็อต —</option>}
+                      {opts.map(l => (
+                        <option key={l.lot_date} value={l.lot_date}>
+                          {shortLot(l.lot_date)}{l.lot_date === i.lot_date ? ' (เดิม)' : ''} · เหลือ {Number(l.remaining_qty).toLocaleString('th-TH')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {changed.length > 0 && (
+          <div className="text-xs bg-gray-50 border rounded-xl px-3 py-2 space-y-0.5">
+            <div className="font-medium text-gray-600 mb-1">ของรอเบิกของแต่ละล็อต หลังย้าย</div>
+            {touched.map(d => {
+              const a = after(d);
+              return (
+                <div key={d} className="flex justify-between tabular-nums">
+                  <span className="text-gray-600">ล็อต {shortLot(d)}</span>
+                  <span>{remainOf(d).toLocaleString('th-TH')} → <b className={a < 0 ? 'text-rose-600' : 'text-gray-800'}>{a.toLocaleString('th-TH')}</b>{a < 0 && ' (ติดลบ = เบิกเกินของที่ล็อตนี้มี)'}</span>
+                </div>
+              );
+            })}
+            <p className="text-[11px] text-gray-400 pt-1">ย้ายแค่ล็อต จำนวนเบิก/ค่าแรงไม่เปลี่ยน · ถ้าใบนี้เคยแก้ยอดตามที่สมาชิกแจ้งขาด/เกิน ส่วนต่างจะย้ายไปอยู่ล็อตใหม่ด้วย</p>
+          </div>
+        )}
+        {error && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 whitespace-pre-line">{error}</div>}
+        <div className="flex gap-2 justify-end">
+          <button type="button" className="btn-secondary" onClick={onClose}>ยกเลิก</button>
+          <button type="button" className="btn-primary disabled:opacity-40" disabled={busy || changed.length === 0} onClick={save}>
+            {busy ? 'กำลังย้าย...' : changed.length ? `ย้ายล็อต ${changed.length} ใบ` : 'ย้ายล็อต'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── Delete Issue Dialog ── */
 function DeleteIssueDialog({ issue, onClose, onDeleted }: any) {
   useScrollLock();
@@ -2155,6 +2260,8 @@ export default function Issues() {
   const openUndoRow = useCallback((row: MatrixRow) => setUndoRow(row), []);
   const [lateNgRow, setLateNgRow] = useState<MatrixRow | null>(null);   // แจ้ง NG ภายหลัง (โรงงานเจองานเสีย)
   const openLateNgRow = useCallback((row: MatrixRow) => setLateNgRow(row), []);
+  const [moveLotCell, setMoveLotCell] = useState<MatrixCell | null>(null);   // คลิกป้ายล็อต → ย้ายล็อต
+  const openMoveLot = useCallback((cell: MatrixCell) => setMoveLotCell(cell), []);
   const handleQtySaved = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -2418,7 +2525,7 @@ export default function Issues() {
             </div>
           )}
           <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow}
-            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} onLateNgRow={openLateNgRow} />
+            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} onLateNgRow={openLateNgRow} onMoveLot={openMoveLot} />
         </>
       )}
 
@@ -2555,6 +2662,9 @@ export default function Issues() {
       )}
       {lateNgRow && (
         <LateNgDialog row={lateNgRow} onClose={() => setLateNgRow(null)} onDone={handleQtySaved} />
+      )}
+      {moveLotCell && (
+        <MoveLotDialog cell={moveLotCell} onClose={() => setMoveLotCell(null)} onDone={handleQtySaved} />
       )}
       {returnRow && (
         <QuickReturnModal row={returnRow} onClose={() => setReturnRow(null)} onSaved={handleQtySaved} />

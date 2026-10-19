@@ -58,6 +58,7 @@ const ACTIONS: [RegExp, string, string][] = [
   [/^PUT \/issues\/\d+$/, 'แก้ใบเบิก', 'เบิก'],
   [/^POST \/issues\/transfer$/, 'โอนงานให้สมาชิกอื่น', 'เบิก'],
   [/^DELETE \/issues\/\d+$/, 'ลบใบเบิก', 'เบิก'],
+  [/^PATCH \/issues\/\d+\/lot$/, 'ย้ายล็อตใบเบิก', 'เบิก'],
   [/^POST \/returns$/, 'รับคืนงาน', 'รับคืน'],
   [/^POST \/returns\/batch$/, 'รับคืนงาน (เป็นชุด)', 'รับคืน'],
   [/^POST \/returns\/late-ng$/, 'แจ้ง NG ภายหลัง (โรงงานแจ้ง)', 'รับคืน'],

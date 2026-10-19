@@ -211,6 +211,21 @@ router.patch('/:id/quantity', (req, res) => {
   res.json(prepare(`SELECT i.*, m.name as member_name, m.code as member_code, p.name as product_name, p.unit, p.wage_per_unit FROM issues i JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id WHERE i.id = ?`).get(req.params.id));
 });
 
+/* ย้ายล็อตของใบเบิก (เบิกไปแล้ว เพิ่งรู้ว่าของมาจากล็อตอื่น) — แก้แค่ lot_date ไม่แตะจำนวน/ค่าแรง
+   ล็อตปลายทางต้องเป็นล็อตของชนิดงานเดียวกัน และมาถึงแล้ว ณ วันที่เบิก (ไม่ก่อนวันรับของ)
+   ส่วนต่างที่สมาชิกแจ้ง (quantity − orig_quantity) ผูกกับล็อตของใบ → ย้ายตามไปล็อตใหม่ด้วย (ระบบล็อตคิดใหม่เอง) */
+router.patch('/:id/lot', (req, res) => {
+  const issue = prepare(`SELECT id, code, product_id, substr(issued_at, 1, 10) d, lot_date FROM issues WHERE id = ?`).get(req.params.id) as any;
+  if (!issue) return res.status(404).json({ error: 'ไม่พบใบเบิก' });
+  const lot = String(req.body?.lot_date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lot)) return res.status(400).json({ error: 'กรุณาเลือกล็อต' });
+  if (lot > issue.d) return res.status(400).json({ error: `ล็อต ${lot} มาถึงหลังวันที่เบิก (${issue.d}) — เลือกล็อตที่มาถึงก่อนหรือวันเดียวกับที่เบิก` });
+  const has = prepare(`SELECT 1 FROM receives WHERE product_id = ? AND substr(received_at, 1, 10) = ? LIMIT 1`).get(issue.product_id, lot);
+  if (!has) return res.status(400).json({ error: 'ไม่พบล็อตนี้ของชนิดงานนี้' });
+  prepare(`UPDATE issues SET lot_date = ? WHERE id = ?`).run(lot, issue.id);
+  res.json({ ok: true, code: issue.code, from: issue.lot_date, to: lot });
+});
+
 router.put('/:id', (req, res) => {
   const { issued_at, member_id, product_id, quantity, due_date, notes } = req.body;
   const issue = prepare(`SELECT * FROM issues WHERE id = ?`).get(req.params.id) as any;

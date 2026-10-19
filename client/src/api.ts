@@ -58,6 +58,8 @@ export const issueApi = {
   create: (data: any) => api.post('/issues', data).then(r => r.data),
   // สร้างหลายรุ่นให้คนเดียวในรอบเดียว — เร็วกว่ายิงทีละรุ่นมาก (ดู server/routes/issues.ts /batch)
   createBatch: (data: any) => api.post('/issues/batch', data).then(r => r.data),
+  // ย้ายล็อตของใบเบิก (แก้แค่ lot_date)
+  moveLot: (id: number, lot_date: string) => api.patch(`/issues/${id}/lot`, { lot_date }).then(r => r.data),
   update: (id: number, data: any) => api.put(`/issues/${id}`, data).then(r => r.data),
   // แก้เฉพาะจำนวนเบิก (ตารางสรุปรายวัน) — force = ยืนยันแล้วว่าแก้ให้น้อยกว่าที่คืนไปแล้วได้
   // adjustReturns = ให้ตัดยอดรับคืนลงมาให้เท่ากับจำนวนเบิกใหม่ด้วยเลย (ไม่ต้องไปแก้ยอดคืนแยกต่างหาก)

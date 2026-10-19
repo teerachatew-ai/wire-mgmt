@@ -48,12 +48,13 @@ export interface MatrixCell { date: string; memberCode: string; memberName: stri
 // แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
 export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow, onLateNgRow }: {
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow, onLateNgRow, onMoveLot }: {
   issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
   onReturnRow?: (row: MatrixRow) => void;
   onDeleteRow?: (row: MatrixRow) => void;       // ลบใบเบิกทุกชนิดของคนนี้วันนี้ (ทั้งบรรทัด)
   onUndoReturnRow?: (row: MatrixRow) => void;   // ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่งเหมือนเดิม
   onLateNgRow?: (row: MatrixRow) => void;       // แจ้ง NG ภายหลัง (โรงงานเจองานเสียหลังรับคืนแล้ว)
+  onMoveLot?: (cell: MatrixCell) => void;        // คลิกป้ายล็อต → ย้ายล็อตของใบเบิกในช่องนั้น
 }) {
   if (issues.length === 0) return null;
 
@@ -234,15 +235,24 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                               ) : (
                                 <span className="text-gray-200">–</span>
                               )}
-                              {lots.length > 0 && (
+                              {(lots.length > 0 || (onMoveLot && v > 0)) && (
                                 <div className="mt-0.5 leading-none">
-                                  <span className={`inline-block rounded px-1 py-px text-[9px] font-medium whitespace-nowrap border ${
-                                    otherLots.length > 0 ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-gray-50 border-gray-200 text-gray-400'}`}
-                                    title={otherLots.length > 0
-                                      ? `งานล็อตที่โรงงานส่งมาวันที่ ${otherLots.map(shortLot).join(', ')} (ไม่ใช่ล็อตวันเดียวกับที่เบิก)`
-                                      : `งานล็อตที่โรงงานส่งมาวันที่ ${lots.map(shortLot).join(', ')}`}>
-                                    {lots.length === 1 ? `ล็อต ${shortLot(lots[0])}` : `${lots.length} ล็อต`}
-                                  </span>
+                                  {(() => {
+                                    const cls = `inline-block rounded px-1 py-px text-[9px] font-medium whitespace-nowrap border ${
+                                      otherLots.length > 0 ? 'bg-violet-50 border-violet-200 text-violet-600' : 'bg-gray-50 border-gray-200 text-gray-400'}`;
+                                    const label = lots.length === 0 ? 'ไม่ระบุล็อต' : lots.length === 1 ? `ล็อต ${shortLot(lots[0])}` : `${lots.length} ล็อต`;
+                                    const tip = lots.length === 0 ? 'ยังไม่ได้ระบุล็อต'
+                                      : otherLots.length > 0
+                                        ? `งานล็อตที่โรงงานส่งมาวันที่ ${otherLots.map(shortLot).join(', ')} (ไม่ใช่ล็อตวันเดียวกับที่เบิก)`
+                                        : `งานล็อตที่โรงงานส่งมาวันที่ ${lots.map(shortLot).join(', ')}`;
+                                    return onMoveLot ? (
+                                      <button type="button" className={`${cls} cursor-pointer hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300`}
+                                        title={`${tip} — คลิกเพื่อย้ายล็อต`}
+                                        onClick={() => onMoveLot({ date, memberCode: m.code, memberName: m.name, productName: p.name, color: p.color, items })}>
+                                        {label}
+                                      </button>
+                                    ) : <span className={cls} title={tip}>{label}</span>;
+                                  })()}
                                 </div>
                               )}
                             </td>
