@@ -93,7 +93,7 @@ F_TITLE, F_REPRINT, F_SUB, F_NAME, F_BANK = 18.15, 15, 16, 16, 8.5
 F_HEAD = F_DATE = F_DATA = F_TOTAL = F_WAGEROW = F_TABLE
 # ค่าแรงสุทธิรอบนี้ = ส่วนหนึ่งของตาราง จึงใช้ขนาดเดียวกับตัวเลขในตาราง
 # ข้อความยืนยันการรับเงินขยายอีก 10% จากเดิม (เจ้าของขอ — เป็นข้อความที่สมาชิกต้องอ่านก่อนเซ็น)
-F_NG, F_NET, F_SIGN = 10, F_TABLE, 12.7   # ลงชื่อ/วันที่ +10% (11.55 → 12.7)
+F_NG, F_NET, F_SIGN = 10, F_TABLE, 14   # ลงชื่อ/วันที่ +10% อีกรอบ (11.55 → 12.7 → 14)
 F_CONFIRM = F_SIGN
 # บรรทัด "NG ครั้งที่" (กติกาใหม่) — ตัวใหญ่กว่าบรรทัด NG เดิมให้ผู้สูงอายุอ่านได้ · 2 บรรทัดต่อครั้ง ความสูงตายตัว
 F_NGLINE, H_NGLINE2 = 12, 20
@@ -103,7 +103,7 @@ F_NOTE, H_NOTE = 12, 18   # หมายเหตุค่าแรงยกม�
 # แถวที่มีตัวหนังสือไทย (มีสระบน/ล่าง) ต้องสูงอย่างน้อย ~1.35 เท่าของฟอนต์ ไม่งั้นโดนตัดหัว/หาง
 H_TITLE, H_SUB, H_NAME, H_BANK, H_GAP = 26, 22, 22, 13, 6
 H_DATA, H_TOTAL, H_WAGEROW, H_NG, H_NET = 17, 21, 21, 15, 21
-H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 18, 15, 18, 18, 18
+H_CONFIRM, H_SIGNGAP, H_SIGN, H_SIGSPACE, H_DATEROW = 20, 15, 20, 18, 20
 LINE_H = 1.35  # ความสูงต่อบรรทัดของ TH SarabunPSK เทียบกับขนาดฟอนต์
 
 # ── ขนาดตัวหนังสือบนกระดาษ: ปล่อยให้ตัวแปลง PDF เป็นคนย่อให้พอดี 1 หน้า ──────────
@@ -779,7 +779,12 @@ def add_left_label(ws, last_row, r1, r2, text):
         ws.merge_cells(f"A{r1}:A{r2}")
     cell(ws, f"A{r1}", text, font=Font(name=FONT, size=FS(F_DATE), bold=True, color=AMBER),
          align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True))
-    ws.print_area = f"A1:{get_column_letter(LAST_P + 1)}{last_row}"
+    # คอลัมน์ป้ายด้านซ้ายทำให้ตารางเยื้องขวาตอนจัดกึ่งกลางหน้า → ใส่คอลัมน์ว่างกว้างเท่ากันด้านขวาให้สมดุล
+    # (คอลัมน์ซ่อนที่คั่นอยู่ไม่กินที่บนกระดาษ) — ตารางจึงอยู่กึ่งกลางหน้าพอดี
+    pad = get_column_letter(LAST_P + 2 + n_prod)
+    ws.column_dimensions[pad].width = ws.column_dimensions["A"].width
+    ws.column_dimensions[pad].hidden = False
+    ws.print_area = f"A1:{pad}{last_row}"
 
 for m in d["members"]:
     if duplicate_for_pdf:
