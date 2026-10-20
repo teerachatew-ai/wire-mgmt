@@ -1,4 +1,5 @@
 import { prepare } from './db';
+import { computePayCycle, loadCutoffConfig } from './payCycle';
 
 /* ── กติกาค่าแรง + ค่าปรับงานเสีย (แหล่งเดียวของทุกหน้าที่คิดเงินสมาชิก) ─────────────
    ชนิดงานตอนรับคืน
@@ -41,6 +42,7 @@ export type WagePolicy = {
   ropeRate1: number;   // NG ดึงเชือก ครั้งแรก (บาท/เส้น) — หักเลย ไม่มีตักเตือน
   lateRate1: number;   // NG ที่โรงงานพบแล้วแจ้งภายหลัง — ครั้งแรก (บาท/เส้น · 0 = ตักเตือน)
   lateRate2: number;   // NG ที่โรงงานพบแล้วแจ้งภายหลัง — ครั้งที่ 2 ขึ้นไป (บาท/เส้น · 0 = ตักเตือน)
+  strikeResetMonths: number;   // รีเซ็ตการนับครั้ง NG ทุกกี่รอบตัดยอด (0 = ไม่รีเซ็ต นับสะสมตลอด · 1 = ทุกรอบ)
   cutAllow: number;    // เกณฑ์ NG ตัดโดนสายไฟที่ยอมรับได้ต่อใบเบิก (0 = ไม่มีเกณฑ์)
   cutAllowUnit: 'percent' | 'pieces';
 };
@@ -63,6 +65,7 @@ export function loadWagePolicy(cfg?: Record<string, any>): WagePolicy {
     // ค่าเริ่มต้น 5 บาท/เส้น ทั้งครั้งแรกและครั้งต่อไป (ไม่มีตักเตือน) — ตั้ง 0 ในหน้าตั้งค่า = ตักเตือน
     lateRate1: num('late_ng_rate_1', 5),
     lateRate2: num('late_ng_rate_2', 5),
+    strikeResetMonths: Math.max(0, Math.floor(num('ng_strike_reset_months', 0))),
     cutAllow: Math.max(0, num('ng_cut_allow', 0)),
     cutAllowUnit: c.ng_cut_allow_unit === 'pieces' ? 'pieces' : 'percent',
   };
@@ -133,13 +136,29 @@ export function computePenalties(pol: WagePolicy,
   rows.sort((a, b) => a.member_id - b.member_id || String(a.d).localeCompare(String(b.d))
     || (a.id < 0 ? 1 : 0) - (b.id < 0 ? 1 : 0) || Math.abs(a.id) - Math.abs(b.id));
 
+  /* ช่วงนับครั้ง: รีเซ็ตทุก N รอบตัดยอด (รอบค่าแรง) นับจากรอบ ก.ย. 69 (เริ่มกติกาใหม่) — 0 = ไม่รีเซ็ต
+     รอบของรายการ = pay_cycle ที่บันทึกไว้ (รายการพรีวิวที่ยังไม่บันทึก คำนวณจากวันที่คืน) */
+  const N = pol.strikeResetMonths;
+  let cyc: ((d: string) => string) | null = null;
+  const periodOf = (r: any): number => {
+    if (N <= 0) return 0;
+    let pc = r.pay_cycle as string | null;
+    if (!pc) {
+      if (!cyc) { const c = loadCutoffConfig(prepare(`SELECT key, value FROM settings`).all() as any[]); cyc = (d: string) => computePayCycle(d, c.holidays, c.overrides, c.cutoffDay); }
+      pc = cyc(String(r.d));
+    }
+    const [y, m] = String(pc).split('-').map(Number);
+    return Math.floor(((y * 12 + m) - (2026 * 12 + 9)) / N);
+  };
   const out: PenaltyRow[] = [];
   let member = -1;
+  let period = -1e9;
   let strikeOf = new Map<string, number>();
   let lateStrikeOf = new Map<string, number>();   // NG ที่โรงงานแจ้งภายหลัง นับครั้งแยกจาก NG ที่สมาชิกแจ้งเอง
   const allowLeft = new Map<number, number>();   // เกณฑ์ที่ยอมรับได้ที่ยังเหลือ ต่อใบเบิก
   for (const r of rows) {
-    if (r.member_id !== member) { member = r.member_id; strikeOf = new Map(); lateStrikeOf = new Map(); }
+    const p = periodOf(r);
+    if (r.member_id !== member || p !== period) { member = r.member_id; period = p; strikeOf = new Map(); lateStrikeOf = new Map(); }
     const ngCut = Number(r.ng_cut) || 0;
     const ngRope = Number(r.ng_rope) || 0;
     const legacy = String(r.lot) < EFFECTIVE_LOT_FROM;

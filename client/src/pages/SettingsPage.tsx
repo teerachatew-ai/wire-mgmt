@@ -173,6 +173,19 @@ export default function SettingsPage() {
               })()} · ไม่รวม NG ดึงเชือก (ปรับตามเดิม)
             </p>
           </div>
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-medium text-gray-700">รีเซ็ตการนับ "ครั้งที่" ของ NG</span>
+            <select className="input !w-auto !min-h-[34px] text-sm" value={String(current.ng_strike_reset_months || '0')}
+              onChange={e => set('ng_strike_reset_months', e.target.value)} aria-label="รีเซ็ตการนับครั้ง NG">
+              <option value="0">ไม่รีเซ็ต (นับสะสมตลอด)</option>
+              <option value="1">ทุกรอบตัดยอด (ทุกเดือน)</option>
+              <option value="2">ทุก 2 รอบตัดยอด</option>
+              <option value="3">ทุก 3 รอบตัดยอด</option>
+              <option value="6">ทุก 6 รอบตัดยอด</option>
+              <option value="12">ทุก 12 รอบตัดยอด (ปีละครั้ง)</option>
+            </select>
+            <span className="text-[11px] text-gray-500 basis-full">รีเซ็ตแล้ว NG ถัดไปของสมาชิกนับเป็น "ครั้งแรก" ใหม่ (ทั้ง NG ที่แจ้งเองและที่โรงงานแจ้ง) · นับรอบตามรอบค่าแรง เริ่มจากรอบ ก.ย. 69 · เปลี่ยนแล้วค่าปรับของรอบที่ผ่านมาจะคิดใหม่ตามนี้ด้วย</span>
+          </div>
           <div className="text-xs font-medium text-gray-600 -mb-1">อัตรา NG โดยสมาชิก</div>
           <div className="grid grid-cols-3 gap-3">
             <div>
