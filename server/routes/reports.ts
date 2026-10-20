@@ -1886,6 +1886,72 @@ function fundLoanBalance(uptoMonth: string): { open: number; close: number; earl
   return { open, close, earliest_month: earliest };
 }
 
+/* ค่าแรงที่ยังค้างจ่ายสมาชิก ณ สิ้นเดือนปฏิทิน m (งานที่คืนแล้ว ได้ค่าแรงแล้ว แต่ยังไม่ถึงวันจ่าย)
+   (ก) ค่าแรงรอบจ่าย m ทั้งรอบ — สุทธิหลังหักค่าปรับ + ปัดขึ้นเต็มบาทต่อคน (สูตรเดียวกับ payCycleWage) · จ่ายวันที่ 25 เดือนถัดไป
+   (ข) งานที่คืนหลังวันตัดยอดจนถึงสิ้นเดือน — ถูกยกไปรวมรอบถัดไป · ค่าแรงก่อนปัดเศษ หักค่าปรับ NG ของรายการนั้นแล้ว
+   รอบก่อนหน้า (m−1) จ่ายไปแล้ววันที่ 25 ของเดือน m จึงไม่ค้าง */
+function wagesOwedAtMonthEnd(m: string) {
+  const settingsRows = prepare(`SELECT key, value FROM settings`).all() as any[];
+  const pol = loadWagePolicy(Object.fromEntries(settingsRows.map((s: any) => [s.key, s.value])));
+  const { holidays, overrides, cutoffDay } = loadCutoffConfig(settingsRows);
+  const cycle = payCycleWindow(m, holidays, overrides, cutoffDay);
+  const nextStart = `${nextMonth(m)}-01`;
+  const asOf = new Date(Date.parse(`${nextStart}T00:00:00Z`) - 86400000).toISOString().slice(0, 10);
+  const afterFrom = new Date(Date.parse(`${cycle.end}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+
+  const members = new Map<number, any>();
+  const memberOf = (id: number, r: any) => {
+    if (!members.has(id)) members.set(id, { member_id: id, code: r.code, name: r.name, nickname: r.nickname || '', cycle: 0, after: 0, after_penalty: 0 });
+    return members.get(id);
+  };
+
+  const cycRows = prepare(`
+    SELECT m.id, m.code, m.name, m.nickname, COALESCE(SUM(${WAGE_SQL}), 0) as gross
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
+    WHERE r.pay_cycle = ? GROUP BY m.id
+  `).all(...wageParams(pol), m) as any[];
+  const cycPen = sumPenalties(computePenalties(pol, { cycle: m }), r => r.member_id);
+  for (const r of cycRows) memberOf(r.id, r).cycle = Math.ceil((r.gross || 0) - (cycPen.get(r.id) || 0));
+
+  const aftRows = prepare(`
+    SELECT r.id, i.member_id, m.code, m.name, m.nickname, p.id pid, p.name pname, p.color, p.unit, p.wage_per_unit wage,
+      r.good_qty, r.ng_factory, r.lost_qty, r.ng_cut, COALESCE(r.ng_rope, 0) ng_rope, r.rework_qty, r.kind, r.pay_cycle
+    FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
+    WHERE r.pay_cycle > ? AND r.returned_at < ?
+  `).all(m, nextStart) as any[];
+  const aftIds = new Set(aftRows.map(r => r.id));
+  const aftPenById = sumPenalties(computePenalties(pol).filter(p => aftIds.has(p.id)), p => p.id);
+  const prods = new Map<number, any>();
+  let afterCycle: string | null = null;
+  for (const r of aftRows) {
+    const w = returnWage(r, r.wage, pol);
+    const pen = aftPenById.get(r.id) || 0;
+    const mm = memberOf(r.member_id, r);
+    mm.after += w - pen; mm.after_penalty += pen;
+    const p = prods.get(r.pid) || { id: r.pid, name: r.pname, color: r.color, unit: r.unit, wage: r.wage, qty: 0, amount: 0 };
+    p.qty += (r.good_qty || 0) + (r.ng_factory || 0) + (r.lost_qty || 0);
+    p.amount += w;
+    prods.set(r.pid, p);
+    if (!afterCycle || r.pay_cycle < afterCycle) afterCycle = r.pay_cycle;
+  }
+  const list = [...members.values()]
+    .map(x => ({ ...x, after: Math.round(x.after * 100) / 100, total: x.cycle + Math.round(x.after * 100) / 100 }))
+    .filter(x => Math.abs(x.total) > 0.005)
+    .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  const cycle_total = list.reduce((s, x) => s + x.cycle, 0);
+  const after_total = list.reduce((s, x) => s + x.after, 0);
+  const after_penalty = list.reduce((s, x) => s + x.after_penalty, 0);
+  const ac = afterCycle || nextMonth(m);
+  return {
+    as_of: asOf,
+    cycle: m, cycle_start: cycle.start, cycle_end: cycle.end, cycle_pay_date: `${nextMonth(m)}-25`,
+    after_from: afterFrom, after_cycle: ac, after_pay_date: `${nextMonth(ac)}-25`,
+    cycle_total, after_total, after_penalty, total: cycle_total + after_total,
+    members: list,
+    after_products: [...prods.values()].filter(p => p.qty || p.amount).sort((a, b) => b.amount - a.amount),
+  };
+}
+
 function buildMatchedPL(month: string) {
   const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
   const taxRate = parseFloat(cfg.withholding_tax_percent || '3') / 100;
@@ -1909,9 +1975,27 @@ function buildMatchedPL(month: string) {
   const netCashBasis = revenue - tax - cashBasisWage - managerComp - generalExpTotal;
   const fundLoan = fundLoanBalance(month);
 
+  /* ค่าแรงในงบ = ค่าแรงที่จ่ายจริง (รอบจ่ายของเดือนนี้) แบ่ง 2 ชั้น
+     ① ตามปริมาณงานที่ส่งออกโรงงานเดือนนี้ (= cogs เดิม)  ② ส่วนเกินที่สำรองจ่ายสมาชิก (= จ่ายจริง − ①; ติดลบ = ส่งออกของที่สำรองจ่ายไว้เดือนก่อน)
+     ที่มาของ ②: งานคืนแล้วยังไม่ส่ง (ΔFG) + เหลื่อมรอบตัดยอด + NG โรงงาน/หาย/NG สมาชิก − งานแก้ + ค่าปรับ/ปัดเศษ */
+  const t = reconcile.totals;
+  const wageExcess = cashBasisWage - cogs;
+  const excessParts = {
+    dFG: t.wage_dFG, timing: t.wage_timing, extra: t.wage_extra,
+    adjust: wageExcess - t.wage_dFG - t.wage_timing - t.wage_extra,   // ค่าปรับ NG + ปัดเศษ + อื่นๆ (ให้ยอดรวมตรงกับที่จ่ายจริงเป๊ะ)
+  };
+  const layerProducts = reconcile.products
+    .map((p: any) => ({ id: p.id, name: p.name, color: p.color, unit: p.unit, wage: p.wage,
+      ship_qty: p.ship_good_cal, ret_qty: p.ret_good_cyc, matched: p.wage_billed, paid_gross: p.wage_payroll, excess: p.wage_payroll - p.wage_billed }))
+    .filter(p => Math.abs(p.matched) > 0.005 || Math.abs(p.paid_gross) > 0.005);
+  const owed = wagesOwedAtMonthEnd(month);
+
   return {
     month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
     revenue, cogs, gross, tax,
+    wage_paid: cashBasisWage, wage_matched: cogs, wage_excess: wageExcess, excess_parts: excessParts, layer_products: layerProducts,
+    gross_paid: revenue - cashBasisWage, net_paid: netCashBasis,
+    wages_owed: owed,
     manager_base: managerBase, manager_lines: managerLines,
     comp_exp_total: compExpTotal, comp_exp_lines: compExpLines,
     manager_comp: managerComp,
@@ -1930,7 +2014,7 @@ function buildMatchedPL(month: string) {
     // สรุปสินทรัพย์/หนี้สินที่เกี่ยวข้องกับงานตัดสายไฟ ณ สิ้นเดือน (ไม่ใช่งบดุลฉบับเต็ม — ไม่รวมเงินสด/ทุน)
     inventory_open: reconcile.totals.reserve_open,
     inventory_close: reconcile.totals.reserve_close,
-    accrued_wages_payable: cashBasisWage,
+    accrued_wages_payable: owed.total,
     org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
   };
 }
