@@ -202,27 +202,27 @@ export default function SettingsPage() {
           </div>
           <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-3 space-y-2">
             <div className="text-xs font-medium text-rose-800">ค่าปรับ NG ที่โรงงานพบแล้วแจ้งภายหลัง <span className="font-normal text-rose-700/70">(สมาชิกไม่ได้แจ้งเอง · นับครั้งแยก · ใช้กับทั้ง NG สมาชิกและดึงเชือก · ค่าแรงยังจ่ายปกติ)</span></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
               {([['late_ng_rate_1', 'ครั้งแรก'], ['late_ng_rate_2', 'ครั้งที่ 2 ขึ้นไป']] as const).map(([k, label]) => {
                 const raw = current[k];
                 const val = raw === undefined || raw === null || raw === '' ? '5' : String(raw);   // ไม่เคยตั้ง = 5 บาท
                 const warn = parseFloat(val) === 0;
                 return (
-                  <div key={k}>
-                    <label className="label">{label}</label>
-                    <div className="flex gap-2">
-                      <select className="input w-32" value={warn ? 'warn' : 'fine'}
-                        onChange={e => set(k, e.target.value === 'warn' ? '0' : (warn ? '5' : val))}>
-                        <option value="warn">ตักเตือน</option>
-                        <option value="fine">ปรับ</option>
-                      </select>
-                      {!warn && (
-                        <div className="flex items-center gap-1.5 flex-1">
-                          <input type="number" min="0.5" step="0.5" className="input" value={val} onChange={e => set(k, e.target.value)} />
-                          <span className="text-xs text-gray-500 whitespace-nowrap">บาท/เส้น</span>
-                        </div>
-                      )}
-                    </div>
+                  <div key={k} className="flex items-center gap-2 flex-wrap">
+                    <span className="label !mb-0 w-32 shrink-0">{label}</span>
+                    <select className="input !w-32 shrink-0" value={warn ? 'warn' : 'fine'} aria-label={`${label} ตักเตือนหรือปรับ`}
+                      onChange={e => set(k, e.target.value === 'warn' ? '0' : (warn ? '5' : val))}>
+                      <option value="warn">ตักเตือน</option>
+                      <option value="fine">ปรับ</option>
+                    </select>
+                    {warn ? (
+                      <span className="text-xs text-gray-500">ไม่หักเงิน</span>
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <input type="number" min="0.5" step="0.5" className="input !w-28 text-right" value={val} onChange={e => set(k, e.target.value)} aria-label={`${label} บาทต่อเส้น`} />
+                        <span className="text-xs text-gray-500 whitespace-nowrap">บาท/เส้น</span>
+                      </span>
+                    )}
                   </div>
                 );
               })}
