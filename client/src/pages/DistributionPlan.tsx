@@ -158,8 +158,10 @@ export default function DistributionPlan() {
     <div className="p-4 md:p-6 space-y-5 max-w-[1400px]">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2"><Share2 size={22} className="text-sky-600" /> วางแผนแจกงาน</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex items-center gap-2"><Share2 size={22} className="text-sky-600" /> วางแผนแจกงาน
+            <span className="rounded-full bg-amber-400 text-amber-950 px-2 py-0.5 text-[11px] font-bold tracking-wide">BETA · ทดลองใช้</span></h1>
           <p className="text-sm text-gray-500 mt-0.5">กรอกยอดงาน → เลือกคนรับงาน → ระบบเสนอแผนที่ค่าแรงสมดุล แก้ได้ทุกช่อง แล้วสร้างใบเบิกได้ในครั้งเดียว</p>
+          <p className="text-xs text-amber-700 mt-1">เมนูนี้อยู่ระหว่างทดลองใช้ — ตรวจตัวเลขในแผนก่อนกดสร้างใบเบิกทุกครั้ง ถ้าเจอจุดที่แจกไม่สมเหตุสมผลแจ้งได้เลย</p>
         </div>
         <button type="button" className="btn-secondary btn-sm flex items-center gap-1.5" onClick={() => setShowSettings(true)}><Settings2 size={14} /> ตั้งค่าการแจก</button>
       </div>

@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { useAuth, canAccess } from '../auth';
 
-const nav = [
+// beta = เมนูทดลองใช้ (ขึ้นป้าย BETA)
+const nav: { to: string; icon: any; label: string; short: string; beta?: boolean }[] = [
   { to: '/stock',    icon: Layers,          label: 'สต็อค & ตรวจสอบ',    short: 'สต็อค' },
   { to: '/stock-ledger', icon: ClipboardList, label: 'สต็อกสินค้า เข้า-ออก', short: 'สต็อกสินค้า' },
   { to: '/stock-adjustments', icon: Wrench,   label: 'ปรับยอดสต็อก',       short: 'ปรับยอด' },
@@ -16,7 +17,7 @@ const nav = [
   { to: '/products', icon: Package,         label: 'ประเภทสินค้า',        short: 'สินค้า' },
   { to: '/receives', icon: ArrowDownToLine, label: 'รับของจากโรงงาน',    short: 'รับของ' },
   { to: '/issues',   icon: ArrowUpFromLine, label: 'เบิกงานให้สมาชิก',   short: 'เบิกงาน' },
-  { to: '/distribution-plan', icon: Share2, label: 'วางแผนแจกงาน',     short: 'แจกงาน' },
+  { to: '/distribution-plan', icon: Share2, label: 'วางแผนแจกงาน',     short: 'แจกงาน', beta: true },
   { to: '/returns',  icon: RotateCcw,       label: 'รับคืนงาน',          short: 'รับคืน' },
   { to: '/ng-album', icon: Images,          label: 'อัลบั้มงาน NG',       short: 'อัลบั้ม NG' },
   { to: '/shipments',icon: Truck,           label: 'ส่งงานออกโรงงาน',    short: 'ส่งออก' },
@@ -53,14 +54,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <p className="text-base font-bold text-white">จ้างเหมาตัดสายไฟ</p>
         </div>
         <nav className="flex-1 py-2 overflow-y-auto">
-          {visibleNav.map(({ to, icon: Icon, label }) => {
+          {visibleNav.map(({ to, icon: Icon, label, beta }) => {
             const active = loc.pathname === to;
             return (
               <Link key={to} to={to}
                 className={`flex items-center gap-3 px-5 py-3 text-base transition-colors ${active ? 'bg-blue-600 text-white font-semibold' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
               >
                 <Icon size={20} className="shrink-0" />
-                <span>{label}</span>
+                <span className="whitespace-nowrap">{label}</span>
+                {beta && <span className="ml-1 shrink-0 rounded-full bg-amber-400 text-amber-950 px-1.5 py-px text-[10px] font-bold tracking-wide leading-4" title="ทดลองใช้">BETA</span>}
                 {active && <ChevronRight size={14} className="ml-auto" />}
               </Link>
             );
@@ -97,7 +99,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <nav className="flex-1 py-2 overflow-y-auto">
-              {visibleNav.map(({ to, icon: Icon, label }) => {
+              {visibleNav.map(({ to, icon: Icon, label, beta }) => {
                 const active = loc.pathname === to;
                 return (
                   <Link key={to} to={to} onClick={() => setSideOpen(false)}
@@ -105,6 +107,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   >
                     <Icon size={22} className="shrink-0" />
                     <span>{label}</span>
+                    {beta && <span className="ml-1 shrink-0 rounded-full bg-amber-400 text-amber-950 px-1.5 py-px text-[10px] font-bold tracking-wide leading-4" title="ทดลองใช้">BETA</span>}
                   </Link>
                 );
               })}
