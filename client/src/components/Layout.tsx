@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, ArrowDownToLine,
   ArrowUpFromLine, RotateCcw, DollarSign,
-  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck, ClipboardList, Wrench, History, Image as Images
+  ScanLine, Settings, Menu, X, Layers, ChevronRight, Truck, FileText, LogOut, Boxes, Target, Scale, PackageCheck, ClipboardList, Wrench, History, Image as Images, Share2
 } from 'lucide-react';
 import { useAuth, canAccess } from '../auth';
 
@@ -16,6 +16,7 @@ const nav = [
   { to: '/products', icon: Package,         label: 'ประเภทสินค้า',        short: 'สินค้า' },
   { to: '/receives', icon: ArrowDownToLine, label: 'รับของจากโรงงาน',    short: 'รับของ' },
   { to: '/issues',   icon: ArrowUpFromLine, label: 'เบิกงานให้สมาชิก',   short: 'เบิกงาน' },
+  { to: '/distribution-plan', icon: Share2, label: 'วางแผนแจกงาน',     short: 'แจกงาน' },
   { to: '/returns',  icon: RotateCcw,       label: 'รับคืนงาน',          short: 'รับคืน' },
   { to: '/ng-album', icon: Images,          label: 'อัลบั้มงาน NG',       short: 'อัลบั้ม NG' },
   { to: '/shipments',icon: Truck,           label: 'ส่งงานออกโรงงาน',    short: 'ส่งออก' },

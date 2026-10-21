@@ -17,6 +17,7 @@ export const memberApi = {
   create: (data: any) => api.post('/members', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/members/${id}`, data).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/members/${id}${force ? '?force=1' : ''}`).then(r => r.data),
+  setRole: (id: number, admin_role: 'lifter' | 'admin' | null) => api.patch(`/members/${id}/role`, { admin_role }).then(r => r.data),
 };
 
 export const productApi = {
@@ -108,6 +109,7 @@ export const reportApi = {
   performance: (month?: string) => api.get('/reports/performance', { params: month ? { month } : {} }).then(r => r.data),
   // ความเร็วการตัดของสมาชิก (ใบเบิกที่คืนครบ) — หน้า สมาชิก
   memberSpeed: (params: { from?: string; to?: string } = {}) => api.get('/reports/member-speed', { params }).then(r => r.data),
+  distributionContext: () => api.get('/reports/distribution-context').then(r => r.data),
   outstanding: () => api.get('/reports/outstanding').then(r => r.data),
   payroll: (from: string, to: string) => api.get('/reports/payroll', { params: { from, to } }).then(r => r.data),
   payrollMonthly: (month: string) => api.get('/reports/payroll-monthly', { params: { month } }).then(r => r.data),

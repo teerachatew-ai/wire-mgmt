@@ -1799,6 +1799,47 @@ router.post('/pl-export', (req, res) => {
   });
 });
 
+// ── ข้อมูลประกอบหน้า "วางแผนแจกงาน" ─────────────────────────────────────────
+// สินค้า (ขนาดชุดต่อโครงการ) · สมาชิกที่ใช้งาน (ตำแหน่งแอดมิน) · รายชื่อผู้รับงานของวันเบิกล่าสุด
+// · ชมพูเดิม/ชมพูใหม่ที่แต่ละคนรับล่าสุด (ให้ได้งานเดิมต่อเนื่อง) · สัดส่วนงานหนัก (3 สาย) ที่แต่ละคนรับใน 30 วัน (ไว้หมุนเวียนให้เป็นธรรม)
+router.get('/distribution-context', (_req, res) => {
+  const cfg = Object.fromEntries((prepare(`SELECT key, value FROM settings`).all() as any[]).map((s: any) => [s.key, s.value]));
+  const products = prepare(`SELECT id, code, name, project, color, unit, wage_per_unit AS wage, units_per_box FROM products WHERE active = 1 ORDER BY project, id`).all() as any[];
+  const members = prepare(`SELECT id, code, name, nickname, admin_role FROM members WHERE status = 'active' ORDER BY code`).all() as any[];
+  const dates = (prepare(`SELECT substr(issued_at, 1, 10) d, COUNT(DISTINCT member_id) n FROM issues GROUP BY d ORDER BY d DESC LIMIT 10`).all() as any[]);
+  const recent_dates = dates.map(r => ({
+    date: r.d, count: r.n,
+    member_ids: (prepare(`SELECT DISTINCT member_id FROM issues WHERE substr(issued_at, 1, 10) = ?`).all(r.d) as any[]).map(x => x.member_id),
+  }));
+  const exclusive = String(cfg.plan_exclusive_projects || 'COT092,COT109').split(',').map(s => s.trim()).filter(Boolean);
+  const heavy = String(cfg.plan_heavy_project || 'COT102').trim();
+  const pinkPref: Record<number, string> = {};
+  if (exclusive.length >= 2) {
+    for (const r of prepare(`
+      SELECT i.member_id, p.project FROM issues i JOIN products p ON p.id = i.product_id
+      WHERE p.project IN (${exclusive.map(() => '?').join(',')}) ORDER BY i.issued_at ASC, i.id ASC`).all(...exclusive) as any[]) pinkPref[r.member_id] = r.project;
+  }
+  const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const setSize = new Map<string, number>();
+  for (const r of prepare(`SELECT project, COUNT(*) n FROM products WHERE project IS NOT NULL AND project != '' GROUP BY project`).all() as any[]) setSize.set(String(r.project), Number(r.n) || 1);
+  const load: Record<number, { sets: number; heavy: number }> = {};
+  for (const r of prepare(`
+    SELECT i.member_id, p.project, SUM(i.quantity) q FROM issues i JOIN products p ON p.id = i.product_id
+    WHERE substr(i.issued_at, 1, 10) >= ? GROUP BY i.member_id, p.project`).all(since) as any[]) {
+    const sets = (Number(r.q) || 0) / (setSize.get(String(r.project)) || 1);
+    const l = load[r.member_id] || (load[r.member_id] = { sets: 0, heavy: 0 });
+    l.sets += sets; if (r.project === heavy) l.heavy += sets;
+  }
+  res.json({
+    products, members, recent_dates, pink_pref: pinkPref, load_30d: load,
+    settings: {
+      lifter_min: parseFloat(cfg.plan_lifter_min || '750'), lifter_max: parseFloat(cfg.plan_lifter_max || '1000'),
+      lifter_weight: parseFloat(cfg.plan_lifter_weight || '3.5'), admin_weight: parseFloat(cfg.plan_admin_weight || '1.5'),
+      step: parseFloat(cfg.plan_round_step || '50'), exclusive, heavy,
+    },
+  });
+});
+
 router.get('/settings', (_req, res) => {
   const rows = prepare(`SELECT key, value FROM settings`).all() as any[];
   res.json(Object.fromEntries(rows.map(r => [r.key, r.value])));

@@ -9,6 +9,7 @@ import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelec
 import { compressImageToDataUrl } from '../utils/compressImage';
 import QRCode from 'qrcode';
 import MemberSpeed from '../components/MemberSpeed';
+import { AdminRolePicker } from '../components/AdminRole';
 
 // ลิงก์พอร์ทัลส่วนตัวของสมาชิก (ใช้ origin ของเว็บปัจจุบัน ใช้ได้ทั้ง local/deploy)
 function portalUrl(token?: string | null): string {
@@ -875,6 +876,7 @@ export default function Members() {
                 <p className={`font-semibold text-base mt-0.5 ${m.status === 'active' ? 'text-gray-800' : 'text-gray-400'}`}>
                   {m.name}
                   {m.nickname && <span className="text-sm text-gray-400 font-normal"> ({m.nickname})</span>}
+                  <span className="ml-1.5 align-middle"><AdminRolePicker member={m} /></span>
                 </p>
                 {m.phone && <p className="text-sm text-gray-500 mt-0.5">📞 {m.phone}</p>}
               </div>
@@ -944,6 +946,7 @@ export default function Members() {
                 <td className={`px-4 py-3 font-medium whitespace-nowrap ${m.status === 'active' ? 'text-gray-800' : 'text-gray-400'}`}>
                   {m.name}
                   {m.nickname && <span className="ml-2 text-sm text-gray-400">({m.nickname})</span>}
+                  <span className="ml-2 align-middle"><AdminRolePicker member={m} /></span>
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-400">
                   {m.id_card ? `${m.id_card.slice(0, 1)}-${m.id_card.slice(1, 5)}-${m.id_card.slice(5, 10)}-${m.id_card.slice(10, 12)}-${m.id_card.slice(12)}` : '-'}

@@ -92,6 +92,7 @@ const ACTIONS: [RegExp, string, string][] = [
   [/^(POST|PUT|DELETE) \/managers/, 'ผู้บริหาร', 'ข้อมูลหลัก'],
   [/^POST \/members$/, 'เพิ่มสมาชิก', 'ข้อมูลหลัก'],
   [/^PUT \/members\/\d+$/, 'แก้ข้อมูลสมาชิก', 'ข้อมูลหลัก'],
+  [/^PATCH \/members\/\d+\/role$/, 'แต่งตั้งตำแหน่งแอดมินสมาชิก', 'ข้อมูลหลัก'],
   [/^DELETE \/members\/\d+$/, 'ลบสมาชิก', 'ข้อมูลหลัก'],
   [/^POST \/products$/, 'เพิ่มสินค้า', 'ข้อมูลหลัก'],
   [/^PUT \/products\/\d+$/, 'แก้ข้อมูลสินค้า', 'ข้อมูลหลัก'],
@@ -115,7 +116,7 @@ function lookups() {
 type Row = Record<string, any>;
 const SETTING_LABEL: Record<string, string> = {
   pay_cutoff_day: 'วันตัดรอบค่าแรง', withholding_tax_percent: 'ภาษีหัก ณ ที่จ่าย (%)', defect_wage_percent: '% ค่าแรงงานเสีย',
-  rework_deduct_percent: 'งานแก้ไข หักค่าแรง (%)', ng_group_rate_2: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 2', ng_rope_rate_1: 'ค่าปรับ NG ดึงเชือก ครั้งแรก', late_ng_rate_1: 'ค่าปรับ NG ที่โรงงานแจ้ง ครั้งแรก', ng_strike_reset_months: 'รีเซ็ตการนับครั้ง NG (ทุกกี่รอบ)', late_ng_rate_2: 'ค่าปรับ NG ที่โรงงานแจ้ง ครั้งที่ 2+', ng_group_rate_3: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 3+',
+  rework_deduct_percent: 'งานแก้ไข หักค่าแรง (%)', ng_group_rate_2: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 2', ng_rope_rate_1: 'ค่าปรับ NG ดึงเชือก ครั้งแรก', late_ng_rate_1: 'ค่าปรับ NG ที่โรงงานแจ้ง ครั้งแรก', ng_strike_reset_months: 'รีเซ็ตการนับครั้ง NG (ทุกกี่รอบ)', plan_lifter_min: 'แจกงาน: คนยกงาน ขั้นต่ำ (ชุด/วัน)', plan_lifter_max: 'แจกงาน: คนยกงาน สูงสุด (ชุด/วัน)', plan_lifter_weight: 'แจกงาน: น้ำหนักคนยกงาน', plan_admin_weight: 'แจกงาน: น้ำหนักแอดมินทั่วไป', plan_round_step: 'แจกงาน: ปัดจำนวนทีละ', late_ng_rate_2: 'ค่าปรับ NG ที่โรงงานแจ้ง ครั้งที่ 2+', ng_group_rate_3: 'ค่าปรับ NG โดยสมาชิก ครั้งที่ 3+',
   ng_rope_rate: 'ค่าปรับ NG ดึงเชือก', ng_cut_allow: 'เกณฑ์ NG โดยสมาชิกที่ยอมรับได้', ng_cut_allow_unit: 'หน่วยเกณฑ์ NG',
   ng_penalty_per_unit: 'ค่าปรับ NG ต่อเส้น (เดิม)', overdue_days_limit: 'ค้างคืนเกินกี่วัน', max_pending_units: 'ยอดค้างสูงสุดต่อคน',
   admin_cost_percent: '% ค่าบริหาร', admin_name: 'ชื่อผู้บริหาร', group_deduction_percent: '% หักเข้ากองกลาง', bill_ng_rate: 'โรงงานหักเงินงาน NG (%)',

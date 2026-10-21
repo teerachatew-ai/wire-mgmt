@@ -22,6 +22,7 @@ import MemberPortal from './pages/MemberPortal';
 import Login from './pages/Login';
 import Assets from './pages/Assets';
 import FinancialStatements from './pages/FinancialStatements';
+import DistributionPlan from './pages/DistributionPlan';
 import AuditLog from './pages/AuditLog';
 import NgAlbum from './pages/NgAlbum';
 import { AuthProvider, useAuth, canAccess, homePath } from './auth';
@@ -54,6 +55,7 @@ function AppRoutes() {
         <Route path="/packing-plan" element={<Guard path="/packing-plan"><PackingPlan /></Guard>} />
         <Route path="/shipment-plan" element={<Guard path="/shipment-plan"><ShipmentPlan /></Guard>} />
         <Route path="/payroll" element={<Guard path="/payroll"><Payroll /></Guard>} />
+        <Route path="/distribution-plan" element={<Guard path="/distribution-plan"><DistributionPlan /></Guard>} />
         <Route path="/financial-statements" element={<Guard path="/financial-statements"><FinancialStatements /></Guard>} />
         <Route path="/assets" element={<Guard path="/assets"><Assets /></Guard>} />
         <Route path="/billing" element={<Guard path="/billing"><Billing /></Guard>} />

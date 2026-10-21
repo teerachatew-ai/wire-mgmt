@@ -323,6 +323,10 @@ CREATE TABLE IF NOT EXISTS managers (
   if (!memberCols.includes('pdpa_consent_at')) {
     db.exec(`ALTER TABLE members ADD COLUMN pdpa_consent_at TEXT`);
   }
+  if (!memberCols.includes('admin_role')) {
+    // ตำแหน่งแอดมินของสมาชิก (ใช้ในหน้า "วางแผนแจกงาน"): 'lifter' = ช่วยยกงาน · 'admin' = แอดมินทั่วไป · NULL = สมาชิกทั่วไป
+    db.exec(`ALTER TABLE members ADD COLUMN admin_role TEXT`);
+  }
   if (!memberCols.includes('dob')) {
     db.exec(`ALTER TABLE members ADD COLUMN dob TEXT`);
   }

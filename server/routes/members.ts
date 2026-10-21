@@ -64,6 +64,16 @@ router.put('/:id', (req, res) => {
   res.json(prepare(`SELECT * FROM members WHERE id = ?`).get(req.params.id));
 });
 
+// แต่งตั้ง/ถอดตำแหน่งแอดมิน — 'lifter' (ช่วยยกงาน) · 'admin' (แอดมินทั่วไป) · null (สมาชิกทั่วไป)
+router.patch('/:id/role', (req, res) => {
+  const role = req.body?.admin_role;
+  if (role != null && role !== 'lifter' && role !== 'admin') return res.status(400).json({ error: 'ตำแหน่งไม่ถูกต้อง' });
+  const m = prepare(`SELECT id FROM members WHERE id = ?`).get(req.params.id);
+  if (!m) return res.status(404).json({ error: 'ไม่พบสมาชิก' });
+  prepare(`UPDATE members SET admin_role = ? WHERE id = ?`).run(role || null, req.params.id);
+  res.json(prepare(`SELECT id, code, name, nickname, admin_role FROM members WHERE id = ?`).get(req.params.id));
+});
+
 router.delete('/:id', (req, res) => {
   const member = prepare(`SELECT * FROM members WHERE id = ?`).get(req.params.id) as any;
   if (!member) return res.status(404).json({ error: 'ไม่พบสมาชิก' });
