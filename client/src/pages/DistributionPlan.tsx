@@ -107,6 +107,8 @@ export default function DistributionPlan() {
   const heavyPeople = members.filter(m => stats[m.id].heavy > 0).length;
   const conflicts = members.filter(m => stats[m.id].conflict);
   const remaining = live.map(p => ({ p, r: numQty[p.id] - totalOf(p.id) })).filter(x => Math.abs(x.r) > 0.001);
+  const over = remaining.filter(x => x.r < 0);                       // แจกเกินยอด = ผิด
+  const leftTotal = remaining.filter(x => x.r > 0).reduce((t, x) => t + x.r, 0);   // เศษที่คงเหลือไว้ (ตั้งใจ ไม่ใช่ข้อผิดพลาด)
   const totalSets = live.reduce((s, p) => s + numQty[p.id] / (size.get(projKey(p)) || 1), 0);
   const totalWage = live.reduce((s, p) => s + numQty[p.id] * (p.wage || 0), 0);
   const groupLabel = (g: 'A' | 'B' | null) => (g && plan.groups ? (g === 'A' ? plan.groups.A : plan.groups.B) : '');
@@ -125,7 +127,8 @@ export default function DistributionPlan() {
   const createIssues = async () => {
     const todo = members.filter(m => live.some(p => cell(m.id, p.id) > 0) && !result[m.id]?.ok);
     if (!todo.length) return;
-    const warn = remaining.length ? `\n\n⚠ ยังแจกไม่ครบ/เกินยอด: ${remaining.map(x => `${shortName(x.p.name)[0]} ${x.r > 0 ? 'เหลือ' : 'เกิน'} ${fmt(Math.abs(x.r))}`).join(', ')}` : '';
+    const warn = (remaining.some(x => x.r > 0) ? `\n\nคงเหลือไว้ (ไม่แจกรอบนี้): ${remaining.filter(x => x.r > 0).map(x => `${shortName(x.p.name)[0]} ${fmt(x.r)}`).join(', ')}` : '')
+      + (over.length ? `\n⚠ แจกเกินยอด: ${over.map(x => `${shortName(x.p.name)[0]} ${fmt(-x.r)}`).join(', ')}` : '');
     const warn2 = conflicts.length ? `\n⚠ มีคนได้ทั้ง ${st.exclusive.join(' และ ')}: ${conflicts.map(m => m.code).join(', ')}` : '';
     if (!confirm(`สร้างใบเบิกวันที่ ${date.split('-').reverse().join('/')} ให้ ${todo.length} คน ตามแผนนี้?${warn}${warn2}`)) return;
     setSaving(true);
@@ -257,8 +260,8 @@ export default function DistributionPlan() {
         {/* สรุปความเป็นธรรม */}
         {live.length > 0 && members.length > 0 && (
           <div className="px-4 py-3 grid grid-cols-2 lg:grid-cols-4 gap-2 border-b bg-slate-50/60">
-            <Chip ok={remaining.length === 0} label="แจกครบยอด" value={remaining.length === 0 ? 'ครบทุกรุ่น' : `ต่าง ${remaining.length} รุ่น`} />
-            <Chip ok={spread <= 0.1} label="ค่าแรงคนทั่วไป ต่างกัน" value={normals.length > 1 ? `${fmt(Math.min(...normals))}–${fmt(Math.max(...normals))} ฿ (${fmt(spread * 100, 1)}%)` : '-'} />
+            <Chip ok={over.length === 0} label={over.length ? 'แจกเกินยอด' : 'คงเหลือไว้ (แบ่งเท่ากันไม่ได้)'} value={over.length ? `เกิน ${over.length} รุ่น` : leftTotal > 0 ? `${fmt(leftTotal)} เส้น` : 'แจกครบทุกรุ่น'} />
+            <Chip ok={spread <= 0.15} label="ค่าแรงคนทั่วไป ต่างกัน" value={normals.length > 1 ? `${fmt(Math.min(...normals))}–${fmt(Math.max(...normals))} ฿ (${fmt(spread * 100, 1)}%)` : '-'} />
             <Chip ok={!heavyLive || heavyPeople >= Math.ceil(members.length * 0.6)} label={`งานหนัก ${st.heavy}`} value={heavyLive ? `กระจาย ${heavyPeople}/${members.length} คน` : 'ไม่มีรอบนี้'} />
             <Chip ok={conflicts.length === 0} label={`${st.exclusive.join(' / ')} ห้ามซ้ำคน`} value={conflicts.length ? `ซ้ำ ${conflicts.length} คน` : plan.groups ? 'ถูกต้อง' : 'ไม่ต้องแยกรอบนี้'} />
           </div>
@@ -349,9 +352,9 @@ export default function DistributionPlan() {
                   <td className="px-3 py-2 text-right text-gray-500">{plan.avgWagePerSet.toFixed(2)}</td>
                 </tr>
                 <tr>
-                  <td className="sticky left-0 bg-white px-3 py-2 text-gray-500">คงเหลือ (ยอด − แจก)</td>
+                  <td className="sticky left-0 bg-white px-3 py-2 text-gray-500">คงเหลือไว้ (ไม่แจก)</td>
                   {live.map(p => { const r = numQty[p.id] - totalOf(p.id); return (
-                    <td key={p.id} className={`px-2 py-2 text-right border-l first:border-l-0 font-semibold ${Math.abs(r) < 0.001 ? 'text-emerald-600' : 'text-rose-600'}`}>{Math.abs(r) < 0.001 ? '✓ 0' : fmt(r)}</td>
+                    <td key={p.id} className={`px-2 py-2 text-right border-l first:border-l-0 font-semibold ${Math.abs(r) < 0.001 ? 'text-emerald-600' : r > 0 ? 'text-amber-600' : 'text-rose-600'}`}>{Math.abs(r) < 0.001 ? '✓ 0' : r > 0 ? `เหลือ ${fmt(r)}` : `เกิน ${fmt(-r)}`}</td>
                   ); })}
                   <td colSpan={3} />
                 </tr>
@@ -376,10 +379,11 @@ export default function DistributionPlan() {
       <details className="text-xs text-gray-500 card">
         <summary className="cursor-pointer font-medium text-gray-600">ระบบแจกงานอย่างไร</summary>
         <ul className="mt-2 space-y-1 list-disc pl-5 leading-relaxed">
-          <li>แต่ละคนได้จำนวนชุดตามน้ำหนัก: คนทั่วไป 1 · แอดมินทั่วไป {st.admin_weight} เท่า · คนยกงานอยู่ในช่วง {fmt(st.lifter_min)}–{fmt(st.lifter_max)} ชุด (งานมากได้ใกล้ {fmt(st.lifter_max)} งานน้อยได้ใกล้ {fmt(st.lifter_min)})</li>
-          <li>{st.exclusive.join(' กับ ')} ไม่ให้คนเดียวกัน — แบ่งเป็น 2 กลุ่มตามสัดส่วนงาน คนที่เคยรับงานไหนล่าสุดอยู่กลุ่มเดิม (กดป้ายกลุ่มที่ชื่อเพื่อสลับเองได้)</li>
-          <li>งานหนัก {st.heavy} กระจายให้ทุกคนตามสัดส่วน และเกลี่ยงานค่าแรงสูง/ต่ำระหว่างกลุ่มให้ "ค่าแรงต่อชุด" ใกล้กันทุกคน — ช่อง ฿/ชุด สีส้ม = ต่างจากค่าเฉลี่ยเกิน 8%</li>
-          <li>ปัดเป็นจำนวนเต็มทีละ {fmt(st.step)} — เศษที่ปัดไปให้คนที่ได้ค่าแรงขาดมากสุดก่อน (งาน 3 สาย: คนที่รับน้อยใน 30 วันได้ก่อน) · ยาว/สั้นของรุ่นเดียวกันได้เท่ากันเสมอ</li>
+          <li><b>สมาชิกทั่วไป</b> (ไม่ได้รับแต่งตั้ง) ที่ได้งานประเภทเดียวกัน ได้จำนวน <b>เท่ากันทุกคน</b> — เศษที่แบ่งให้เท่ากันไม่ได้ <b>คงเหลือไว้</b> ไม่แจก (แถว "คงเหลือไว้" ท้ายตาราง)</li>
+          <li>คนที่ได้รับแต่งตั้งได้มากกว่า: แอดมินทั่วไป {st.admin_weight} เท่าของคนทั่วไป · คนยกงานอยู่ในช่วง {fmt(st.lifter_min)}–{fmt(st.lifter_max)} ชุด (งานมากได้ใกล้ {fmt(st.lifter_max)} งานน้อยได้ใกล้ {fmt(st.lifter_min)})</li>
+          <li>{st.exclusive.join(' กับ ')} ไม่ให้คนเดียวกัน — แบ่งเป็น 2 กลุ่มตามค่าแรงรวมของงานแต่ละแบบ คนที่เคยรับงานไหนล่าสุดอยู่กลุ่มเดิม (กดป้ายกลุ่มที่ชื่อเพื่อสลับเองได้) · ในกลุ่มเดียวกันได้เท่ากัน</li>
+          <li>งานหนัก {st.heavy} กระจายให้ทุกคนเท่า ๆ กัน (ไม่มีใครได้แต่งานหนัก) — ช่อง ฿/ชุด สีส้ม = ค่าแรงต่อชุดต่างจากค่าเฉลี่ยเกิน 8%</li>
+          <li>ปัดเป็นจำนวนเต็มทีละ {fmt(st.step)} เส้น · ยาว/สั้นของรุ่นเดียวกันได้เท่ากันเสมอ · แก้ตัวเลขในตารางเองได้ทุกช่อง (เช่น จะแจกเศษที่เหลือให้ใครเพิ่ม)</li>
         </ul>
       </details>
 

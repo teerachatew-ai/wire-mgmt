@@ -9,13 +9,12 @@
    ขั้นที่ 2 — แยกกลุ่มชมพู (โครงการห้ามซ้ำกัน เช่น 092 กับ 109): คนที่ได้ 092 จะไม่ได้ 109
      • ขนาดกลุ่มตามสัดส่วนงานของสองโครงการ · คนที่เคยรับโครงการไหนล่าสุดอยู่กลุ่มเดิมก่อน (ต่อเนื่อง ชำนาญ)
      • สลับกลุ่มเองได้ (groupOverride)
-   ขั้นที่ 3 — สัดส่วนงานของแต่ละกลุ่ม: งานที่ใช้ร่วมกัน (ป้ายขาว, 3 สาย, …) แบ่งตามขนาดกลุ่ม
-     แล้วเกลี่ยงานค่าแรงต่ำสุด (3 สาย) กับงานค่าแรงสูงสุดระหว่างสองกลุ่ม ให้ "ค่าแรงต่อชุด" ของทุกกลุ่มเท่ากัน
-     → ทุกคนได้ 3 สายติดไปด้วย และค่าแรงต่อชุดใกล้กันทุกคน (ไม่มีใครได้แต่งานหนักค่าแรงน้อย)
-   ขั้นที่ 4 — ในกลุ่มเดียวกัน ทุกคนได้สัดส่วนงานเหมือนกัน ตามจำนวนชุดของตัวเอง
-   ขั้นที่ 5 — ปัดเป็นจำนวนเต็ม ๆ ทีละ step (เช่น 50 → 100, 150, 250 …) ด้วยวิธีเศษมากได้ก่อน ยอดรวมตรงกับยอดรับเป๊ะ
-     • งาน 3 สาย: ถ้าเศษเท่ากัน คนที่รับ 3 สายน้อยใน 30 วันที่ผ่านมาได้ก่อน (หมุนเวียนให้เป็นธรรม)
-     • เศษที่ไม่ครบ step (เช่น 30 เส้น) ไปรวมกับคนที่ได้รุ่นนั้นมากที่สุด */
+   ขั้นที่ 3 — สมาชิกทั่วไป (ไม่ได้รับแต่งตั้ง) ที่ได้งานประเภทเดียวกัน ได้จำนวน "เท่ากันทุกคน"
+     • งานที่ใช้ร่วมกัน (ป้ายขาว, 3 สาย, …) ทุกคนได้เท่ากัน → 3 สายกระจายให้ทุกคนเท่า ๆ กัน
+     • งานชมพู: คนในกลุ่มเดียวกันได้เท่ากัน · ขนาดกลุ่มตั้งตามค่าแรงรวมของงานชมพูแต่ละแบบ ค่าแรงสองกลุ่มจึงใกล้กัน
+     • คนที่ได้รับแต่งตั้งได้ส่วนแบ่งมากกว่า: แอดมินทั่วไป = adminWeight เท่าของคนทั่วไป · คนยกงาน = ปรับให้รวมได้ตามเป้าชุด
+   ขั้นที่ 4 — ปัดลงเป็นจำนวนเต็มทีละ step (เช่น 50 → 100, 150, 250 …) — คนทั่วไปยังได้เท่ากันทุกคน
+     เศษที่แบ่งให้เท่ากันไม่ได้ "คงเหลือไว้" ไม่แจก (หน้าเว็บมีปุ่มให้แจกเศษให้คนที่ได้รับแต่งตั้งได้ถ้าต้องการ) */
 
 export type Role = 'lifter' | 'admin' | null;
 export type PlanProduct = { id: number; code: string; name: string; project: string | null; wage: number; color?: string | null; unit?: string };
@@ -110,7 +109,8 @@ export function computePlan(inp: PlanInput): PlanResult {
   const group: Record<number, 'A' | 'B' | null> = {};
   if (twoGroups) {
     const KA = proj.get(xa)!.S, KB = proj.get(xb)!.S;
-    const goalA = T * KA / (KA + KB);
+    const WA = proj.get(xa)!.W, WB = proj.get(xb)!.W;
+    const goalA = WA + WB > 0 ? T * WA / (WA + WB) : T * KA / (KA + KB);   // แบ่งคนตามค่าแรงรวมของงานชมพูแต่ละแบบ
     const fixed = new Set(Object.keys(inp.groupOverride).map(Number));
     const prefOf = (id: number): 'A' | 'B' | null => inp.pinkPref[id] === xa ? 'A' : inp.pinkPref[id] === xb ? 'B' : null;
     let capA = 0;
@@ -146,99 +146,65 @@ export function computePlan(inp: PlanInput): PlanResult {
     }
   } else for (const m of members) group[m.id] = null;
 
-  // ── ขั้นที่ 3: สัดส่วนงานของแต่ละกลุ่ม (ชุดของแต่ละโครงการ)
-  const groupsList: ('A' | 'B' | null)[] = twoGroups ? ['A', 'B'] : [null];
-  const cap = (g: 'A' | 'B' | null) => members.filter(m => group[m.id] === g).reduce((s, m) => s + target[m.id], 0);
-  const share = new Map<string, Map<string, number>>();   // group → project → ชุด
-  for (const g of groupsList) share.set(String(g), new Map());
-  const shared = [...proj.keys()].filter(k => !(twoGroups && (k === xa || k === xb)));
-  if (twoGroups) {
-    share.get('A')!.set(xa, proj.get(xa)!.S);
-    share.get('B')!.set(xb, proj.get(xb)!.S);
-    const KA = proj.get(xa)!.S, KB = proj.get(xb)!.S;
-    const room = { A: Math.max(0, cap('A') - KA), B: Math.max(0, cap('B') - KB) };
-    const roomAll = room.A + room.B || 1;
-    for (const k of shared) {
-      share.get('A')!.set(k, proj.get(k)!.S * room.A / roomAll);
-      share.get('B')!.set(k, proj.get(k)!.S * room.B / roomAll);
-    }
-    // เกลี่ยค่าแรงต่อชุด: แลกงานค่าแรงต่ำสุด (L) กับสูงสุด (H) ระหว่างกลุ่ม
-    const byW = [...shared].sort((a, b) => wps(a) - wps(b));
-    const Lk = byW[0], Hk = byW[byW.length - 1];
-    if (Lk && Hk && Lk !== Hk && wps(Hk) - wps(Lk) > 1e-9) {
-      const A = share.get('A')!;
-      const CA = [...A.values()].reduce((s, v) => s + v, 0);
-      const R = A.get(Lk)! + A.get(Hk)!;
-      const fixedWage = [...A.entries()].filter(([k]) => k !== Lk && k !== Hk).reduce((s, [k, v]) => s + v * wps(k), 0);
-      let HA = (omega * CA - fixedWage - R * wps(Lk)) / (wps(Hk) - wps(Lk));
-      HA = Math.min(Math.min(proj.get(Hk)!.S, R), Math.max(Math.max(0, R - proj.get(Lk)!.S), HA));
-      A.set(Hk, HA); A.set(Lk, R - HA);
-      share.get('B')!.set(Hk, proj.get(Hk)!.S - HA);
-      share.get('B')!.set(Lk, proj.get(Lk)!.S - (R - HA));
-    }
-  } else for (const k of proj.keys()) share.get('null')!.set(k, proj.get(k)!.S);
-
-  // ── ขั้นที่ 4: ค่าที่ควรได้ (ยังไม่ปัด) ต่อคนต่อรุ่น
+  // ── ขั้นที่ 3: ส่วนแบ่งต่อรุ่น — คนทั่วไป factor 1 (เท่ากัน) · แอดมิน factor = adminWeight · คนยกงานปรับ factor ให้ได้ตามเป้าชุด
+  const eligible = (p: PlanProduct, m: PlanMember) => {
+    if (!twoGroups) return true;
+    const k = projKey(p);
+    return k === xa ? group[m.id] === 'A' : k === xb ? group[m.id] === 'B' : true;
+  };
+  const normalSets = others.filter(m => !m.admin_role).map(m => target[m.id])[0] || (T / Math.max(1, members.length));
+  const f = new Map<number, number>(members.map(m => [m.id,
+    m.admin_role === 'admin' ? st.admin_weight : m.admin_role === 'lifter' ? Math.max(0.1, target[m.id] / normalSets) : 1]));
   const ideal: Record<number, Record<number, number>> = {};
-  for (const g of groupsList) {
-    const mem = members.filter(m => group[m.id] === g);
-    const C = mem.reduce((s, m) => s + target[m.id], 0) || 1;
-    for (const [k, S] of share.get(String(g))!) {
-      const e = proj.get(k)!;
-      for (const p of e.products) {
-        const gq = inp.qty[p.id] * (e.S > 0 ? S / e.S : 0);
-        for (const m of mem) (ideal[m.id] ||= {})[p.id] = (ideal[m.id][p.id] || 0) + gq * target[m.id] / C;
-      }
+  const fill = () => {
+    for (const m of members) ideal[m.id] = {};
+    for (const p of live) {
+      const E = members.filter(m => eligible(p, m));
+      const F = E.reduce((t, m) => t + f.get(m.id)!, 0) || 1;
+      for (const m of E) ideal[m.id][p.id] = inp.qty[p.id] * f.get(m.id)! / F;
+    }
+  };
+  const setsOf = (id: number) => live.reduce((t, p) => t + (ideal[id]?.[p.id] || 0) / (size.get(projKey(p)) || 1), 0);
+  fill();
+  if (members.some(m => !m.admin_role) && lifters.length) {
+    for (let it = 0; it < 8; it++) {   // ปรับส่วนแบ่งคนยกงานให้รวมแล้วได้ตามเป้า (750–1,000 ชุด หรือที่ตั้งเอง)
+      for (const m of lifters) { const got = setsOf(m.id); if (got > 0) f.set(m.id, Math.max(0.05, f.get(m.id)! * target[m.id] / got)); }
+      fill();
     }
   }
 
-  // ── ขั้นที่ 5: ปัดทีละ step (ยอดรวมต่อรุ่น = ยอดรับเป๊ะ)
-  // • รุ่นในโครงการเดียวกันที่ยอดเท่ากัน (ยาว/สั้น) ปัดพร้อมกันเป็น "ชุด" → แต่ละคนได้ยาว = สั้น เสมอ
-  // • ทำทีละรายการ (ค่าแรงรวมมากก่อน) และจำว่าใครได้ขาด/เกินไปจากรายการก่อนหน้า (เป็นบาท)
-  //   หน่วยที่เหลือจากการปัดลงให้คนที่ "ขาด" มากที่สุดก่อน → คนเป้าเท่ากันได้ค่าแรงรวมใกล้กัน
-  // • งาน 3 สาย: ถ้าขาดเท่า ๆ กัน คนที่รับ 3 สายน้อยใน 30 วันได้ก่อน (หมุนเวียน)
+  // ── ขั้นที่ 4: ปัดลงทีละ step — คนทั่วไปที่ได้รุ่นเดียวกันได้เท่ากันทุกคน · เศษคงเหลือไว้ไม่แจก
   const step = Math.max(1, st.step || 1);
   const alloc: Record<number, Record<number, number>> = {};
   for (const m of members) alloc[m.id] = {};
-  const owe = new Map<number, number>(members.map(m => [m.id, 0]));   // บาทที่ควรได้ − ที่ได้จริง (สะสม)
-  type Item = { products: PlanProduct[]; Q: number; wage: number; heavy: boolean };
-  const items: Item[] = [];
-  for (const [k, e] of proj) {
-    const qs = new Set(e.products.map(p => inp.qty[p.id]));
-    if (qs.size === 1 && e.products.length > 1) items.push({ products: e.products, Q: inp.qty[e.products[0].id], wage: e.products.reduce((t, p) => t + (p.wage || 0), 0), heavy: k === st.heavy });
-    else for (const p of e.products) items.push({ products: [p], Q: inp.qty[p.id], wage: p.wage || 0, heavy: k === st.heavy });
-  }
-  items.sort((x, y) => y.Q * y.wage - x.Q * x.wage);
-  const isLifter = (id: number) => (members.find(x => x.id === id)?.admin_role === 'lifter' ? 1 : 0);
-  for (const it of items) {
-    const p0 = it.products[0];
-    const units = Math.floor(it.Q / step);
-    const odd = it.Q - units * step;
-    const cand = members.map(m => ({ m, x: (ideal[m.id]?.[p0.id] || 0) / step })).filter(c => c.x > 1e-9);
-    if (!cand.length) continue;
-    const got = new Map(cand.map(c => [c.m.id, Math.floor(c.x)]));
-    let left = units - [...got.values()].reduce((t, v) => t + v, 0);
-    const unitWage = step * it.wage;
-    // ขาดไปเท่าไร ถ้าได้แค่ส่วนปัดลงของรายการนี้
-    const need = (id: number, x: number) => (owe.get(id) || 0) + (x - got.get(id)!) * unitWage;
-    while (left > 0) {
-      const pick = [...cand].sort((a, b) => {
-        const na = need(a.m.id, a.x), nb = need(b.m.id, b.x);
-        if (Math.abs(na - nb) > 1e-6) return nb - na;
-        if (it.heavy) { const ha = inp.heavyShare[a.m.id] || 0, hb = inp.heavyShare[b.m.id] || 0; if (Math.abs(ha - hb) > 1e-6) return ha - hb; }
-        return target[b.m.id] - target[a.m.id] || a.m.id - b.m.id;
-      })[0];
-      got.set(pick.m.id, got.get(pick.m.id)! + 1); left--;
-    }
-    while (left < 0) {   // กันกรณีปัดลงแล้วยังเกิน (ไม่น่าเกิด)
-      const big = [...got.entries()].sort((x, y) => y[1] - x[1])[0]; got.set(big[0], big[1] - 1); left++;
-    }
-    for (const c of cand) owe.set(c.m.id, (owe.get(c.m.id) || 0) + (c.x - got.get(c.m.id)!) * unitWage);
-    for (const p of it.products) for (const [id, u] of got) if (u > 0) alloc[id][p.id] = u * step;
-    if (odd > 0) {   // เศษไม่ครบ step → คนที่ได้รุ่นนี้มากที่สุด (เท่ากันให้คนยกงาน)
-      const top = [...got.entries()].sort((x, y) => y[1] - x[1] || isLifter(y[0]) - isLifter(x[0]))[0];
-      if (top) for (const p of it.products) alloc[top[0]][p.id] = (alloc[top[0]][p.id] || 0) + odd;
-    }
+  for (const p of live) {
+    const E = members.filter(m => eligible(p, m));
+    const appointed = E.filter(m => m.admin_role);
+    const normals = E.filter(m => !m.admin_role);
+    const Q = inp.qty[p.id];
+    const fA = appointed.reduce((t, m) => t + f.get(m.id)!, 0);
+    // คนที่ได้รับแต่งตั้ง: ได้อย่างน้อยเท่าคนทั่วไป (base) + ส่วนเพิ่มตามสัดส่วน · ไม่เกินส่วนแบ่งของตัวเอง (ปัดขึ้น) — เศษที่เหลือคงไว้
+    const putAppointed = (R: number, base: number) => {
+      let used = 0;
+      const extra = Math.max(0, R - base * appointed.length);
+      for (const m of appointed) {
+        const cap = Math.max(base / step, Math.ceil((ideal[m.id]?.[p.id] || 0) / step - 1e-9));
+        const add = fA > 0 ? Math.floor(extra * f.get(m.id)! / fA / step + 1e-9) : 0;
+        const q = Math.min(base / step + add, cap) * step;
+        if (q > 0) { alloc[m.id][p.id] = q; used += q; } else delete alloc[m.id][p.id];
+      }
+      return used;
+    };
+    if (!normals.length) { putAppointed(Q, 0); continue; }
+    // คนทั่วไป: ได้เท่ากันทุกคน = ส่วนแบ่งที่ควรได้ ปัดเป็นจำนวนเต็มทีละ step ที่ใกล้ที่สุด
+    // โดยต้องเหลือพอให้คนที่ได้รับแต่งตั้งได้อย่างน้อยเท่ากัน (ไม่งั้นลดลงทีละ step)
+    const n = normals.length, A = appointed.length;
+    const share = ideal[normals[0].id]?.[p.id] || 0;
+    let qn = Math.min(Math.floor(Q / (n + A) / step + 1e-9), Math.round(share / step)) * step;
+    let usedA = putAppointed(Q - n * qn, qn);
+    // ถ้ายังเหลือพอให้ทุกคน (รวมคนที่ได้รับแต่งตั้ง) เพิ่มได้อีกคนละ step → เพิ่มให้คนทั่วไปเท่ากันทุกคน
+    while (Q - n * qn - usedA >= n * step && Q - n * (qn + step) >= A * (qn + step)) { qn += step; usedA = putAppointed(Q - n * qn, qn); }
+    if (qn > 0) for (const m of normals) alloc[m.id][p.id] = qn;
   }
 
   return { alloc, group, targetSets: target, groups: twoGroups ? { A: xa, B: xb } : null, avgWagePerSet: omega, notes };
