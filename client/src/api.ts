@@ -93,6 +93,7 @@ export const shipmentApi = {
   create: (data: any) => api.post('/shipments', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/shipments/${id}`, data).then(r => r.data),
   delete: (id: number) => api.delete(`/shipments/${id}`).then(r => r.data),
+  deliveryNotePdf: (data: any) => api.post('/shipments/delivery-note-pdf', data, { responseType: 'blob', timeout: 60000 }).then(r => r.data),
 };
 
 export const managerApi = {

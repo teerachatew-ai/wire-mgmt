@@ -13,6 +13,7 @@ import DateProductMatrix from '../components/DateProductMatrix';
 import ExportExcelButton from '../components/ExportExcelButton';
 import DateRangeFilter, { DateFilterValue, dateFilterLabel } from '../components/DateRangeFilter';
 import BulkActionBar from '../components/BulkActionBar';
+import DeliveryNoteModal from '../components/DeliveryNoteModal';
 import { downloadBlob, openDownloadTab } from '../utils/downloadBlob';
 import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelect';
 
@@ -837,6 +838,7 @@ function EditDayShipmentModal({ date, products, onClose }: { date: string; produ
 export function StockOutgoingTab({ products }: { products: any[] }) {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [showNote, setShowNote] = useState(false);
   const [editShip, setEditShip] = useState<any>(null);
   const [editingDay, setEditingDay] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({});
@@ -896,9 +898,14 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
             <Package size={15} className="text-green-600" />
             <span className="font-semibold text-green-800 text-sm">สต้อคพร้อมส่งโรงงาน (ปัจจุบัน)</span>
           </div>
-          <button className="btn-primary flex items-center gap-2 text-xs py-1.5" onClick={() => setShowModal(true)}>
-            <Truck size={13} /> บันทึกส่งออก
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="btn-primary flex items-center gap-2 text-xs py-1.5 !bg-sky-600 hover:!bg-sky-700" onClick={() => setShowNote(true)}>
+              <FileText size={13} /> ทำใบส่งของ
+            </button>
+            <button className="btn-secondary flex items-center gap-2 text-xs py-1.5" onClick={() => setShowModal(true)}>
+              <Truck size={13} /> บันทึกส่งออก
+            </button>
+          </div>
         </div>
         <table className="w-full text-sm">
           <thead className="border-b text-xs text-gray-500">
@@ -1068,6 +1075,7 @@ export function StockOutgoingTab({ products }: { products: any[] }) {
       </div>
 
       {showModal && <ShipmentModal products={readyProducts.length > 0 ? readyProducts : products} onClose={() => setShowModal(false)} />}
+      {showNote && <DeliveryNoteModal products={products} onClose={() => setShowNote(false)} />}
       {editShip && <EditShipmentModal shipment={editShip} onClose={() => setEditShip(null)} />}
       {editingDay && <EditDayShipmentModal date={editingDay} products={products} onClose={() => setEditingDay(null)} />}
     </div>
