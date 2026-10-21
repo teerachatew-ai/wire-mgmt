@@ -876,8 +876,8 @@ export default function Members() {
                 <p className={`font-semibold text-base mt-0.5 ${m.status === 'active' ? 'text-gray-800' : 'text-gray-400'}`}>
                   {m.name}
                   {m.nickname && <span className="text-sm text-gray-400 font-normal"> ({m.nickname})</span>}
-                  <span className="ml-1.5 align-middle"><AdminRolePicker member={m} /></span>
                 </p>
+                <div className="mt-1.5"><AdminRolePicker member={m} /></div>
                 {m.phone && <p className="text-sm text-gray-500 mt-0.5">📞 {m.phone}</p>}
               </div>
               <div className="flex flex-col items-end gap-1.5">
@@ -925,6 +925,7 @@ export default function Members() {
               </th>
               <th className="px-4 py-3 font-medium">รหัส</th>
               <th className="px-4 py-3 font-medium">ชื่อ-สกุล</th>
+              <th className="px-3 py-3 font-medium">ตำแหน่ง</th>
               <th className="px-4 py-3 font-medium">เลขบัตร</th>
               <th className="px-4 py-3 font-medium">เบอร์โทร</th>
               <th className="px-4 py-3 font-medium text-right">งานค้าง</th>
@@ -935,9 +936,9 @@ export default function Members() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={10} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
+            {isLoading && <tr><td colSpan={11} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {!isLoading && (data as any[]).length === 0 && (
-              <tr><td colSpan={10} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>
+              <tr><td colSpan={11} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>
             )}
             {(data as any[]).map((m: any) => (
               <tr key={m.id} className={`border-b hover:brightness-95 transition-colors ${selected.has(m.id) ? 'bg-blue-50/50' : m.status === 'active' ? 'bg-white' : 'bg-gray-50'}`}>
@@ -946,8 +947,8 @@ export default function Members() {
                 <td className={`px-4 py-3 font-medium whitespace-nowrap ${m.status === 'active' ? 'text-gray-800' : 'text-gray-400'}`}>
                   {m.name}
                   {m.nickname && <span className="ml-2 text-sm text-gray-400">({m.nickname})</span>}
-                  <span className="ml-2 align-middle"><AdminRolePicker member={m} /></span>
                 </td>
+                <td className="px-3 py-3"><AdminRolePicker member={m} /></td>
                 <td className="px-4 py-3 font-mono text-xs text-gray-400">
                   {m.id_card ? `${m.id_card.slice(0, 1)}-${m.id_card.slice(1, 5)}-${m.id_card.slice(5, 10)}-${m.id_card.slice(10, 12)}-${m.id_card.slice(12)}` : '-'}
                 </td>
