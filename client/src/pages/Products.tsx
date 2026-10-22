@@ -216,6 +216,8 @@ export default function Products() {
             {isLoading && <tr><td colSpan={12} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>}
             {groupKeys.map((proj) => {
               const items = groups[proj];
+              const sumFactory = items.reduce((s: number, p: any) => s + (p.factory_price ?? 0), 0);
+              const sumWage = items.reduce((s: number, p: any) => s + (p.wage_per_unit ?? 0), 0);
               const sumProfit = items.reduce((s: number, p: any) => s + ((p.factory_price ?? 0) - p.wage_per_unit), 0);
               return (
                 <Fragment key={proj}>
@@ -256,11 +258,13 @@ export default function Products() {
                       </td>
                     </tr>
                   ))}
-                  {/* แถวสรุปกำไรต่อหน่วยรวมของโครงการ */}
+                  {/* แถวสรุปรวมของโครงการ: ราคาโรงงาน + ค่าจ้าง + กำไรกลุ่ม ต่อหน่วย (รวมทุกรุ่นในโครงการ = ต่อ 1 ชุด) */}
                   <tr className="bg-green-50 border-b-2 border-green-200 font-semibold">
-                    <td colSpan={7} className="px-4 py-2.5 text-green-800">
-                      รวมกำไรต่อหน่วย — โครงการ {proj} <span className="font-normal text-green-600">({items.length} รุ่น)</span>
+                    <td colSpan={5} className="px-4 py-2.5 text-green-800">
+                      รวมต่อชุด — โครงการ {proj} <span className="font-normal text-green-600">({items.length} รุ่น)</span>
                     </td>
+                    <td className="px-4 py-2.5 text-right text-blue-700">{price(sumFactory)} บาท</td>
+                    <td className="px-4 py-2.5 text-right text-amber-700">{price(sumWage)} บาท</td>
                     <td className="px-4 py-2.5 text-right text-green-800">{price(sumProfit)} บาท</td>
                     <td colSpan={4}></td>
                   </tr>
