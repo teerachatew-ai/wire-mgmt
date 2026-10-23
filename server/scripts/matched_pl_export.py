@@ -107,13 +107,19 @@ o = d["wages_owed"]
 
 # ── ค่าแรงที่จ่ายจริง (2 ชั้น) ──
 section(f"หัก ค่าแรงสมาชิกที่จ่ายจริง (รอบ {cyc(d['month'])} · กำหนดจ่าย {thd(o['cycle_pay_date'])})")
+# คำนวณค่าแรงสุทธิ: ค่าแรงตัดก่อนหักค่าปรับ − ค่าปรับ NG (+ ปัดเศษขึ้นเต็มบาทต่อคน) = ค่าแรงสุทธิ (รวมที่จ่ายจริง)
+wb_ = d.get("wage_breakdown") or {"gross": d["wage_paid"], "penalty": 0, "round": 0}
 w_first = row
-detail("① ค่าแรงตามปริมาณงานที่ส่งออกโรงงาน", d["wage_matched"])
-ref_matched = f"C{w_first}"
-detail("② ส่วนเกินที่สำรองจ่ายสมาชิก (งานยังไม่ได้ส่งออก)" if d["wage_excess"] >= 0
-       else "② ส่งออกงานที่สำรองจ่ายไว้รอบก่อน (จ่ายน้อยกว่างานที่ส่ง)", d["wage_excess"])
-ref_excess = f"C{w_first + 1}"
-ref_wage = line("รวมค่าแรงที่จ่ายจริง", d["wage_paid"], color=RED, sign="-", bold=True, formula=f"=-SUM(C{w_first}:C{w_first + 1})")
+detail("ค่าแรงตัด (ก่อนหักค่าปรับ)", wb_["gross"])
+detail("หัก ค่าปรับ NG", -wb_["penalty"])
+detail("ปัดเศษขึ้นเป็นบาทเต็มต่อคน", wb_["round"])
+ref_wage = line("ค่าแรงสุทธิที่จ่ายจริง", d["wage_paid"], color=RED, sign="-", bold=True, formula=f"=-SUM(C{w_first}:C{w_first + 2})")
+# แยกตามที่มา (ไม่รวมในสูตรข้างบน — เป็นอีกมุมมองของยอดเดียวกัน)
+detail("แยกตามที่มา: ① ค่าแรงตามปริมาณงานที่ส่งออกโรงงาน", d["wage_matched"])
+ref_matched = f"C{row - 1}"
+detail("แยกตามที่มา: ② ส่วนเกินที่สำรองจ่ายสมาชิก (งานยังไม่ได้ส่งออก)" if d["wage_excess"] >= 0
+       else "แยกตามที่มา: ② ส่งออกงานที่สำรองจ่ายไว้รอบก่อน", d["wage_excess"])
+ref_excess = f"C{row - 1}"
 row += 1
 cell(f"B{row}", "กำไรขั้นต้น (Gross Profit)", font=Font(name=FONT, size=11, bold=True, color=NAVY), align=Alignment(horizontal="left", vertical="center"))
 cell(f"D{row}", f"={ref_revenue}+{ref_wage}", font=Font(name=FONT, size=11, bold=True, color=NAVY), align=R, fmt=MONEY)

@@ -100,6 +100,11 @@ function outstandingWageValue(): number {
 
 // ค่าแรงสมาชิกรวมตาม "รอบจ่าย" (pay_cycle) — ตรงกับหน้าสรุปค่าแรง (หักค่าปรับ NG ตามกติกาของรอบนั้น + ปัดขึ้นเต็มบาทต่อคน)
 function payCycleWage(cycle: string | null): number {
+  return payCycleBreakdown(cycle).net;
+}
+// ค่าแรงรอบจ่ายแยกส่วน: ค่าแรงตัดก่อนหักค่าปรับ (gross) · ค่าปรับ NG (penalty) · ค่าแรงสุทธิ (net = Σ ปัดขึ้นเต็มบาทต่อคน)
+// round = net − (gross − penalty) = ส่วนที่เพิ่มจากการปัดเศษขึ้นต่อคน
+function payCycleBreakdown(cycle: string | null): { gross: number; penalty: number; net: number; round: number } {
   const pol = loadWagePolicy();
   const rows = prepare(`
     SELECT m.id, COALESCE(SUM(${WAGE_SQL}), 0) as gross
@@ -108,7 +113,12 @@ function payCycleWage(cycle: string | null): number {
     GROUP BY m.id
   `).all(...wageParams(pol), ...(cycle ? [cycle] : [])) as any[];
   const pen = sumPenalties(computePenalties(pol, { cycle }), r => r.member_id);
-  return rows.reduce((s, r) => s + Math.ceil((r.gross || 0) - (pen.get(r.id) || 0)), 0);
+  let gross = 0, penalty = 0, net = 0;
+  for (const r of rows) {
+    const g = r.gross || 0, p = pen.get(r.id) || 0;
+    gross += g; penalty += p; net += Math.ceil(g - p);
+  }
+  return { gross, penalty, net, round: net - (gross - penalty) };
 }
 
 router.get('/dashboard', (_req, res) => {
@@ -2037,6 +2047,7 @@ function buildMatchedPL(month: string) {
   return {
     month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
     revenue, cogs, gross, tax,
+    wage_breakdown: payCycleBreakdown(month),   // ค่าแรงตัดก่อนหักค่าปรับ / ค่าปรับ NG / ปัดเศษ / สุทธิ (= wage_paid)
     wage_paid: cashBasisWage, wage_matched: cogs, wage_excess: wageExcess, excess_parts: excessParts, layer_products: layerProducts,
     gross_paid: revenue - cashBasisWage, net_paid: netCashBasis,
     wages_owed: owed,

@@ -119,7 +119,7 @@ export default function FinancialStatements() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard theme="mint" icon={Factory} label="รายรับ" value={data.revenue} sub={`เดือน ${monthLabel(data.month)}`} />
             <StatCard theme="peach" icon={Scissors} label="ค่าแรงที่จ่ายจริง" value={data.wage_paid}
-              sub={`ตามงานส่งออก ${signed(data.wage_matched)} · สำรองจ่าย ${signed(data.wage_excess)}`} />
+              sub={data.wage_breakdown ? `ก่อนหักค่าปรับ ${signed(data.wage_breakdown.gross)} · ค่าปรับ ${signed(data.wage_breakdown.penalty)}` : `ตามงานส่งออก ${signed(data.wage_matched)} · สำรองจ่าย ${signed(data.wage_excess)}`} />
             <StatCard theme="sky" icon={TrendingUp} label="กำไรขั้นต้น" value={data.gross_paid} sub={data.revenue ? `${((data.gross_paid / data.revenue) * 100).toFixed(1)}%` : undefined} />
             <StatCard theme={data.net_paid >= 0 ? 'pos' : 'neg'} icon={data.net_paid >= 0 ? TrendingUp : TrendingDown}
               label="กำไรสุทธิ" value={data.net_paid}
@@ -134,6 +134,21 @@ export default function FinancialStatements() {
             <div className="space-y-1 text-sm tabular-nums max-w-lg">
               <LedgerRow label="รายรับจาก Amphenol (ส่งออกเดือนนี้)" value={data.revenue} cls="text-emerald-700" />
               <LedgerRow label={`หัก ค่าแรงสมาชิกที่จ่ายจริง (รอบ ${cycleLabel(data.month)} · จ่าย ${thDate(data.wages_owed.cycle_pay_date)})`} value={-data.wage_paid} cls="text-rose-600" />
+              {data.wage_breakdown && (
+                <div className="ml-3 my-1 rounded-lg border border-slate-200 bg-white px-3 py-2 space-y-0.5">
+                  <p className="text-[10px] font-semibold tracking-wide text-slate-400 mb-0.5">คำนวณค่าแรงสุทธิ</p>
+                  <LedgerRow label="ค่าแรงตัด (ก่อนหักค่าปรับ)" value={data.wage_breakdown.gross} cls="text-slate-700" />
+                  <LedgerRow label="หัก ค่าปรับ NG" value={-data.wage_breakdown.penalty} cls="text-rose-600" />
+                  {Math.abs(data.wage_breakdown.round) >= 0.005 && (
+                    <LedgerRow label="ปัดเศษขึ้นเป็นบาทเต็มต่อคน" value={data.wage_breakdown.round} cls="text-slate-500" />
+                  )}
+                  <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold">
+                    <span className="text-slate-700">ค่าแรงสุทธิที่จ่ายสมาชิก</span>
+                    <span className="text-rose-600">฿{thb2(data.wage_breakdown.net)}</span>
+                  </div>
+                </div>
+              )}
+              <p className="ml-3 text-[10px] font-semibold tracking-wide text-slate-400 pt-1">แยกตามที่มาของค่าแรง</p>
               <WageLayerBar matched={data.wage_matched} excess={data.wage_excess} />
               <LedgerRow label="① ค่าแรงตามปริมาณงานที่ส่งออกโรงงาน" value={data.wage_matched} cls="text-slate-500" indent />
               <LedgerRow label={data.wage_excess >= 0 ? '② ส่วนเกินที่สำรองจ่ายสมาชิก (งานยังไม่ได้ส่งออก)' : '② ส่งออกงานที่สำรองจ่ายไว้รอบก่อน (จ่ายน้อยกว่างานที่ส่ง)'}
