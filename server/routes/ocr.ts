@@ -106,7 +106,7 @@ function memberTokens(m: any): string[] {
   const parts = [nick, nick.replace(/\([^)]*\)/g, ' '), ...inParen(nick), ...inParen(full), first];
   for (const p of parts) {
     const c = coreName(p); if (c) out.add(c);
-    for (const w of p.split(/[+,/&]|และ/)) { const c2 = coreName(w); if (c2 && c2.length >= 2) out.add(c2); }
+    for (const w of p.split(/[+,/&\s]|และ/)) { const c2 = coreName(w); if (c2 && c2.length >= 2) out.add(c2); }
   }
   for (const w of nick.replace(/[()]/g, ' ').split(/\s+/)) { const c = coreName(w); if (c && c.length >= 2) out.add(c); }
   return [...out];
