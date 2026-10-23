@@ -420,7 +420,9 @@ ws0 = wb.create_sheet(safe_sheet_name("สรุปรวม", used_names))
 ws0.sheet_view.showGridLines = False
 n_prod = len(product_order)
 FIXED_COLS0 = 3  # รหัส, ชื่อ-สกุล, ชื่อเล่น
-last_col = FIXED_COLS0 + n_prod + 1  # + สินค้าแต่ละชนิด + ค่าแรงสุทธิ
+MONEY_COLS0 = 3  # ค่าแรงก่อนหักค่าปรับ, ค่าปรับ NG, ค่าแรงสุทธิ (ขอ 23 ต.ค. 69)
+last_col = FIXED_COLS0 + n_prod + MONEY_COLS0  # + สินค้าแต่ละชนิด + ช่องเงิน
+first_money_col = FIXED_COLS0 + n_prod + 1
 last_col_letter = get_column_letter(last_col)
 ws0.merge_cells(f"A1:{last_col_letter}1")
 # หน้าสรุปรวม: ตัวหนังสือ +20% (S0) และคอลัมน์ตัวเลขแคบลง — ขอ 20 ต.ค. 69
@@ -435,8 +437,9 @@ ws0.row_dimensions[2].height = RH(30)
 ws0.row_dimensions[3].height = RH(10)
 
 hdr_row = 5
-headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงสุทธิรอบนี้ (บาท)"]
-widths0 = [7, 38, 20] + [9.5] * n_prod + [15]
+headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงก่อนหักค่าปรับ (บาท)", "ค่าปรับ NG (บาท)", "ค่าแรงสุทธิรอบนี้ (บาท)"]
+# ชื่อ/ชื่อเล่นบีบให้แคบลง (ย่อตัวอักษรอัตโนมัติด้วย shrink_to_fit) เพื่อเว้นที่ให้ช่องเงินเพิ่ม 2 ช่อง
+widths0 = [7, 27, 15] + [9.5] * n_prod + [13, 10.5, 13]
 for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
     col = get_column_letter(ci)
     ws0.column_dimensions[col].width = w
@@ -445,6 +448,8 @@ for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
         pname = product_order[ci - FIXED_COLS0 - 1]
         hexc = hexcolor(distinct_products[pname]) or "9CA3AF"
         fill, txt = hexc, contrast_text(hexc)
+    elif ci == first_money_col + 1:
+        fill, txt = "B91C1C", "FFFFFF"   # ค่าปรับ = แดง
     else:
         fill, txt = NAVY, "FFFFFF"
     # wrap_text กันหัวคอลัมน์ยาวล้นออกไปทับคอลัมน์ข้างๆ หรือหลุดขอบหน้ากระดาษ
@@ -458,14 +463,15 @@ for m in d["members"]:
     pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
     vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
     vals += [pw_map.get(n, {}).get("qty", 0) for n in product_order]
-    vals += [m["total_wage"]]
+    vals += [float(m.get("gross_wage") or 0), float(m.get("ng_deduction") or 0), m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
         is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
-        is_total_col = ci == last_col
-        fmt = NUM_Z if is_prod_col else (MONEY_Z if is_total_col else None)
-        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5 * S0), bold=True, color="111827"),
-             align=(R if (is_prod_col or is_total_col) else (LS if ci in (2, 3) else L)), border=box, fmt=fmt)
+        is_money_col = ci >= first_money_col
+        is_pen_col = ci == first_money_col + 1
+        fmt = NUM_Z if is_prod_col else (MONEY_Z if is_money_col else None)
+        cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(9.5 * S0), bold=True, color=("B91C1C" if is_pen_col else "111827")),
+             align=(R if (is_prod_col or is_money_col) else (LS if ci in (2, 3) else L)), border=box, fmt=fmt)
     for n in product_order:
         grand_qty[n] += pw_map.get(n, {}).get("qty", 0)
     ws0.row_dimensions[row].height = RH(20)
@@ -480,9 +486,17 @@ for ci, n in enumerate(product_order, start=FIXED_COLS0 + 1):
     col = get_column_letter(ci)
     v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
     cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(10 * S0), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=NUM_Z, border=box)
-wage_v = f"=SUM({last_col_letter}{first_member_row}:{last_col_letter}{last_member_row})" if has_members else 0
-cell(ws0, f"{last_col_letter}{row}", wage_v, font=Font(name=FONT, size=FS(10 * S0), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
+for ci in range(first_money_col, last_col + 1):   # ผลรวมช่องเงินทั้ง 3 ช่อง
+    col = get_column_letter(ci)
+    v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
+    cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(10 * S0), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = RH(24)
+row += 1
+# ค่าแรงสุทธิ = ก่อนหักค่าปรับ − ค่าปรับ แล้วปัดขึ้นเต็มบาทต่อคน → อาจต่างจากการลบตรงๆ ไม่เกิน 1 บาท/คน
+ws0.merge_cells(f"A{row}:{last_col_letter}{row}")
+cell(ws0, f"A{row}", "หมายเหตุ: ค่าแรงสุทธิ = ค่าแรงก่อนหักค่าปรับ − ค่าปรับ NG แล้วปัดขึ้นเป็นบาทเต็มต่อคน",
+     font=Font(name=FONT, size=FS(8.5 * S0), italic=True, color=GREY), align=Alignment(horizontal="right", vertical="center"))
+ws0.row_dimensions[row].height = RH(18)
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
 ws0.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
