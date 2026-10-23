@@ -2047,7 +2047,8 @@ function buildMatchedPL(month: string) {
   return {
     month, tax_pct: parseFloat(cfg.withholding_tax_percent || '3'),
     revenue, cogs, gross, tax,
-    wage_breakdown: payCycleBreakdown(month),   // ค่าแรงตัดก่อนหักค่าปรับ / ค่าปรับ NG / ปัดเศษ / สุทธิ (= wage_paid)
+    // ค่าแรงตัดก่อนหักค่าปรับ / ค่าปรับ NG / สุทธิ (= wage_paid) — ส่วนปัดเศษขึ้นเต็มบาทรวมไว้ในค่าแรงตัดเลย (เจ้าของขอ) → ก่อนหัก − ค่าปรับ = สุทธิ พอดี
+    wage_breakdown: (() => { const b = payCycleBreakdown(month); return { gross: b.net + b.penalty, penalty: b.penalty, net: b.net }; })(),
     wage_paid: cashBasisWage, wage_matched: cogs, wage_excess: wageExcess, excess_parts: excessParts, layer_products: layerProducts,
     gross_paid: revenue - cashBasisWage, net_paid: netCashBasis,
     wages_owed: owed,

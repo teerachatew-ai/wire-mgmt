@@ -107,13 +107,12 @@ o = d["wages_owed"]
 
 # ── ค่าแรงที่จ่ายจริง (2 ชั้น) ──
 section(f"หัก ค่าแรงสมาชิกที่จ่ายจริง (รอบ {cyc(d['month'])} · กำหนดจ่าย {thd(o['cycle_pay_date'])})")
-# คำนวณค่าแรงสุทธิ: ค่าแรงตัดก่อนหักค่าปรับ − ค่าปรับ NG (+ ปัดเศษขึ้นเต็มบาทต่อคน) = ค่าแรงสุทธิ (รวมที่จ่ายจริง)
-wb_ = d.get("wage_breakdown") or {"gross": d["wage_paid"], "penalty": 0, "round": 0}
+# คำนวณค่าแรงสุทธิ: ค่าแรงตัดก่อนหักค่าปรับ (รวมปัดเศษขึ้นเต็มบาทแล้ว) − ค่าปรับ NG = ค่าแรงสุทธิ (รวมที่จ่ายจริง)
+wb_ = d.get("wage_breakdown") or {"gross": d["wage_paid"], "penalty": 0}
 w_first = row
 detail("ค่าแรงตัด (ก่อนหักค่าปรับ)", wb_["gross"])
 detail("หัก ค่าปรับ NG", -wb_["penalty"])
-detail("ปัดเศษขึ้นเป็นบาทเต็มต่อคน", wb_["round"])
-ref_wage = line("ค่าแรงสุทธิที่จ่ายจริง", d["wage_paid"], color=RED, sign="-", bold=True, formula=f"=-SUM(C{w_first}:C{w_first + 2})")
+ref_wage = line("ค่าแรงสุทธิที่จ่ายจริง", d["wage_paid"], color=RED, sign="-", bold=True, formula=f"=-SUM(C{w_first}:C{w_first + 1})")
 # แยกตามที่มา (ไม่รวมในสูตรข้างบน — เป็นอีกมุมมองของยอดเดียวกัน)
 detail("แยกตามที่มา: ① ค่าแรงตามปริมาณงานที่ส่งออกโรงงาน", d["wage_matched"])
 ref_matched = f"C{row - 1}"

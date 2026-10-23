@@ -139,9 +139,6 @@ export default function FinancialStatements() {
                   <p className="text-[10px] font-semibold tracking-wide text-slate-400 mb-0.5">คำนวณค่าแรงสุทธิ</p>
                   <LedgerRow label="ค่าแรงตัด (ก่อนหักค่าปรับ)" value={data.wage_breakdown.gross} cls="text-slate-700" />
                   <LedgerRow label="หัก ค่าปรับ NG" value={-data.wage_breakdown.penalty} cls="text-rose-600" />
-                  {Math.abs(data.wage_breakdown.round) >= 0.005 && (
-                    <LedgerRow label="ปัดเศษขึ้นเป็นบาทเต็มต่อคน" value={data.wage_breakdown.round} cls="text-slate-500" />
-                  )}
                   <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold">
                     <span className="text-slate-700">ค่าแรงสุทธิที่จ่ายสมาชิก</span>
                     <span className="text-rose-600">฿{thb2(data.wage_breakdown.net)}</span>

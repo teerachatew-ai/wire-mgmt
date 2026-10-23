@@ -463,7 +463,8 @@ for m in d["members"]:
     pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
     vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
     vals += [pw_map.get(n, {}).get("qty", 0) for n in product_order]
-    vals += [float(m.get("gross_wage") or 0), float(m.get("ng_deduction") or 0), m["total_wage"]]
+    # ค่าแรงก่อนหักค่าปรับ = สุทธิ + ค่าปรับ (รวมส่วนปัดเศษขึ้นเต็มบาทไว้แล้ว) → ลบกันได้สุทธิพอดี
+    vals += [float(m["total_wage"]) + float(m.get("ng_deduction") or 0), float(m.get("ng_deduction") or 0), m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
         is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
@@ -491,12 +492,7 @@ for ci in range(first_money_col, last_col + 1):   # ผลรวมช่อง�
     v = f"=SUM({col}{first_member_row}:{col}{last_member_row})" if has_members else 0
     cell(ws0, f"{col}{row}", v, font=Font(name=FONT, size=FS(10 * S0), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
 ws0.row_dimensions[row].height = RH(24)
-row += 1
-# ค่าแรงสุทธิ = ก่อนหักค่าปรับ − ค่าปรับ แล้วปัดขึ้นเต็มบาทต่อคน → อาจต่างจากการลบตรงๆ ไม่เกิน 1 บาท/คน
-ws0.merge_cells(f"A{row}:{last_col_letter}{row}")
-cell(ws0, f"A{row}", "หมายเหตุ: ค่าแรงสุทธิ = ค่าแรงก่อนหักค่าปรับ − ค่าปรับ NG แล้วปัดขึ้นเป็นบาทเต็มต่อคน",
-     font=Font(name=FONT, size=FS(8.5 * S0), italic=True, color=GREY), align=Alignment(horizontal="right", vertical="center"))
-ws0.row_dimensions[row].height = RH(18)
+
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
 ws0.print_title_rows = f"{hdr_row}:{hdr_row}"   # หัวคอลัมน์ซ้ำทุกหน้าเมื่อสมาชิกยาวเกิน 1 หน้า
