@@ -499,6 +499,7 @@ cell(ws0, f"A{row}", "หมายเหตุ: ค่าแรงสุทธ�
 ws0.row_dimensions[row].height = RH(18)
 
 ws0.print_area = f"A1:{last_col_letter}{row}"
+ws0.print_title_rows = f"{hdr_row}:{hdr_row}"   # หัวคอลัมน์ซ้ำทุกหน้าเมื่อสมาชิกยาวเกิน 1 หน้า
 ws0.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
 ws0.page_setup.orientation = "landscape"
 ws0.page_setup.fitToWidth = 1
