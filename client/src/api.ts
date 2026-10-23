@@ -148,7 +148,9 @@ export const reportApi = {
 
 export const ocrApi = {
   // อ่านใบรายชื่อผู้รับสายไฟรายวัน (รูป/PDF หรือ CSV จาก Excel) → ร่างใบเบิกหลายคน (ไม่บันทึก)
-  readIssueSheet: ({ file, csv }: { file?: File; csv?: string }) => {
+  saveIssueAliases: (pairs: { alias: string; member_id: number | null }[]) => api.post('/ocr/issue-aliases', { pairs }).then(r => r.data),
+  readIssueSheet: ({ file, csv, parsed }: { file?: File; csv?: string; parsed?: any }) => {
+    if (parsed) return api.post('/ocr/read-issue-sheet', { parsed }, { timeout: 180000 }).then(r => r.data);
     if (file) {
       const fd = new FormData();
       fd.append('file', file);

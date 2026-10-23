@@ -420,6 +420,12 @@ CREATE TABLE IF NOT EXISTS managers (
   // ปรับยอด "รอแจกจ่าย" รายล็อต — ของออกจากหน้างานไปโดยไม่มีใบเบิก (ลบ) / ลงเบิกเกินของจริง (บวก)
   // ยอดรับจากโรงงานที่คนกรอกไว้ไม่ต้องแก้ ใบเบิก/ค่าแรงไม่เปลี่ยน — ส่วนต่างเก็บเป็นรายการแยกให้ตามหาสาเหตุได้
   // สร้างจากปุ่ม "นับของหน้างาน" เมื่อล็อตที่ต่างเป็นล็อตที่กรอกยอดรับจริงไว้แล้ว (ล็อก)
+  // ชื่อที่เขียนในใบเบิกรายวัน (เช่น "พี่บอย") → สมาชิก — ระบบจำไว้ทุกครั้งที่นำเข้าใบเบิกสำเร็จ ครั้งต่อไปจับคู่ได้ตรงทันที
+  db.exec(`CREATE TABLE IF NOT EXISTS member_aliases (
+    alias TEXT PRIMARY KEY,
+    member_id INTEGER NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  )`);
   db.exec(`CREATE TABLE IF NOT EXISTS waiting_adjustments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL,

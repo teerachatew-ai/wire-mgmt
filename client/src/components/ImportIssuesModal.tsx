@@ -5,12 +5,15 @@ import { X, Upload, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { issueApi, memberApi, productApi, receiveApi, ocrApi } from '../api';
 import { sortByColorGroup } from '../productOrder';
 import { parseProductLabel } from '../projectLabel';
+import { parseDailyWorkbook, DailySheet } from '../utils/dailySheetParser';
 
 /* ── นำเข้าใบเบิกจากรูป / PDF / Excel (ใบรายชื่อผู้รับสายไฟรายวัน) ──
    1) เลือกไฟล์ + วันที่เบิก → server อ่านใบด้วย AI แล้วจับคู่ชื่อ→สมาชิก, หัวคอลัมน์→ชนิดงาน
    2) ตรวจ/แก้ในตาราง (เปลี่ยนสมาชิก แก้จำนวน ติ๊กออกได้) — ชื่อที่จับคู่ไม่ได้/ไม่มั่นใจ ขึ้นสีส้ม
    3) บันทึก = สร้างใบเบิกทีละคน (/issues/batch — กติกาเดียวกับสร้างใบเบิกปกติ: เพดานคงค้าง/งานค้างเกินกำหนด)
-   ล็อต: ล็อตเก่าสุดที่ยังมีของ (ถ้าหมดทุกล็อต = ล็อตล่าสุดที่มาถึงแล้ว) */
+   ล็อต: ล็อตเก่าสุดที่ยังมีของ (ถ้าหมดทุกล็อต = ล็อตล่าสุดที่มาถึงแล้ว)
+   Excel แบบฟอร์ม "รับงานจากโรงงาน": อ่านตัวเลขตรงจากไฟล์ (utils/dailySheetParser) ทุกชีต เลือกชีตได้ — ไม่ต้องให้ AI เดาตัวเลข
+   ชื่อในใบ → สมาชิก ที่บันทึกสำเร็จ ระบบจำไว้ (member_aliases) ครั้งต่อไปจับคู่ได้ตรงทันที */
 
 type Row = { key: number; on: boolean; sheet_name: string; member_id: number | null; conf: string; qty: Record<number, string>; status?: 'ok' | 'err'; msg?: string };
 
@@ -28,6 +31,8 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
   const [note, setNote] = useState('');
   const [rows, setRows] = useState<Row[] | null>(null);
   const [cols, setCols] = useState<number[]>([]);
+  const [sheets, setSheets] = useState<DailySheet[] | null>(null);   // ชีตแบบฟอร์มที่อ่านได้จาก Excel
+  const [sheetIdx, setSheetIdx] = useState(0);
 
   const active = useMemo(() => (members as any[]).filter(m => m.status === 'active'), [members]);
   const prodById = useMemo(() => new Map((products as any[]).map(p => [p.id, p])), [products]);
@@ -41,30 +46,52 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
     return arrived.length ? arrived[arrived.length - 1].lot_date : null;
   };
 
-  const read = async () => {
-    if (!file) return;
+  const applyResult = (res: any) => {
+    if (res.date && /^\d{4}-\d{2}-\d{2}$/.test(res.date)) setDate(res.date);
+    const colSet = new Set<number>();
+    const rs: Row[] = (res.rows || []).map((r: any, i: number) => {
+      const qty: Record<number, string> = {};
+      for (const l of r.lines || []) { qty[l.product_id] = String(l.qty); colSet.add(l.product_id); }
+      return { key: i, on: true, sheet_name: r.sheet_name, member_id: r.member_id ?? null, conf: r.member_confidence || 'low', qty };
+    });
+    setCols([...colSet]);
+    setRows(rs);
+    setNote(res.notes || '');
+    if (rs.length === 0) setErr('ไม่พบรายการเบิกในไฟล์นี้');
+  };
+
+  // อ่านชีตแบบฟอร์มที่แยกตารางแล้ว — ส่งไปจับคู่คอลัมน์/ชื่อที่ server
+  const readSheet = async (sh: DailySheet) => {
     setBusy('read'); setErr(''); setRows(null); setNote('');
     try {
+      const filled = sh.rows.filter(r => r.values.some(v => v > 0));
+      applyResult(await ocrApi.readIssueSheet({ parsed: { date: sh.date, columns: sh.columns, rows: filled } }));
+    } catch (e: any) {
+      setErr(e?.response?.data?.error || e?.message || 'อ่านไฟล์ไม่สำเร็จ');
+    } finally { setBusy(''); }
+  };
+
+  const read = async () => {
+    if (!file) return;
+    setBusy('read'); setErr(''); setRows(null); setNote(''); setSheets(null);
+    try {
       const isExcel = /\.(xlsx|xls|csv)$/i.test(file.name);
-      let res: any;
       if (isExcel) {
         const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-        const csv = wb.SheetNames.slice(0, 1).map(n => XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false })).join('\n');
-        res = await ocrApi.readIssueSheet({ csv });
+        const forms = parseDailyWorkbook(wb);
+        if (forms.length && forms[0].rows.some(r => r.values.some(v => v > 0))) {
+          setSheets(forms); setSheetIdx(0);
+          setBusy('');
+          await readSheet(forms[0]);
+          return;
+        }
+        // ไม่ใช่แบบฟอร์มที่รู้จัก → ส่งชีตที่มีข้อมูลมากที่สุดให้ AI อ่าน (เดิมอ่านแค่ชีตแรก ซึ่งมักเป็นแบบฟอร์มเปล่า)
+        const best = [...wb.SheetNames].map(n => ({ n, csv: XLSX.utils.sheet_to_csv(wb.Sheets[n], { blankrows: false }) }))
+          .sort((x, y) => (y.csv.match(/\d/g) || []).length - (x.csv.match(/\d/g) || []).length)[0];
+        applyResult(await ocrApi.readIssueSheet({ csv: best?.csv || '' }));
       } else {
-        res = await ocrApi.readIssueSheet({ file });
+        applyResult(await ocrApi.readIssueSheet({ file }));
       }
-      if (res.date && /^\d{4}-\d{2}-\d{2}$/.test(res.date)) setDate(res.date);
-      const colSet = new Set<number>();
-      const rs: Row[] = (res.rows || []).map((r: any, i: number) => {
-        const qty: Record<number, string> = {};
-        for (const l of r.lines || []) { qty[l.product_id] = String(l.qty); colSet.add(l.product_id); }
-        return { key: i, on: true, sheet_name: r.sheet_name, member_id: r.member_id ?? null, conf: r.member_confidence || 'low', qty };
-      });
-      setCols([...colSet]);
-      setRows(rs);
-      setNote(res.notes || '');
-      if (rs.length === 0) setErr('ไม่พบรายการเบิกในไฟล์นี้');
     } catch (e: any) {
       setErr(e?.response?.data?.error || e?.message || 'อ่านไฟล์ไม่สำเร็จ');
     } finally { setBusy(''); }
@@ -92,6 +119,12 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
       }
     }
     for (const k of ['issues', 'stock-flow', 'receive-lots', 'reports', 'dashboard']) qc.invalidateQueries({ queryKey: [k] });
+    // จำชื่อในใบ → สมาชิก ของแถวที่บันทึกสำเร็จ (รวมที่ผู้ใช้เลือกแก้เอง) ไว้ใช้ครั้งต่อไป
+    setRows(cur => {
+      const pairs = (cur || []).filter(r => r.status === 'ok' && r.member_id && r.sheet_name).map(r => ({ alias: r.sheet_name, member_id: r.member_id }));
+      if (pairs.length) ocrApi.saveIssueAliases(pairs).catch(() => { /* ไม่กระทบใบเบิก */ });
+      return cur;
+    });
     setBusy('');
   };
   const doneCount = (rows || []).filter(r => r.status === 'ok').length;
@@ -111,7 +144,7 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
               <span className="block text-xs text-gray-500 mb-1">ไฟล์ (รูป, PDF, Excel)</span>
-              <input type="file" accept="image/*,.pdf,.xlsx,.xls,.csv" className="text-sm" onChange={e => { setFile(e.target.files?.[0] || null); setRows(null); setErr(''); }} />
+              <input type="file" accept="image/*,.pdf,.xlsx,.xls,.csv" className="text-sm" onChange={e => { setFile(e.target.files?.[0] || null); setRows(null); setErr(''); setSheets(null); }} />
             </label>
             <label className="text-sm">
               <span className="block text-xs text-gray-500 mb-1">วันที่เบิก</span>
@@ -121,6 +154,24 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
               {busy === 'read' ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} {busy === 'read' ? 'กำลังอ่าน (ราว 20–40 วินาที)…' : 'อ่านไฟล์'}
             </button>
           </div>
+          {sheets && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-sky-50 border border-sky-100 px-3 py-2 text-sm">
+              <CheckCircle2 size={15} className="text-sky-600" />
+              <span className="text-sky-900">อ่านจากแบบฟอร์ม "รับงานจากโรงงาน" ตรงตัวจากไฟล์</span>
+              {sheets.length > 1 && (
+                <label className="flex items-center gap-1.5 ml-auto">
+                  <span className="text-xs text-sky-800">ชีต</span>
+                  <select className="input !w-auto !min-h-[32px] !py-0 text-sm" value={sheetIdx} disabled={!!busy}
+                    onChange={e => { const i = Number(e.target.value); setSheetIdx(i); readSheet(sheets[i]); }}>
+                    {sheets.map((sh, i) => {
+                      const n = sh.rows.filter(r => r.values.some(v => v > 0)).length;
+                      return <option key={i} value={i}>{sh.sheet.trim()}{sh.date ? ` · ${sh.date.split('-').reverse().join('/')}` : ''} · {n ? `${n} คน` : 'ว่าง'}</option>;
+                    })}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
           {err && <p className="text-sm text-rose-600">{err}</p>}
           {note && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2"><AlertTriangle size={13} className="inline mr-1" />ระบบแจ้ง: {note}</p>}
 
