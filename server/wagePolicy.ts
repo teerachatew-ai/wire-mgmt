@@ -6,7 +6,8 @@ import { computePayCycle, loadCutoffConfig } from './payCycle';
      • งานดี (good_qty)            — จ่ายเต็ม · เก็บรวม "งานแก้ไข" ไว้ด้วย (งานแก้ไขคือของดีที่ส่งโรงงานได้)
      • งานแก้ไข (rework_qty)       — เป็นส่วนหนึ่งของงานดี แต่หักค่าแรง X% (ตั้งค่า rework_deduct_percent)
      • NG โรงงาน (ng_factory)      — จ่ายเต็ม ไม่มีค่าปรับ (ไม่ใช่ความผิดสมาชิก)
-     • NG ตัดโดนสายไฟ (ng_cut)     — ค่าแรงตาม defect_wage_percent · มีค่าปรับขั้นบันได
+     • NG ตัดโดนสายไฟ (ng_cut)     — งานจากล็อตตั้งแต่ 28 ส.ค. 69: จ่ายค่าแรงเต็มเหมือนตัดเสร็จ แล้วหักค่าปรับ NG แยก
+                                     (เช่น ตัด 200 NG 10 = ค่าแรง 200 เส้น − ค่าปรับ) · ล็อตก่อนหน้า: ค่าแรงตาม defect_wage_percent (กติกาเดิม)
      • NG ดึงเชือก (ng_rope)       — ค่าแรงแบบเดียวกับ NG ตัดโดนสายไฟ · ค่าปรับอีกอัตรา (ng_rope_rate)
    defect_qty = ng_cut + ng_factory + ng_rope (สต็อก/ส่งออกใช้ยอดนี้เป็นของเสีย)
 
@@ -74,17 +75,30 @@ export function loadWagePolicy(cfg?: Record<string, any>): WagePolicy {
 /** ค่าแรง (ก่อนหักค่าปรับ) ต่อรายการรับคืน — ใช้ใน SQL ที่มี alias r (returns) และ p (products)
     ต้องส่งพารามิเตอร์ 2 ตัวตามลำดับ: wageParams(policy) */
 // NG แจ้งภายหลัง (kind='late_ng') — ng_cut/ng_rope มีไว้คิดค่าปรับอย่างเดียว ค่าแรงจ่ายไปแล้วกับรายการรับคืนเดิม (ไม่คิดซ้ำ)
+// NG ที่สมาชิกแจ้งเอง (ตัดโดนสายไฟ/ดึงเชือก) ของงานจากล็อตตั้งแต่ 28 ส.ค. 69 = จ่ายค่าแรงเต็ม แล้วหักค่าปรับแยก (เจ้าของสั่ง ต.ค. 69 ย้อนหลังถึง 28 ส.ค.)
+// late_ng ไม่คิดค่าแรง NG ซ้ำ (ชิ้นนั้นได้ค่าแรงไปแล้วตอนคืนครั้งแรกในฐานะงานดี) · ล็อตก่อน 28 ส.ค. = defect_wage_percent ตามเดิม
+export const NG_FULL_WAGE_FROM = EFFECTIVE_LOT_FROM;
+export const LOT_SQL = `COALESCE(i.lot_date, substr(i.issued_at, 1, 10))`;
+/** จำนวนเส้น NG ที่ได้ค่าแรงเต็ม (SQL — ต้อง JOIN issues i) */
+export const NG_PAID_SQL = `(CASE WHEN r.kind = 'late_ng' OR ${LOT_SQL} < '${NG_FULL_WAGE_FROM}' THEN 0 ELSE r.ng_cut + COALESCE(r.ng_rope, 0) END)`;
 export const WAGE_SQL = `((r.good_qty + r.ng_factory + r.lost_qty) * p.wage_per_unit
-  + (CASE WHEN r.kind = 'late_ng' THEN 0 ELSE r.ng_cut + COALESCE(r.ng_rope, 0) END) * p.wage_per_unit * ?
+  + (CASE WHEN r.kind = 'late_ng' THEN 0 ELSE r.ng_cut + COALESCE(r.ng_rope, 0) END) * p.wage_per_unit
+    * (CASE WHEN ${LOT_SQL} >= '${NG_FULL_WAGE_FROM}' THEN 1 ELSE ? END)
   - COALESCE(r.rework_qty, 0) * p.wage_per_unit * ?)`;
 export const wageParams = (pol: WagePolicy) => [pol.defectPct, pol.reworkPct];
 
 /** ค่าแรง (ก่อนหักค่าปรับ) ต่อรายการรับคืน — ฝั่ง TS (สูตรเดียวกับ WAGE_SQL) */
+const lotOfRow = (r: any) => String(r.lot_date || r.lot || r.issued_at || '').slice(0, 10);
+const ngFull = (r: any) => lotOfRow(r) >= NG_FULL_WAGE_FROM;
+/** จำนวนเส้น NG ที่ได้ค่าแรงเต็ม (ฝั่ง TS — แถวต้องมี lot_date/issued_at) */
+export function ngPaidQty(r: any): number {
+  return r.kind === 'late_ng' || !ngFull(r) ? 0 : (Number(r.ng_cut) || 0) + (Number(r.ng_rope) || 0);
+}
 export function returnWage(r: any, wagePerUnit: number, pol: WagePolicy): number {
   const w = Number(wagePerUnit) || 0;
   const n = (k: string) => Number(r[k]) || 0;
   return (n('good_qty') + n('ng_factory') + n('lost_qty')) * w
-    + (r.kind === 'late_ng' ? 0 : (n('ng_cut') + n('ng_rope')) * w * pol.defectPct)
+    + (r.kind === 'late_ng' ? 0 : (n('ng_cut') + n('ng_rope')) * w * (ngFull(r) ? 1 : pol.defectPct))
     - n('rework_qty') * w * pol.reworkPct;
 }
 

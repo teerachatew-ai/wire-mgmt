@@ -3,7 +3,7 @@ import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, prevMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
 import { varianceByProduct, lotVariances, lotKey, computeLots } from '../receivedActual';
-import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines } from '../wagePolicy';
+import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines, NG_PAID_SQL, ngPaidQty } from '../wagePolicy';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -1138,15 +1138,15 @@ router.get('/payroll-monthly', (req, res) => {
   `).all(...wageParams(pol), month) as any[];
   const penRows = computePenalties(pol, { cycle: String(month) });
 
-  // จำนวนสายไฟแต่ละชนิดที่ตัด (งานดี) ต่อสมาชิก ในรอบจ่ายนี้ — ใช้แสดงในตารางค่าแรง
+  // จำนวนสายไฟแต่ละชนิดที่ตัด (งานดี + NG ที่ได้ค่าแรงเต็ม) ต่อสมาชิก ในรอบจ่ายนี้ — ใช้แสดงในตารางค่าแรง
   const productRows = prepare(`
     SELECT m.id as member_id, p.name as product_name, p.color, p.unit,
-      COALESCE(SUM(r.good_qty), 0) as qty
+      COALESCE(SUM(r.good_qty + ${NG_PAID_SQL}), 0) as qty
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
-    WHERE r.pay_cycle = ? AND r.good_qty > 0
+    WHERE r.pay_cycle = ? AND (r.good_qty + ${NG_PAID_SQL}) > 0
     GROUP BY m.id, p.id
     ORDER BY p.name
   `).all(month) as any[];
@@ -1219,7 +1219,7 @@ function buildPayrollDetail(month: string) {
   const penRows = computePenalties(pol, { cycle: month });
 
   const detailRowsStmt = prepare(`
-    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
+    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at, i.lot_date,
       p.name as product_name, p.color, p.unit, p.wage_per_unit,
       r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty, r.uncut_qty, r.notes, r.ng_note, r.kind
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
@@ -1227,7 +1227,7 @@ function buildPayrollDetail(month: string) {
     ORDER BY i.issued_at, r.id
   `);
   const carryRowsStmt = prepare(`
-    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at,
+    SELECT r.code as return_code, r.returned_at, i.code as issue_code, i.issued_at, i.lot_date,
       p.name as product_name, p.color, p.unit, p.wage_per_unit,
       r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
@@ -1249,8 +1249,8 @@ function buildPayrollDetail(month: string) {
   const prevLastRecv = (prepare(`SELECT MAX(substr(received_at, 1, 10)) d FROM receives WHERE received_at LIKE ?`).get(`${prevMonth(month)}%`) as any)?.d as string | null;
   const carryInBefore = prevLastRecv && prevLastRecv < cutoffStart ? prevLastRecv : cutoffStart;
   const carryOutStmt = prepare(`
-    SELECT substr(i.issued_at, 1, 10) as issued_at, substr(r.returned_at, 1, 10) as returned_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
-      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty
+    SELECT substr(i.issued_at, 1, 10) as issued_at, i.lot_date, substr(r.returned_at, 1, 10) as returned_at, p.name as product_name, p.wage_per_unit, r.pay_cycle,
+      r.good_qty, r.ng_cut, r.ng_factory, r.ng_rope, r.rework_qty, r.waste_qty, r.lost_qty, r.kind
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN products p ON i.product_id = p.id
     WHERE i.member_id = ? AND r.pay_cycle > ? AND substr(i.issued_at, 1, 10) BETWEEN ? AND ?
     ORDER BY i.issued_at, p.name
@@ -1267,12 +1267,12 @@ function buildPayrollDetail(month: string) {
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
     // carried_in = งานเบิกก่อนรอบนี้ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงในรอบนี้
     const rows = (detailRowsStmt.all(m.member_id, month) as any[])
-      .map(r => ({ ...r, wage: lineWage(r), carried_in: String(r.issued_at).slice(0, 10) < carryInBefore }));
+      .map(r => ({ ...r, wage: lineWage(r), ng_paid_qty: ngPaidQty(r), carried_in: String(r.issued_at).slice(0, 10) < carryInBefore }));
     const carryOutAgg = new Map<string, any>();
     for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, carryEnd) as any[]) {
       const k = `${r.issued_at}|${r.product_name}`;
       const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0, returned: [] as string[] };
-      e.qty += Number(r.good_qty) || 0; e.wage += lineWage(r);
+      e.qty += (Number(r.good_qty) || 0) + ngPaidQty(r); e.wage += lineWage(r);
       if (r.returned_at && !e.returned.includes(r.returned_at)) e.returned.push(r.returned_at);
       carryOutAgg.set(k, e);
     }
@@ -1284,7 +1284,7 @@ function buildPayrollDetail(month: string) {
     for (const r of rows) {
       if (!productAgg[r.product_name]) productAgg[r.product_name] = { name: r.product_name, color: r.color, wage: 0, qty: 0 };
       productAgg[r.product_name].wage += r.wage;
-      productAgg[r.product_name].qty += r.good_qty;
+      productAgg[r.product_name].qty += r.good_qty + (r.ng_paid_qty || 0);
     }
     return {
       ...m, ng_excess_qty, ng_deduction, deductions, total_wage, rows,
@@ -1511,6 +1511,7 @@ function buildWageReconcile(m: string) {
       COALESCE((SELECT SUM(r.ng_factory) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngfac_cyc,
       COALESCE((SELECT SUM(r.lost_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_lost_cyc,
       COALESCE((SELECT SUM(r.ng_cut + r.ng_rope) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngcut_cyc,
+      COALESCE((SELECT SUM(${NG_PAID_SQL}) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_ngpaid_cyc,
       COALESCE((SELECT SUM(r.rework_qty) FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.pay_cycle=?),0) as ret_rework_cyc,
       -- คืนงานดี ตามวันปฏิทิน (physical, ใช้กระทบกับยอดวางบิล — ห้ามเปลี่ยนไปอิงเส้นตัดยอด)
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at>=? AND r.returned_at<?),0) as ret_good_cal,
@@ -1522,7 +1523,7 @@ function buildWageReconcile(m: string) {
       COALESCE((SELECT SUM(r.good_qty)   FROM returns r JOIN issues i ON r.issue_id=i.id WHERE i.product_id=p.id AND r.returned_at<?),0) as ret_good_upto,
       COALESCE((SELECT SUM(COALESCE(si.received_qty, si.good_qty)) FROM shipment_items si JOIN shipments s ON si.shipment_id=s.id WHERE si.product_id=p.id AND s.shipped_at<?),0) as ship_good_upto
     FROM products p WHERE p.active=1
-  `).all(m, m, m, m, m, monthStart, nextStart, mk, cycle.start, cycle.start, cycleEndExclusive, cycleEndExclusive) as any[];
+  `).all(m, m, m, m, m, m, monthStart, nextStart, mk, cycle.start, cycle.start, cycleEndExclusive, cycleEndExclusive) as any[];
 
   /* เงินกันข้ามเดือน = สต็อกที่สมาชิกคืนแล้วรอส่งโรงงาน × ค่าแรง/หน่วย
      • ตั้งแต่รอบ ก.ย. 2569: ใช้ "ยอดพร้อมส่งจริง" ณ วันเริ่ม/วันปิดรอบจ่าย (ชุดเดียวกับหน้าสต็อกสินค้า/จัดลัง)
@@ -1543,7 +1544,9 @@ function buildWageReconcile(m: string) {
     const wage_dFG = dFG * wage;                               // ΔFG
     const wage_timing = (p.ret_good_cyc - p.ret_good_cal) * wage;  // T (เหลื่อมรอบตัดยอด)
     // X — ส่วนที่ไม่ได้อยู่ใน "งานดี": NG โรงงาน/หาย (เต็ม) + NG ตัดโดนสายไฟ/ดึงเชือก (ตาม %) − ส่วนที่หักจากงานแก้ไข (งานแก้ไขนับอยู่ในงานดีแล้ว)
-    const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngcut_cyc * wage * pol.defectPct - p.ret_rework_cyc * wage * pol.reworkPct;
+    // NG สมาชิก/ดึงเชือก: ล็อตตั้งแต่ 28 ส.ค. ได้ค่าแรงเต็ม (ret_ngpaid_cyc) · ที่เหลือตาม defect_wage_percent (late_ng = 0% อยู่แล้วตอนนี้)
+    const wage_extra = (p.ret_ngfac_cyc + p.ret_lost_cyc) * wage + p.ret_ngpaid_cyc * wage
+      + (p.ret_ngcut_cyc - p.ret_ngpaid_cyc) * wage * pol.defectPct - p.ret_rework_cyc * wage * pol.reworkPct;
     const wage_payroll = wage_billed + wage_dFG + wage_timing + wage_extra;  // B (gross)
     // ไม่ clamp ที่ 0 ต่อสินค้า — ถ้าสินค้าไหนส่งออกมากกว่าที่คืนงานสะสม (fg ติดลบ) ต้องปล่อยให้ติดลบจริง
     // เพื่อให้หักล้าง (net) กับสินค้าอื่นที่มีของค้างบวกอยู่ได้ถูกต้องตอนรวมยอด — ถ้า clamp ทีละตัวก่อนรวม ยอดรวมจะสูงเกินจริง
@@ -1955,7 +1958,7 @@ function wagesOwedAtMonthEnd(m: string) {
   for (const r of cycRows) memberOf(r.id, r).cycle = Math.ceil((r.gross || 0) - (cycPen.get(r.id) || 0));
 
   const aftRows = prepare(`
-    SELECT r.id, i.member_id, m.code, m.name, m.nickname, p.id pid, p.name pname, p.color, p.unit, p.wage_per_unit wage,
+    SELECT r.id, i.member_id, i.lot_date, i.issued_at, m.code, m.name, m.nickname, p.id pid, p.name pname, p.color, p.unit, p.wage_per_unit wage,
       r.good_qty, r.ng_factory, r.lost_qty, r.ng_cut, COALESCE(r.ng_rope, 0) ng_rope, r.rework_qty, r.kind, r.pay_cycle
     FROM returns r JOIN issues i ON r.issue_id = i.id JOIN members m ON i.member_id = m.id JOIN products p ON i.product_id = p.id
     WHERE r.pay_cycle > ? AND r.returned_at < ?

@@ -336,7 +336,7 @@ def write_pivot_table(ws, row, rows_list):
         pname = r["product_name"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}, "carried": False})
         e["carried"] = e["carried"] or bool(r.get("carried_in"))
-        e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"]
+        e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"] + float(r.get("ng_paid_qty") or 0)   # NG ที่ได้ค่าแรงเต็ม นับรวมในจำนวนที่คิดค่าแรง
         # ตารางแสดงค่าแรงเต็ม (ก่อนหักงานแก้ไข) — ส่วนที่หักแสดงเป็นบรรทัดแยกใต้ตาราง ให้สมาชิกเห็นว่าโดนหักตรงไหน
         gross = r["wage"] + rework_deduct(r)
         e["wage"] += gross
