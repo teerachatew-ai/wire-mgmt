@@ -96,14 +96,18 @@ export const normAlias = (s: string) => String(s || '').replace(/\s+/g, ' ').tri
 const coreName = (s: string) => {
   let t = String(s || '').replace(/[()]/g, ' ').replace(/(ม\.|หมู่)\s*\d+/g, ' ').replace(/\d+/g, ' ').trim();
   for (let i = 0; i < 3; i++) t = t.replace(PREFIX, '').trim();
-  return t.replace(/\s+/g, '');
+  return t.replace(/[\u0E47-\u0E4C]/g, '').replace(/\s+/g, '');   // ไม่สนวรรณยุกต์/ไม้ไต่คู้ (เจ็ก = เจ๊ก)
 };
 function memberTokens(m: any): string[] {
   const out = new Set<string>();
-  const nick = String(m.nickname || '');
-  const parts = [nick, ...(nick.match(/\(([^)]*)\)/g) || []).map(x => x.slice(1, -1)), nick.replace(/\([^)]*\)/g, ' ')];
-  const first = String(m.name || '').replace(PREFIX, '').trim().split(/\s+/)[0] || '';
-  for (const p of [...parts, first]) { const c = coreName(p); if (c) out.add(c); }
+  const nick = String(m.nickname || ''), full = String(m.name || '');
+  const inParen = (x: string) => (x.match(/\(([^)]*)\)/g) || []).map(p => p.slice(1, -1));
+  const first = full.replace(/\([^)]*\)/g, ' ').replace(PREFIX, '').trim().split(/\s+/)[0] || '';
+  const parts = [nick, nick.replace(/\([^)]*\)/g, ' '), ...inParen(nick), ...inParen(full), first];
+  for (const p of parts) {
+    const c = coreName(p); if (c) out.add(c);
+    for (const w of p.split(/[+,/&]|และ/)) { const c2 = coreName(w); if (c2 && c2.length >= 2) out.add(c2); }
+  }
   for (const w of nick.replace(/[()]/g, ' ').split(/\s+/)) { const c = coreName(w); if (c && c.length >= 2) out.add(c); }
   return [...out];
 }
