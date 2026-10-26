@@ -73,16 +73,30 @@ export default function DistributionPlan() {
   const size = useMemo(() => setSizes(products), [products]);
 
   const plan = useMemo(() => (st ? computePlan({
-    products, qty: numQty, members, pinkPref: ctx?.pink_pref || {}, heavyShare, groupOverride, lifterOverride, settings: st,
-  }) : null), [products, numQty, members, ctx, heavyShare, groupOverride, lifterOverride, st]);
+    products, qty: numQty, members, pinkPref: ctx?.pink_pref || {}, heavyShare, groupOverride, lifterOverride, settings: st, pins: edits,
+  }) : null), [products, numQty, members, ctx, heavyShare, groupOverride, lifterOverride, st, edits]);
 
-  // แก้อะไรที่กระทบการคำนวณ → ล้างตัวเลขที่แก้เองในตาราง
+  /* ช่องที่กรอกเอง = "ล็อก" ยอดของคนนั้น · คนที่ไม่ได้ล็อกในรุ่นเดียวกันถูกเกลี่ยยอดที่เหลือให้เท่ากันอัตโนมัติ (computePlan)
+     รุ่นยาว/สั้นของโครงการเดียวกันที่ยอดเท่ากัน ล็อกพร้อมกัน (ชุดยังคู่กัน) · ปล่อยช่องว่าง/กดกุญแจ = ปลดล็อก */
   const reset = () => setEdits({});
-  const cell = (mid: number, pid: number) => edits[mid]?.[pid] ?? plan?.alloc[mid]?.[pid] ?? 0;
+  const cell = (mid: number, pid: number) => plan?.alloc[mid]?.[pid] ?? 0;
+  const pairOf = (pid: number) => {
+    const p = products.find(x => x.id === pid);
+    if (!p) return [pid];
+    const sib = products.filter(x => projKey(x) === projKey(p) && numQty[x.id] > 0);
+    return sib.length > 1 && sib.every(x => numQty[x.id] === numQty[pid]) ? sib.map(x => x.id) : [pid];
+  };
+  const setPin = (mid: number, pid: number, v: number | null) => setEdits(x => {
+    const row = { ...(x[mid] || {}) };
+    for (const id of pairOf(pid)) { if (v === null) delete row[id]; else row[id] = v; }
+    const next = { ...x };
+    if (Object.keys(row).length) next[mid] = row; else delete next[mid];
+    return next;
+  });
   const allocOf = (mid: number) => Object.fromEntries(products.map(p => [p.id, cell(mid, p.id)]));
   const live = products.filter(p => numQty[p.id] > 0);
   const totalOf = (pid: number) => members.reduce((s, m) => s + cell(m.id, pid), 0);
-  const editedCount = Object.values(edits).reduce((s, r) => s + Object.keys(r).length, 0);
+  const editedCount = members.reduce((t, m) => t + live.filter(p => edits[m.id]?.[p.id] !== undefined).length, 0);
 
   // ยอดรอเบิกปัจจุบัน (ล็อตที่ยังเหลือ)
   const waiting = useMemo(() => {
@@ -101,7 +115,8 @@ export default function DistributionPlan() {
   if (isLoading || !ctx || !st || !plan) return <div className="p-6 text-gray-400"><Loader2 className="animate-spin inline mr-2" size={16} />กำลังโหลด…</div>;
 
   const stats = Object.fromEntries(members.map(m => [m.id, memberStats(allocOf(m.id), products, st)]));
-  const normals = members.filter(m => !m.admin_role).map(m => stats[m.id].wage).filter(w => w > 0);
+  // ค่าแรงคนทั่วไปที่ระบบเกลี่ยให้ (ไม่นับคนที่ล็อกยอดเอง เพราะตั้งใจให้ต่าง)
+  const normals = members.filter(m => !m.admin_role && !live.some(p => edits[m.id]?.[p.id] !== undefined)).map(m => stats[m.id].wage).filter(w => w > 0);
   const spread = normals.length > 1 ? (Math.max(...normals) - Math.min(...normals)) / (normals.reduce((a, b) => a + b, 0) / normals.length) : 0;
   const heavyLive = live.some(p => projKey(p) === st.heavy);
   const heavyPeople = members.filter(m => stats[m.id].heavy > 0).length;
@@ -114,7 +129,10 @@ export default function DistributionPlan() {
   const groupLabel = (g: 'A' | 'B' | null) => (g && plan.groups ? (g === 'A' ? plan.groups.A : plan.groups.B) : '');
   const candidates = allMembers.filter(m => !(memberIds || []).includes(m.id) && (!search.trim() || `${m.code} ${m.name} ${m.nickname || ''}`.toLowerCase().includes(search.trim().toLowerCase()))).slice(0, 8);
 
-  const setMemberList = (ids: number[]) => { setMemberIds(ids); reset(); setResult({}); };
+  const setMemberList = (ids: number[]) => {
+    setMemberIds(ids); setResult({});
+    setEdits(x => Object.fromEntries(Object.entries(x).filter(([id]) => ids.includes(Number(id)))));
+  };
   const saveSettings = async () => {
     await reportApi.saveSettings({
       plan_lifter_min: st.lifter_min, plan_lifter_max: st.lifter_max, plan_lifter_weight: st.lifter_weight,
@@ -175,7 +193,7 @@ export default function DistributionPlan() {
           <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center">1</span>
           <h2 className="font-semibold text-gray-800 flex items-center gap-1.5"><Package size={16} /> ยอดงานที่จะแจก</h2>
           <div className="ml-auto flex gap-2">
-            <button type="button" className="btn-secondary btn-sm" onClick={() => { setQty(Object.fromEntries(products.map(p => [p.id, waiting[p.id] ? String(Math.round(waiting[p.id])) : '']))); reset(); }}>ใช้ยอดรอเบิกทั้งหมด</button>
+            <button type="button" className="btn-secondary btn-sm" onClick={() => { setQty(Object.fromEntries(products.map(p => [p.id, waiting[p.id] ? String(Math.round(waiting[p.id])) : '']))); }}>ใช้ยอดรอเบิกทั้งหมด</button>
             <button type="button" className="btn-secondary btn-sm" onClick={() => { setQty({}); reset(); }}>ล้าง</button>
           </div>
         </div>
@@ -194,7 +212,7 @@ export default function DistributionPlan() {
                     {p.color && <span className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0" style={{ backgroundColor: p.color }} />}
                     <span className="flex-1 min-w-0 text-sm leading-tight"><span className="text-gray-800">{a}</span>{b && <span className="block text-[11px] text-gray-400">{b} · รอเบิก {fmt(waiting[p.id] || 0)}</span>}</span>
                     <input type="number" inputMode="numeric" min="0" step={st.step} className="input !w-28 text-right tabular-nums" placeholder="0"
-                      value={qty[p.id] ?? ''} onChange={e => { setQty(q => ({ ...q, [p.id]: e.target.value })); reset(); }} aria-label={`ยอด ${p.name}`} />
+                      value={qty[p.id] ?? ''} onChange={e => setQty(q => ({ ...q, [p.id]: e.target.value }))} aria-label={`ยอด ${p.name}`} />
                   </label>
                 );
               })}
@@ -250,9 +268,9 @@ export default function DistributionPlan() {
         <div className="px-4 py-3 border-b flex items-center gap-2 flex-wrap">
           <span className="w-6 h-6 rounded-full bg-sky-600 text-white text-xs font-bold flex items-center justify-center">3</span>
           <h2 className="font-semibold text-gray-800 flex items-center gap-1.5"><Scale size={16} /> แผนการแจก</h2>
-          {editedCount > 0 && <span className="text-xs rounded-full bg-amber-100 text-amber-800 px-2 py-0.5">แก้เอง {editedCount} ช่อง</span>}
+          {editedCount > 0 && <span className="text-xs rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 inline-flex items-center gap-1"><Lock size={11} /> ล็อก {editedCount} ช่อง · ที่เหลือเกลี่ยเท่ากัน</span>}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
-            {editedCount > 0 && <button type="button" className="btn-secondary btn-sm flex items-center gap-1" onClick={reset}><RotateCcw size={13} /> กลับเป็นแผนของระบบ</button>}
+            {editedCount > 0 && <button type="button" className="btn-secondary btn-sm flex items-center gap-1" onClick={reset}><RotateCcw size={13} /> ปลดล็อกทั้งหมด</button>}
             <ExportExcelButton filename={`แผนแจกงาน-${date}`} rows={exportRows} />
           </div>
         </div>
@@ -267,6 +285,11 @@ export default function DistributionPlan() {
           </div>
         )}
         {plan.notes.map((n, i) => <p key={i} className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-b flex items-center gap-1.5"><Info size={13} /> {n}</p>)}
+        {live.length > 0 && members.length > 0 && (
+          <p className="px-4 py-2 text-xs text-sky-800 bg-sky-50 border-b flex items-center gap-1.5">
+            <Lock size={12} /> พิมพ์ยอดในช่องของคนที่ต้องการ (กี่คนก็ได้) แล้วกด Enter หรือคลิกที่อื่น = <b>ล็อกยอดคนนั้น</b> — คนที่ไม่ได้ล็อกจะถูก<b>เกลี่ยยอดที่เหลือให้เท่ากัน</b>ทันที · ยาว/สั้นล็อกพร้อมกัน · กดกุญแจหรือลบเลขทิ้ง = ปลดล็อก
+          </p>
+        )}
 
         {live.length === 0 || members.length === 0 ? (
           <p className="p-8 text-center text-gray-400 text-sm">{live.length === 0 ? 'กรอกยอดงานในข้อ 1 ก่อน' : 'เลือกคนรับงานในข้อ 2 ก่อน'}</p>
@@ -306,7 +329,7 @@ export default function DistributionPlan() {
                         </div>
                         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                           {g && (
-                            <button type="button" title="กดเพื่อสลับกลุ่มชมพู" onClick={() => { setGroupOverride(o => ({ ...o, [m.id]: g === 'A' ? 'B' : 'A' })); reset(); }}
+                            <button type="button" title="กดเพื่อสลับกลุ่มชมพู" onClick={() => setGroupOverride(o => ({ ...o, [m.id]: g === 'A' ? 'B' : 'A' }))}
                               className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold ${g === 'A' ? 'bg-pink-100 text-pink-800' : 'bg-blue-100 text-blue-800'}`}>
                               {groupOverride[m.id] && <Lock size={9} />}{groupLabel(g)}
                             </button>
@@ -316,7 +339,7 @@ export default function DistributionPlan() {
                               เป้า
                               <input type="number" min={0} step={50} className="w-14 rounded border border-orange-200 px-1 py-0 text-right text-[11px]"
                                 value={lifterOverride[m.id] ?? Math.round(plan.targetSets[m.id] || 0)}
-                                onChange={e => { const v = parseFloat(e.target.value); setLifterOverride(o => { const n = { ...o }; if (Number.isFinite(v)) n[m.id] = v; else delete n[m.id]; return n; }); reset(); }} />
+                                onChange={e => { const v = parseFloat(e.target.value); setLifterOverride(o => { const n = { ...o }; if (Number.isFinite(v)) n[m.id] = v; else delete n[m.id]; return n; }); }} />
                               ชุด
                             </label>
                           ) : (
@@ -325,17 +348,12 @@ export default function DistributionPlan() {
                           {r && <span className={`text-[10px] ${r.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{r.ok ? '✓ ' : '✗ '}{r.msg}</span>}
                         </div>
                       </td>
-                      {live.map(p => {
-                        const edited = edits[m.id]?.[p.id] !== undefined;
-                        return (
-                          <td key={p.id} className="px-1 py-1 border-l first:border-l-0">
-                            <input type="number" inputMode="numeric" min={0} step={st.step} aria-label={`${m.name} ${p.name}`}
-                              className={`w-[72px] rounded-md border px-1.5 py-1 text-right outline-none focus:ring-2 focus:ring-sky-300 ${edited ? 'border-amber-300 bg-amber-50' : cell(m.id, p.id) ? 'border-gray-200' : 'border-transparent text-gray-300'}`}
-                              value={cell(m.id, p.id) || ''} placeholder="–" disabled={!!r?.ok}
-                              onChange={e => { const v = Math.max(0, parseFloat(e.target.value) || 0); setEdits(x => ({ ...x, [m.id]: { ...(x[m.id] || {}), [p.id]: v } })); }} />
-                          </td>
-                        );
-                      })}
+                      {live.map(p => (
+                        <td key={p.id} className="px-1 py-1 border-l first:border-l-0">
+                          <PlanCell value={cell(m.id, p.id)} locked={edits[m.id]?.[p.id] !== undefined} step={st.step} disabled={!!r?.ok}
+                            label={`${m.name} ${p.name}`} onCommit={v => setPin(m.id, p.id, v)} />
+                        </td>
+                      ))}
                       <td className="px-2 py-1.5 text-right border-l text-gray-700">{fmt(s.sets)}</td>
                       <td className="px-2 py-1.5 text-right font-semibold text-gray-800">{fmt(s.wage)}</td>
                       <td className={`px-3 py-1.5 text-right text-xs ${Math.abs(s.wps - plan.avgWagePerSet) > 0.08 * plan.avgWagePerSet ? 'text-amber-600 font-semibold' : 'text-gray-500'}`}>{s.wps.toFixed(2)}</td>
@@ -430,5 +448,41 @@ function Num({ label, v, on, step = 1 }: { label: string; v: number; on: (v: num
       <span className="label">{label}</span>
       <input type="number" step={step} min={0} className="input text-right" value={v} onChange={e => on(parseFloat(e.target.value) || 0)} />
     </label>
+  );
+}
+
+/* ช่องตัวเลขในแผน — พิมพ์แล้วยังไม่คำนวณจนกด Enter/คลิกที่อื่น (ไม่ให้ตัวเลขคนอื่นกระโดดระหว่างพิมพ์)
+   ยืนยันตัวเลข = ล็อก · ลบเลขทิ้งแล้วยืนยัน หรือกดกุญแจ = ปลดล็อก · Esc = ยกเลิกที่พิมพ์ */
+function PlanCell({ value, locked, step, disabled, label, onCommit }: {
+  value: number; locked: boolean; step: number; disabled?: boolean; label: string; onCommit: (v: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    const t = draft.trim();
+    setDraft(null);
+    if (t === '') { if (locked) onCommit(null); return; }
+    const v = Math.max(0, parseFloat(t) || 0);
+    onCommit(v);
+  };
+  return (
+    <div className="relative">
+      <input type="number" inputMode="numeric" min={0} step={step} aria-label={label} disabled={disabled}
+        className={`w-[78px] rounded-md border pl-1.5 py-1 text-right outline-none focus:ring-2 focus:ring-sky-300 ${locked ? 'pr-5 border-amber-400 bg-amber-50 font-semibold text-amber-900' : `pr-1.5 ${value ? 'border-gray-200' : 'border-transparent text-gray-300'}`}`}
+        value={draft ?? (value || '')} placeholder="–"
+        onFocus={e => e.target.select()}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+          if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
+        }} />
+      {locked && !disabled && (
+        <button type="button" title="ปลดล็อก (ให้ระบบเกลี่ยให้)" aria-label={`ปลดล็อก ${label}`} onMouseDown={e => e.preventDefault()} onClick={() => onCommit(null)}
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-amber-600 hover:text-rose-600 hover:bg-white">
+          <Lock size={11} />
+        </button>
+      )}
+    </div>
   );
 }

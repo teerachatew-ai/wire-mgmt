@@ -28,6 +28,7 @@ export type PlanInput = {
   heavyShare: Record<number, number>;      // สัดส่วน 3 สายใน 30 วัน (0–1) ของแต่ละคน
   groupOverride: Record<number, 'A' | 'B'>;
   lifterOverride: Record<number, number>;  // ชุด/วัน ที่ตั้งเองสำหรับคนยกงาน
+  pins?: Record<number, Record<number, number>>;   // ยอดที่ผู้ใช้ล็อกเอง (member → product → เส้น) — คนที่เหลือเกลี่ยยอดที่เหลือให้เท่ากัน
   settings: PlanSettings;
 };
 export type PlanResult = {
@@ -178,28 +179,41 @@ export function computePlan(inp: PlanInput): PlanResult {
   const alloc: Record<number, Record<number, number>> = {};
   for (const m of members) alloc[m.id] = {};
   for (const p of live) {
-    const E = members.filter(m => eligible(p, m));
+    // ช่องที่ล็อกไว้: ได้ตามที่ล็อกเป๊ะ แล้วเอายอดที่เหลือไปเกลี่ยให้คนที่ไม่ได้ล็อก (กติกาเดิม: คนทั่วไปเท่ากัน ปัดทีละ step)
+    const pinOf = (m: PlanMember) => inp.pins?.[m.id]?.[p.id];
+    let pinnedSum = 0;
+    for (const m of members) {
+      const v = pinOf(m);
+      if (v === undefined) continue;
+      if (v > 0) alloc[m.id][p.id] = v;
+      pinnedSum += Math.max(0, v);
+    }
+    const E = members.filter(m => eligible(p, m) && pinOf(m) === undefined);
     const appointed = E.filter(m => m.admin_role);
     const normals = E.filter(m => !m.admin_role);
-    const Q = inp.qty[p.id];
+    const Q = Math.max(0, inp.qty[p.id] - pinnedSum);
+    // ส่วนแบ่งที่ควรได้ของคนที่ไม่ได้ล็อก (คิดใหม่จากยอดที่เหลือ)
+    const fE = E.reduce((t, m) => t + f.get(m.id)!, 0) || 1;
+    const shareOf = (m: PlanMember) => Q * f.get(m.id)! / fE;
     const fA = appointed.reduce((t, m) => t + f.get(m.id)!, 0);
     // คนที่ได้รับแต่งตั้ง: ได้อย่างน้อยเท่าคนทั่วไป (base) + ส่วนเพิ่มตามสัดส่วน · ไม่เกินส่วนแบ่งของตัวเอง (ปัดขึ้น) — เศษที่เหลือคงไว้
     const putAppointed = (R: number, base: number) => {
       let used = 0;
       const extra = Math.max(0, R - base * appointed.length);
       for (const m of appointed) {
-        const cap = Math.max(base / step, Math.ceil((ideal[m.id]?.[p.id] || 0) / step - 1e-9));
+        const cap = Math.max(base / step, Math.ceil(shareOf(m) / step - 1e-9));
         const add = fA > 0 ? Math.floor(extra * f.get(m.id)! / fA / step + 1e-9) : 0;
         const q = Math.min(base / step + add, cap) * step;
         if (q > 0) { alloc[m.id][p.id] = q; used += q; } else delete alloc[m.id][p.id];
       }
       return used;
     };
+    if (!E.length) continue;
     if (!normals.length) { putAppointed(Q, 0); continue; }
     // คนทั่วไป: ได้เท่ากันทุกคน = ส่วนแบ่งที่ควรได้ ปัดเป็นจำนวนเต็มทีละ step ที่ใกล้ที่สุด
     // โดยต้องเหลือพอให้คนที่ได้รับแต่งตั้งได้อย่างน้อยเท่ากัน (ไม่งั้นลดลงทีละ step)
     const n = normals.length, A = appointed.length;
-    const share = ideal[normals[0].id]?.[p.id] || 0;
+    const share = shareOf(normals[0]);
     let qn = Math.min(Math.floor(Q / (n + A) / step + 1e-9), Math.round(share / step)) * step;
     let usedA = putAppointed(Q - n * qn, qn);
     // ถ้ายังเหลือพอให้ทุกคน (รวมคนที่ได้รับแต่งตั้ง) เพิ่มได้อีกคนละ step → เพิ่มให้คนทั่วไปเท่ากันทุกคน
