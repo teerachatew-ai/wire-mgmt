@@ -367,7 +367,8 @@ def write_pivot_table(ws, row, rows_list):
             wage = e["wage_by_prod"].get(n, 0)
             rate = rates.get(n, 0)
             adj = wage - qty * rate
-            formula = f"={qcol}{row}*{rate:g}" if abs(adj) < 0.005 else f"={qcol}{row}*{rate:g}+{adj:.2f}"
+            # เก็บส่วนต่างแบบไม่ปัดเศษ (ปัดครั้งเดียวตอนท้ายที่ "ค่าแรงสุทธิ" เท่านั้น) — ช่องแสดงผลยังโชว์ 2 ตำแหน่งตามรูปแบบตัวเลข
+            formula = f"={qcol}{row}*{rate:g}" if abs(adj) < 1e-9 else f"={qcol}{row}*{rate:g}+{adj:.10g}"
             cell(ws, f"{hcol}{row}", formula, fmt=MONEY)
         ws.row_dimensions[row].height = RH(H_DATA)
         row += 1
@@ -569,7 +570,7 @@ def write_member_sheet(m, label=None):
         cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
              align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)
         ref = f"{LAST_P_LETTER}{row}"
-        amt = round(float(r["wage"]), 2)   # หักคืนเฉพาะ "ไม่ได้ตัด" — NG ได้ค่าแรงปกติ ค่าปรับอยู่ในบรรทัด NG ครั้งที่…
+        amt = float(r["wage"])   # หักคืนเฉพาะ "ไม่ได้ตัด" — ไม่ปัดเศษรายบรรทัด (ปัดครั้งเดียวที่ค่าแรงสุทธิ)
         if amt:
             cell(ws, ref, amt, font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
             net_formula_parts.append(ref)
@@ -599,7 +600,7 @@ def write_member_sheet(m, label=None):
             cell(ws, f"A{row}", text, font=Font(name=FONT, size=FS(F_NGLINE), color=RED),
                  align=Alignment(horizontal="right", vertical="center", shrink_to_fit=True), border=box)
             ref = f"{LAST_P_LETTER}{row}"
-            cell(ws, ref, -round(e["amt"], 2), font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)
+            cell(ws, ref, -e["amt"], font=Font(name=FONT, size=FS(F_NGLINE), color=RED), align=R, fmt=MONEY, border=box)   # ไม่ปัดรายบรรทัด
             net_formula_parts.append(ref)
             ws.row_dimensions[row].height = RH(H_NG)
             row += 1
