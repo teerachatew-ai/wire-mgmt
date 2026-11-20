@@ -91,6 +91,12 @@ export const wageParams = (pol: WagePolicy) => [pol.defectPct, pol.reworkPct];
 const lotOfRow = (r: any) => String(r.lot_date || r.lot || r.issued_at || '').slice(0, 10);
 const ngFull = (r: any) => lotOfRow(r) >= NG_FULL_WAGE_FROM;
 /** จำนวนเส้น NG ที่ได้ค่าแรงเต็ม (ฝั่ง TS — แถวต้องมี lot_date/issued_at) */
+/** จำนวนเส้นที่ได้ค่าแรงเต็มนอกจากงานดี (โชว์รวมในช่องจำนวนของใบเสร็จ/สรุป ให้ จำนวน × อัตรา = ค่าแรง)
+    = NG โรงงาน + ของหาย (ไม่ใช่ความผิดสมาชิก จ่ายเต็มเสมอ) + NG สมาชิกที่ได้ค่าแรงเต็ม */
+export const EXTRA_PAID_SQL = `(r.ng_factory + COALESCE(r.lost_qty, 0) + ${NG_PAID_SQL})`;
+export function extraPaidQty(r: any): number {
+  return (Number(r.ng_factory) || 0) + (Number(r.lost_qty) || 0) + ngPaidQty(r);
+}
 export function ngPaidQty(r: any): number {
   return r.kind === 'late_ng' || !ngFull(r) ? 0 : (Number(r.ng_cut) || 0) + (Number(r.ng_rope) || 0);
 }

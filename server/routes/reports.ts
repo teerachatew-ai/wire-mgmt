@@ -3,7 +3,7 @@ import { prepare } from '../db';
 import { computePayCycle, loadCutoffConfig, computeCutoff, payCycleWindow, nextMonth, prevMonth, todayThai, monthCutoffRange } from '../payCycle';
 import { STOCK_CUTOFF } from '../stockConfig';
 import { varianceByProduct, lotVariances, lotKey, computeLots } from '../receivedActual';
-import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines, NG_PAID_SQL, ngPaidQty } from '../wagePolicy';
+import { loadWagePolicy, WAGE_SQL, wageParams, returnWage, computePenalties, sumPenalties, deductionLines, NG_PAID_SQL, EXTRA_PAID_SQL, extraPaidQty } from '../wagePolicy';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -1151,12 +1151,12 @@ router.get('/payroll-monthly', (req, res) => {
   // จำนวนสายไฟแต่ละชนิดที่ตัด (งานดี + NG ที่ได้ค่าแรงเต็ม) ต่อสมาชิก ในรอบจ่ายนี้ — ใช้แสดงในตารางค่าแรง
   const productRows = prepare(`
     SELECT m.id as member_id, p.name as product_name, p.color, p.unit,
-      COALESCE(SUM(r.good_qty + ${NG_PAID_SQL}), 0) as qty
+      COALESCE(SUM(r.good_qty + ${EXTRA_PAID_SQL}), 0) as qty
     FROM returns r
     JOIN issues i ON r.issue_id = i.id
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id
-    WHERE r.pay_cycle = ? AND (r.good_qty + ${NG_PAID_SQL}) > 0
+    WHERE r.pay_cycle = ? AND (r.good_qty + ${EXTRA_PAID_SQL}) > 0
     GROUP BY m.id, p.id
     ORDER BY p.name
   `).all(month) as any[];
@@ -1277,12 +1277,12 @@ function buildPayrollDetail(month: string) {
     const total_wage = Math.ceil(m.gross_wage - ng_deduction);
     // carried_in = งานเบิกก่อนรอบนี้ที่คืนหลังวันตัดยอดรอบก่อน จึงได้ค่าแรงในรอบนี้
     const rows = (detailRowsStmt.all(m.member_id, month) as any[])
-      .map(r => ({ ...r, wage: lineWage(r), ng_paid_qty: ngPaidQty(r), carried_in: String(r.issued_at).slice(0, 10) < carryInBefore }));
+      .map(r => ({ ...r, wage: lineWage(r), ng_paid_qty: extraPaidQty(r), carried_in: String(r.issued_at).slice(0, 10) < carryInBefore }));
     const carryOutAgg = new Map<string, any>();
     for (const r of carryOutStmt.all(m.member_id, month, cutoffStart, carryEnd) as any[]) {
       const k = `${r.issued_at}|${r.product_name}`;
       const e = carryOutAgg.get(k) || { issued_at: r.issued_at, product_name: r.product_name, pay_cycle: r.pay_cycle, qty: 0, wage: 0, returned: [] as string[] };
-      e.qty += (Number(r.good_qty) || 0) + ngPaidQty(r); e.wage += lineWage(r);
+      e.qty += (Number(r.good_qty) || 0) + extraPaidQty(r); e.wage += lineWage(r);
       if (r.returned_at && !e.returned.includes(r.returned_at)) e.returned.push(r.returned_at);
       carryOutAgg.set(k, e);
     }
