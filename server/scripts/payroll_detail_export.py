@@ -777,14 +777,15 @@ def write_deduction_sheet(m):
     ONE = lambda h: Alignment(horizontal=h, vertical="center", shrink_to_fit=True)
 
     def warn_block(row):
-        # กล่องแจ้งเตือน (ไม่หักเงิน): หัวสีเหลือง + รายการ + ครั้งต่อไปปรับเท่าไร
-        for col, txt, al in (("A", "แจ้งเตือน", "center"), ("B", "รายละเอียด (ไม่หักเงิน)", "left"), ("C", "ถ้าเกิดอีกครั้ง", "center")):
+        # กล่องแจ้งเตือน (ไม่หักเงิน): หัวสีเหลือง + รายการ — ไม่เขียน "ถ้าเกิดอีกครั้ง" (เจ้าของขอ 21 พ.ย. 69) รายละเอียดกินช่อง B:C
+        for col, txt, al in (("A", "แจ้งเตือน", "center"), ("B", "รายละเอียด (ไม่หักเงิน)", "left")):
             cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11 * SL, bold=True, color="FFFFFF"), fill=AMB_HEAD, align=ONE(al), border=box)
+        ws.merge_cells(f"B{row}:C{row}"); ws[f"C{row}"].border = box
         ws.row_dimensions[row].height = 22; row += 1
-        for head, detail, nxt in warns:
+        for head, detail, _nxt in warns:
             cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5 * SL, bold=True, color=AMB), fill=AMB_BG, align=ONE("center"), border=box)
             cell(ws, f"B{row}", short(detail), font=Font(name=FONT, size=11.5 * SL, color="111827"), fill=AMB_BG, align=ONE("left"), border=box)
-            cell(ws, f"C{row}", nxt, font=Font(name=FONT, size=11.5 * SL, bold=True, color=RED), fill=AMB_BG, align=ONE("center"), border=box)
+            ws.merge_cells(f"B{row}:C{row}"); ws[f"C{row}"].border = box
             ws.row_dimensions[row].height = 22; row += 1
         return row
 
@@ -831,7 +832,7 @@ def write_deduction_sheet(m):
 
         if warn_only:
             ws.merge_cells(f"A{row}:C{row}")
-            cell(ws, f"A{row}", "รอบนี้ไม่หักเงิน — แจ้งเตือนให้ระวัง ถ้าเกิดงาน NG อีกครั้งจะถูกปรับตามอัตราด้านล่าง",
+            cell(ws, f"A{row}", "รอบนี้ไม่หักเงิน — แจ้งเตือนให้ระวังงาน NG",
                  font=Font(name=FONT, size=13 * SL, bold=True, color=AMB), fill=AMB_BG, align=ONE("left"))
             ws.row_dimensions[row].height = 28; row += 1
             ws.row_dimensions[row].height = 6; row += 1
