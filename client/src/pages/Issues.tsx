@@ -8,7 +8,7 @@ import { projectLabel } from '../projectLabel';
 import { Upload, Plus, X, Eye, ArrowUpFromLine, Printer, FileText, FileDown, Trash2, Edit2, Smartphone, Check, CheckCheck, Loader2, ChevronDown, ChevronUp, RotateCcw, Undo2, ArrowRightLeft } from 'lucide-react';
 import InOutCompare from '../components/InOutCompare';
 import ImportIssuesModal from '../components/ImportIssuesModal';
-import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
+import IssueMatrix, { shortLot, parseReturnLog, cycleLabel, ReturnHistoryDialog, type MatrixCell, type MatrixRow } from '../components/IssueMatrix';
 import { useNgGate } from '../components/NgWarning';
 import { sortByColorGroup } from '../productOrder';
 import ExportExcelButton from '../components/ExportExcelButton';
@@ -70,7 +70,8 @@ function Modal({ title, onClose, children, wide }: any) {
 
 function DetailModal({ issue, onClose }: any) {
   if (!issue) return null;
-  const returned = issue.returned_good + issue.returned_defect + issue.returned_waste;
+  // ยอดที่คืนแล้ว = ดี + เสีย + เศษ + หาย ของทุกครั้งที่คืน (ข้อมูลใบเดียวจาก server ไม่มียอดรวมมาให้)
+  const returned = (issue.returns || []).reduce((t: number, r: any) => t + (Number(r.good_qty) || 0) + (Number(r.defect_qty) || 0) + (Number(r.waste_qty) || 0) + (Number(r.lost_qty) || 0), 0);
   const remaining = issue.quantity - returned;
   return (
     <Modal title={`ใบเบิก ${issue.code}`} onClose={onClose}>
@@ -83,39 +84,71 @@ function DetailModal({ issue, onClose }: any) {
           <div><span className="text-gray-500">จำนวนเบิก: </span><strong>{issue.quantity} {issue.unit}</strong></div>
           <div><span className="text-gray-500">สถานะ: </span><span className={statusClass[issue.status]}>{statusLabel[issue.status]}</span></div>
         </div>
-        <div className="bg-gray-50 rounded-xl p-3 space-y-1">
-          <p className="text-xs font-medium text-gray-500 mb-2">สรุปการคืน</p>
-          <div className="grid grid-cols-4 gap-2 text-center">
-            <div><p className="text-xs text-gray-400">คืนงานดี</p><p className="font-bold text-green-600">{issue.returned_good}</p></div>
-            <div><p className="text-xs text-gray-400">คืนงานเสีย</p><p className="font-bold text-red-500">{issue.returned_defect}</p></div>
-            <div><p className="text-xs text-gray-400">คงเหลือ</p><p className={`font-bold ${remaining > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remaining}</p></div>
-          </div>
-        </div>
-        {issue.returns?.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-gray-500 mb-2">ประวัติการคืน</p>
-            <table className="w-full text-xs border rounded-xl overflow-hidden">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left">วันที่</th>
-                  <th className="px-3 py-2 text-right">งานดี</th>
-                  <th className="px-3 py-2 text-right">งานเสีย</th>
-                  <th className="px-3 py-2 text-left">ผู้ตรวจ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {issue.returns.map((r: any) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-2">{r.returned_at}</td>
-                    <td className="px-3 py-2 text-right text-green-600">{r.good_qty}</td>
-                    <td className="px-3 py-2 text-right text-red-500">{r.defect_qty}</td>
-                    <td className="px-3 py-2 text-gray-500">{r.inspector || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {(() => {
+          // แยกชนิดงานที่คืน — จากรายการคืนทุกครั้งของใบนี้ (late_ng: งานดีติดลบ = ส่วนที่ไม่ได้ตัด แสดงในช่อง "ไม่ได้ตัด" แทน)
+          const rets: any[] = issue.returns || [];
+          const n = (v: any) => Number(v) || 0;
+          const sum = (f: (r: any) => number) => rets.reduce((t, r) => t + f(r), 0);
+          const tot = {
+            good: sum(r => (r.kind === 'late_ng' ? 0 : n(r.good_qty))),
+            ngf: sum(r => n(r.ng_factory)), ngc: sum(r => n(r.ng_cut)), ngr: sum(r => n(r.ng_rope)),
+            rew: sum(r => n(r.rework_qty)), lost: sum(r => n(r.lost_qty)), uncut: sum(r => n(r.uncut_qty)),
+          };
+          const boxes: [string, number, string][] = [
+            ['งานดี', tot.good, 'text-green-600'], ['NG โรงงาน', tot.ngf, 'text-orange-600'],
+            ['NG ตัดเสีย', tot.ngc, 'text-red-500'], ['NG ดึงเชือก', tot.ngr, 'text-red-500'],
+            ...(tot.rew ? [['งานแก้', tot.rew, 'text-amber-700'] as [string, number, string]] : []),
+            ...(tot.lost ? [['ของหาย', tot.lost, 'text-gray-600'] as [string, number, string]] : []),
+            ...(tot.uncut ? [['ไม่ได้ตัด', tot.uncut, 'text-gray-600'] as [string, number, string]] : []),
+            ['คงเหลือ', remaining, remaining > 0 ? 'text-amber-600' : 'text-green-600'],
+          ];
+          return (
+            <>
+              <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+                <p className="text-xs font-medium text-gray-500 mb-2">สรุปการคืน</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-center">
+                  {boxes.map(([label, v, cls]) => (
+                    <div key={label}><p className="text-xs text-gray-400">{label}</p><p className={`font-bold ${v ? cls : 'text-gray-300'}`}>{v.toLocaleString('th-TH')}</p></div>
+                  ))}
+                </div>
+                {tot.rew > 0 && <p className="text-[11px] text-gray-500">งานแก้นับอยู่ในงานดีแล้ว (หักค่าแรงบางส่วน)</p>}
+              </div>
+              {rets.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-2">ประวัติการคืน</p>
+                  <div className="overflow-x-auto border rounded-xl">
+                    <table className="w-full text-xs tabular-nums">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-2 py-2 text-left">วันที่</th>
+                          <th className="px-2 py-2 text-right">งานดี</th>
+                          <th className="px-2 py-2 text-right">NG โรงงาน</th>
+                          <th className="px-2 py-2 text-right">NG ตัดเสีย</th>
+                          <th className="px-2 py-2 text-right">NG ดึงเชือก</th>
+                          {(tot.rew || tot.lost || tot.uncut) ? <th className="px-2 py-2 text-right">แก้/หาย/ไม่ตัด</th> : null}
+                          <th className="px-2 py-2 text-left">หมายเหตุ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rets.map((r: any) => (
+                          <tr key={r.id} className={`border-t ${r.kind === 'late_ng' ? 'bg-rose-50/50' : ''}`}>
+                            <td className="px-2 py-2 whitespace-nowrap">{String(r.returned_at).slice(0, 10)}</td>
+                            <td className="px-2 py-2 text-right text-green-600">{r.kind === 'late_ng' ? '–' : n(r.good_qty) || '–'}</td>
+                            <td className="px-2 py-2 text-right text-orange-600">{n(r.ng_factory) || '–'}</td>
+                            <td className="px-2 py-2 text-right text-red-500">{n(r.ng_cut) || '–'}</td>
+                            <td className="px-2 py-2 text-right text-red-500">{n(r.ng_rope) || '–'}</td>
+                            {(tot.rew || tot.lost || tot.uncut) ? <td className="px-2 py-2 text-right text-gray-600">{[n(r.rework_qty), n(r.lost_qty), n(r.uncut_qty)].map(v => v || '–').join(' / ')}</td> : null}
+                            <td className="px-2 py-2 text-gray-500">{r.kind === 'late_ng' ? <span className="text-rose-600 font-medium">โรงงานแจ้งภายหลัง </span> : null}{r.ng_note || r.notes || ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
     </Modal>
   );
@@ -2262,6 +2295,7 @@ export default function Issues() {
   const openLateNgRow = useCallback((row: MatrixRow) => setLateNgRow(row), []);
   const [moveLotCell, setMoveLotCell] = useState<MatrixCell | null>(null);   // คลิกป้ายล็อต → ย้ายล็อต
   const openMoveLot = useCallback((cell: MatrixCell) => setMoveLotCell(cell), []);
+  const [historyRow, setHistoryRow] = useState<MatrixRow | null>(null);   // หน้าต่าง "ดูการคืน"
   const handleQtySaved = () => {
     qc.invalidateQueries({ queryKey: ['issues'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
@@ -2525,7 +2559,8 @@ export default function Issues() {
             </div>
           )}
           <IssueMatrix issues={visibleIssues} onOpen={openDetail} onEdit={openQtyEditor} onEditRow={openRowEditor} onReturnRow={openReturnRow}
-            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} onLateNgRow={openLateNgRow} onMoveLot={openMoveLot} />
+            onDeleteRow={openDeleteRow} onUndoReturnRow={openUndoRow} onLateNgRow={openLateNgRow} onMoveLot={openMoveLot} onHistoryRow={setHistoryRow} />
+          {historyRow && <ReturnHistoryDialog row={historyRow} onClose={() => setHistoryRow(null)} />}
         </>
       )}
 

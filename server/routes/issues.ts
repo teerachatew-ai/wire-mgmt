@@ -29,10 +29,18 @@ router.get('/', (req, res) => {
     COALESCE((SELECT SUM(defect_qty) FROM returns WHERE issue_id = i.id),0) as returned_defect,
     COALESCE((SELECT SUM(waste_qty) FROM returns WHERE issue_id = i.id),0) as returned_waste,
     (SELECT MAX(returned_at) FROM returns WHERE issue_id = i.id) as last_returned_at,
-    -- ประวัติการคืนของใบนี้ "วันที่|จำนวน|รอบค่าแรง;..." เรียงตามวันที่ — ใช้บอกในตารางว่าแบ่งคืนกี่ครั้ง วันไหน รอบค่าแรงไหน
+    -- ประวัติการคืนของใบนี้ "วันที่|จำนวน|รอบค่าแรง|ดี|NGโรงงาน|NGตัดเสีย|NGดึงเชือก|งานแก้|หาย|ไม่ได้ตัด|ชนิด|หมายเหตุ;..." เรียงตามวันที่
+    -- 3 ช่องแรกเหมือนเดิม (ตารางบอกแบ่งคืนกี่ครั้ง/รอบค่าแรง) · ช่องที่เหลือ = แยกชนิดงานที่คืน ใช้ในหน้าต่าง "ดูการคืน"
     (SELECT GROUP_CONCAT(x, ';') FROM (
-       SELECT substr(returned_at, 1, 10) || '|' || (COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) || '|' || COALESCE(pay_cycle, '') x
-       FROM returns WHERE issue_id = i.id ORDER BY returned_at, id)) as return_log
+       SELECT substr(returned_at, 1, 10) || '|' || (COALESCE(good_qty,0) + COALESCE(defect_qty,0) + COALESCE(waste_qty,0) + COALESCE(lost_qty,0)) || '|' || COALESCE(pay_cycle, '')
+         || '|' || COALESCE(good_qty,0) || '|' || COALESCE(ng_factory,0) || '|' || COALESCE(ng_cut,0) || '|' || COALESCE(ng_rope,0)
+         || '|' || COALESCE(rework_qty,0) || '|' || COALESCE(lost_qty,0) || '|' || COALESCE(uncut_qty,0) || '|' || COALESCE(kind,'')
+         || '|' || REPLACE(REPLACE(COALESCE(ng_note,''), '|', '/'), ';', ',') x
+       FROM returns WHERE issue_id = i.id ORDER BY returned_at, id)) as return_log,
+    COALESCE((SELECT SUM(ng_factory) FROM returns WHERE issue_id = i.id),0) as returned_ng_factory,
+    COALESCE((SELECT SUM(ng_cut) FROM returns WHERE issue_id = i.id),0) as returned_ng_cut,
+    COALESCE((SELECT SUM(COALESCE(ng_rope,0)) FROM returns WHERE issue_id = i.id),0) as returned_ng_rope,
+    COALESCE((SELECT SUM(COALESCE(lost_qty,0)) FROM returns WHERE issue_id = i.id),0) as returned_lost
     FROM issues i
     JOIN members m ON i.member_id = m.id
     JOIN products p ON i.product_id = p.id

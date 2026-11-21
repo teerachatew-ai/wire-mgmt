@@ -344,6 +344,20 @@ router.get('/performance', (req, res) => {
     forecast_revenue_all: fcRevenueAll,
     forecast_wage_all: fcWageAll,
     forecast_gross_all: fcRevenueAll - fcWageAll,
+    // คาดการณ์รายรับ: ถ้างานที่อยู่ในมือทั้งหมด (รับจากโรงงานมาแล้วจนถึงล็อตล่าสุด ยังไม่ได้ส่งออก) ส่งออกครบ
+    ...(() => {
+      const held = (computeStockFlow('').products as any[]).map(p => {
+        const price = Number(rows.find((r: any) => r.id === p.id)?.factory_price) || 0;
+        const qty = Math.max(0, Number(p.available) || 0);
+        return { id: p.id, name: p.name, color: p.color, project: p.project, price,
+          waiting: Math.max(0, Number(p.in_warehouse) || 0), with_members: Math.max(0, Number(p.with_members) || 0),
+          ready: Math.max(0, Number(p.stock_ready) || 0), qty, value: qty * price };
+      }).filter(p => p.qty > 0);
+      const value = held.reduce((t, p) => t + p.value, 0);
+      const lastRecv = (prepare(`SELECT MAX(substr(received_at, 1, 10)) d FROM receives`).get() as any)?.d || null;
+      return { pipeline_products: held, pipeline_value: value, pipeline_last_receive: lastRecv,
+        predicted_revenue_month: sum('revenue_month') + value, predicted_revenue_all: sum('revenue_all') + value };
+    })(),
     // ประมาณการ "ถ้าคืนครบ" — งานที่เบิกไปสมาชิกตัดอยู่ ถ้าคืนมาครบ + ส่งขายหมด
     outstanding_wage: outstandingWage,
     outstanding_revenue: outstandingRevenue,

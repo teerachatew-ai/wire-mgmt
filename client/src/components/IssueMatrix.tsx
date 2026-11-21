@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Eye, Pencil, RotateCcw, Trash2 } from 'lucide-react';
+import { Eye, Pencil, RotateCcw, Trash2, X, History } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
 
@@ -14,11 +14,18 @@ export const shortLot = (iso: string) => {
 
 /* ── ประวัติการคืนของใบเบิก (return_log จาก server: "วันที่|จำนวน|รอบค่าแรง;...") ──
    ค่าแรงคิดตาม "วันที่คืนของแต่ละครั้ง" — แบ่งคืน 2 ครั้งคร่อมวัน Cut-off = ค่าแรงแยกจ่าย 2 รอบ */
-export type ReturnEntry = { date: string; qty: number; cycle: string };
+export type ReturnEntry = {
+  date: string; qty: number; cycle: string;
+  // แยกชนิดงานที่คืน (server ส่งมาต่อท้าย) — ข้อมูลเก่าที่ไม่มีช่องเหล่านี้ = 0
+  good?: number; ngFactory?: number; ngCut?: number; ngRope?: number; rework?: number; lost?: number; uncut?: number;
+  kind?: string; note?: string;
+};
 export const parseReturnLog = (log?: string | null): ReturnEntry[] =>
   String(log || '').split(';').filter(Boolean).map(x => {
-    const [date, qty, cycle] = x.split('|');
-    return { date, qty: Number(qty) || 0, cycle: cycle || '' };
+    const [date, qty, cycle, good, ngf, ngc, ngr, rew, lost, uncut, kind, note] = x.split('|');
+    const n = (v?: string) => Number(v) || 0;
+    return { date, qty: n(qty), cycle: cycle || '', good: n(good), ngFactory: n(ngf), ngCut: n(ngc), ngRope: n(ngr),
+      rework: n(rew), lost: n(lost), uncut: n(uncut), kind: kind || '', note: note || '' };
   });
 // "2026-10" -> "รอบ ต.ค."
 export const cycleLabel = (ym: string) => {
@@ -48,13 +55,14 @@ export interface MatrixCell { date: string; memberCode: string; memberName: stri
 // แถวที่ถูกคลิก — ใบเบิกทุกใบของสมาชิกคนนี้ ทุกชนิดงาน ในวันนี้ (คลิกที่ชื่อ แก้ได้ทีเดียวทั้งแถว รวมทั้งย้ายวันที่)
 export interface MatrixRow { date: string; memberCode: string; memberName: string; items: any[] }
 
-function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow, onLateNgRow, onMoveLot }: {
+function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteRow, onUndoReturnRow, onLateNgRow, onMoveLot, onHistoryRow }: {
   issues: any[]; onOpen?: (id: number) => void; onEdit?: (cell: MatrixCell) => void; onEditRow?: (row: MatrixRow) => void;
   onReturnRow?: (row: MatrixRow) => void;
   onDeleteRow?: (row: MatrixRow) => void;       // ลบใบเบิกทุกชนิดของคนนี้วันนี้ (ทั้งบรรทัด)
   onUndoReturnRow?: (row: MatrixRow) => void;   // ยกเลิกการรับคืน ให้กลับไปเป็นค้างส่งเหมือนเดิม
   onLateNgRow?: (row: MatrixRow) => void;       // แจ้ง NG ภายหลัง (โรงงานเจองานเสียหลังรับคืนแล้ว)
   onMoveLot?: (cell: MatrixCell) => void;        // คลิกป้ายล็อต → ย้ายล็อตของใบเบิกในช่องนั้น
+  onHistoryRow?: (row: MatrixRow) => void;       // ดูประวัติการคืน (งานดี / NG โรงงาน / NG ตัดเสีย / ดึงเชือก …)
 }) {
   if (issues.length === 0) return null;
 
@@ -235,6 +243,15 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                               ) : (
                                 <span className="text-gray-200">–</span>
                               )}
+                              {(() => {
+                                const ent = items.flatMap((i: any) => parseReturnLog(i.return_log));
+                                const ngf = ent.reduce((t, e) => t + (e.ngFactory || 0), 0);
+                                const ngm = ent.reduce((t, e) => t + (e.ngCut || 0) + (e.ngRope || 0), 0);
+                                const other = ent.reduce((t, e) => t + (e.lost || 0) + (e.uncut || 0), 0);
+                                if (!ngf && !ngm && !other) return null;
+                                const parts = [ngf ? `NG รง. ${fmt(ngf)}` : '', ngm ? `NG ${fmt(ngm)}` : '', other ? `หาย/ไม่ตัด ${fmt(other)}` : ''].filter(Boolean);
+                                return <div className="text-[10px] leading-tight text-rose-600 whitespace-nowrap" title="คลิก ดูการคืน ที่ช่องสถานะเพื่อดูรายละเอียด">{parts.join(' · ')}</div>;
+                              })()}
                               {(lots.length > 0 || (onMoveLot && v > 0)) && (
                                 <div className="mt-0.5 leading-none">
                                   {(() => {
@@ -288,6 +305,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                 ) : m.lastReturnedAt && groupReturns(Object.values(m.items).flat()).length < 2 ? (
                                   <span className="text-[10px] text-gray-400" title={`คืนล่าสุด ${m.lastReturnedAt}`}>{shortLot(m.lastReturnedAt)}</span>
                                 ) : null}
+                                {onHistoryRow && m.returned > 0 && (
+                                  <button type="button"
+                                    onClick={() => onHistoryRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
+                                    title="ดูการคืน — งานดี / NG โรงงาน / NG ตัดเสีย / NG ดึงเชือก แยกตามครั้งที่คืน"
+                                    className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-px text-[10px] font-semibold text-sky-700 hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 whitespace-nowrap">
+                                    <History size={10} /> ดูการคืน
+                                  </button>
+                                )}
                                 {onUndoReturnRow && m.returned > 0 && (
                                   <button type="button"
                                     onClick={() => onUndoReturnRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
@@ -390,3 +415,103 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
 // memo — ตารางนี้หนักที่สุดในหน้า (หลายสิบตาราง หลายพันช่อง)
 // ไม่ต้องสร้างใหม่ถ้า issues ชุดเดิม (เช่นตอนกดปุ่มอื่น/เปิดกล่องในหน้าเดียวกัน)
 export default memo(IssueMatrix);
+
+/* ── หน้าต่าง "ดูการคืน" — ทุกครั้งที่คืนของสมาชิกคนนี้ (ใบเบิกวันเดียวกัน) แยกชนิดงานที่คืน ── */
+export function ReturnHistoryDialog({ row, onClose }: { row: MatrixRow; onClose: () => void }) {
+  const fmt = (n: number) => (n ? Number(n).toLocaleString('th-TH') : '–');
+  const lines = row.items.flatMap((i: any) => parseReturnLog(i.return_log).map(e => ({ ...e, product: i.product_name, color: i.color, issued: Number(i.quantity) || 0 })))
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.product).localeCompare(String(b.product)));
+  const cols: { k: keyof ReturnEntry; label: string; cls: string }[] = [
+    { k: 'good', label: 'งานดี', cls: 'text-emerald-700' },
+    { k: 'ngFactory', label: 'NG โรงงาน', cls: 'text-orange-600' },
+    { k: 'ngCut', label: 'NG ตัดเสีย', cls: 'text-rose-600' },
+    { k: 'ngRope', label: 'NG ดึงเชือก', cls: 'text-rose-600' },
+    { k: 'rework', label: 'งานแก้', cls: 'text-amber-700' },
+    { k: 'lost', label: 'ของหาย', cls: 'text-gray-600' },
+    { k: 'uncut', label: 'ไม่ได้ตัด', cls: 'text-gray-600' },
+  ];
+  const used = cols.filter(c => c.k === 'good' || lines.some(l => Number(l[c.k]) > 0));
+  // สรุปต่อชนิดงาน
+  const byProd = new Map<string, any>();
+  for (const i of row.items) {
+    const e = byProd.get(i.product_name) || { product: i.product_name, color: i.color, issued: 0 };
+    e.issued += Number(i.quantity) || 0; byProd.set(i.product_name, e);
+  }
+  for (const l of lines) { const e = byProd.get(l.product)!; for (const c of used) e[c.k] = (e[c.k] || 0) + (Number(l[c.k]) || 0); }
+  const name = (p: string) => { const { num, label } = parseProductLabel(p || ''); return `${label} ${num}`.trim() || p; };
+  const dot = (c?: string) => c ? <span className="inline-block w-2.5 h-2.5 rounded-full border border-gray-300 mr-1.5 align-middle" style={{ background: c }} /> : null;
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-3" onClick={onClose}>
+      <div role="dialog" aria-labelledby="rh-title" className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b flex items-start gap-3">
+          <span className="p-2 rounded-xl bg-sky-100 text-sky-700"><History size={18} /></span>
+          <div className="flex-1">
+            <h3 id="rh-title" className="font-bold text-gray-900">ประวัติการคืนงาน</h3>
+            <p className="text-xs text-gray-500 mt-0.5"><span className="font-mono">{row.memberCode}</span> {row.memberName} · ใบเบิกวันที่ {shortLot(row.date)}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="text-gray-400 hover:text-gray-700"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-5 overflow-y-auto">
+          <section>
+            <h4 className="text-xs font-semibold text-gray-500 mb-1.5">สรุปต่อชนิดงาน</h4>
+            <div className="overflow-x-auto border rounded-xl">
+              <table className="w-full text-sm tabular-nums">
+                <thead className="bg-gray-50 text-xs text-gray-500">
+                  <tr><th className="px-3 py-2 text-left">ชนิดงาน</th><th className="px-3 py-2 text-right">เบิก</th>
+                    {used.map(c => <th key={c.k} className="px-3 py-2 text-right whitespace-nowrap">{c.label}</th>)}
+                    <th className="px-3 py-2 text-right">ค้างคืน</th></tr>
+                </thead>
+                <tbody>
+                  {[...byProd.values()].map(e => {
+                    const back = used.reduce((t, c) => t + (c.k === 'rework' ? 0 : (e[c.k] || 0)), 0);
+                    const pend = Math.max(0, e.issued - back);
+                    return (
+                      <tr key={e.product} className="border-t">
+                        <td className="px-3 py-2 whitespace-nowrap">{dot(e.color)}{name(e.product)}</td>
+                        <td className="px-3 py-2 text-right text-gray-500">{fmt(e.issued)}</td>
+                        {used.map(c => <td key={c.k} className={`px-3 py-2 text-right font-semibold ${e[c.k] ? c.cls : 'text-gray-300'}`}>{fmt(e[c.k])}</td>)}
+                        <td className={`px-3 py-2 text-right ${pend ? 'text-amber-600 font-semibold' : 'text-gray-300'}`}>{fmt(pend)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1">งานแก้นับอยู่ในงานดีแล้ว (หักค่าแรงบางส่วน) · NG โรงงาน/ของหาย ได้ค่าแรงเต็ม · NG ตัดเสีย/ดึงเชือก ได้ค่าแรงเต็มแล้วหักค่าปรับแยก (งานล็อตตั้งแต่ 28 ส.ค. 69)</p>
+          </section>
+          <section>
+            <h4 className="text-xs font-semibold text-gray-500 mb-1.5">แยกตามครั้งที่คืน ({new Set(lines.map(l => l.date)).size} ครั้ง)</h4>
+            {lines.length === 0 ? <p className="text-sm text-gray-400">ยังไม่มีการคืน</p> : (
+              <div className="overflow-x-auto border rounded-xl">
+                <table className="w-full text-sm tabular-nums">
+                  <thead className="bg-gray-50 text-xs text-gray-500">
+                    <tr><th className="px-3 py-2 text-left">วันที่คืน</th><th className="px-3 py-2 text-left">ชนิดงาน</th>
+                      {used.map(c => <th key={c.k} className="px-3 py-2 text-right whitespace-nowrap">{c.label}</th>)}
+                      <th className="px-3 py-2 text-left">รอบค่าแรง</th><th className="px-3 py-2 text-left">หมายเหตุ</th></tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((l, k) => (
+                      <tr key={k} className={`border-t ${l.kind === 'late_ng' ? 'bg-rose-50/50' : ''}`}>
+                        <td className="px-3 py-2 whitespace-nowrap">{shortLot(l.date)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{dot(l.color)}{name(l.product)}</td>
+                        {used.map(c => {
+                          const v = Number(l[c.k]) || 0;
+                          // late_ng: งานดีติดลบ = หักส่วนที่ไม่ได้ตัดคืน (โชว์ – เพราะอยู่ในช่อง "ไม่ได้ตัด" แล้ว)
+                          const show = c.k === 'good' && l.kind === 'late_ng' ? 0 : v;
+                          return <td key={c.k} className={`px-3 py-2 text-right ${show ? c.cls + ' font-semibold' : 'text-gray-300'}`}>{fmt(show)}</td>;
+                        })}
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{cycleLabel(l.cycle)}</td>
+                        <td className="px-3 py-2 text-xs text-gray-600">{l.kind === 'late_ng' ? <span className="text-rose-600 font-medium">โรงงานแจ้งภายหลัง</span> : null}{l.kind === 'late_ng' && l.note ? ' · ' : ''}{l.note}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+        <div className="border-t px-5 py-3 flex justify-end"><button type="button" className="btn-secondary" onClick={onClose}>ปิด</button></div>
+      </div>
+    </div>
+  );
+}
