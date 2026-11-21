@@ -793,7 +793,10 @@ def write_deduction_sheet(m):
     #    รายการเยอะจนเกินครึ่งหน้า -> ทั้งหน้าถูกย่อเท่ากัน (2 ส่วนยังเท่ากัน รอยตัดยังอยู่กลาง)
     PAGE_PT = {"A4": (595.3, 841.9), "A5": (419.5, 595.3)}.get(paper_size, (595.3, 841.9))
     MARGIN_LR, MARGIN_TB = 0.5 * 72, 0.4 * 72
-    col_pt = sum((w * 7 + 5) * 0.75 for w in SLIP_W) * 1.065   # ความกว้างที่พิมพ์ออกมาจริงกว้างกว่าสูตรประมาณ ~6.5% (วัดจาก PDF)
+    # ความกว้างจริงตอนพิมพ์: LibreOffice (เครื่อง production) 1 หน่วยคอลัมน์ ≈ 7.22pt (วัดจาก PDF จริง) — กว้างกว่า Excel
+    # คิดครึ่งหน้าจากค่านี้ ให้ความสูงพอดีกับการย่อตามความกว้าง -> เต็มหน้าบน-ล่าง รอยตัดอยู่กลางหน้าพอดี
+    # (Excel บนเครื่อง local ย่อน้อยกว่า จึงถูกจำกัดด้วยความสูงแทน ผลเหมือนกัน: 2 ส่วนเท่ากัน รอยตัดกลางหน้า)
+    col_pt = sum(SLIP_W) * 7.22
     fit = min(1.0, (PAGE_PT[0] - 2 * MARGIN_LR) / col_pt)
     HALF = (PAGE_PT[1] - 2 * MARGIN_TB) / fit / 2 * 0.985   # เผื่อ 1.5% กันล้นเป็น 2 หน้า
 
@@ -847,6 +850,9 @@ def write_deduction_sheet(m):
         money_row("หัก รายการตามรายละเอียดด้านล่าง", -total_cut, color=RED, fill=RED_BG, bold=True)
         money_row("ค่าแรงที่ได้รับจริง", net, color="FFFFFF", fill=GREEN, bold=True, size=15 * SL, h=28)
         ws.row_dimensions[row].height = 6; row += 1
+        if warns:   # ตักเตือน (ครั้งแรก) ก่อน แล้วค่อยรายการที่หักเงินจริง — อ่านตามลำดับเหตุการณ์
+            row = warn_block(row)
+            ws.row_dimensions[row].height = 6; row += 1
 
         # รายละเอียดรายการหัก — 1 รายการ = 1 บรรทัด
         for col, txt, al in (("A", "รายการ", "center"), ("B", "รายละเอียด", "left"), ("C", "หักเงิน (บาท)", "right")):
@@ -868,9 +874,6 @@ def write_deduction_sheet(m):
         ws[f"B{row}"].border = box
         cell(ws, f"C{row}", -total_cut, font=Font(name=FONT, size=12 * SL, bold=True, color=RED), fill=RED_BG, align=R, fmt=MONEY, border=box)
         ws.row_dimensions[row].height = 24; row += 1
-        if warns:
-            ws.row_dimensions[row].height = 6; row += 1
-            row = warn_block(row)
 
         # รับทราบ (ท้ายครึ่งหน้า)
         return sign_off(row, start, reserve)
