@@ -750,9 +750,11 @@ def write_deduction_sheet(m):
     warn_only = not items   # ตักเตือนอย่างเดียว -> "ใบแจ้งเตือนงาน NG" (ไม่มีกล่องเงิน)
     pen = sum(a for _, _, a in items)   # หักรวมทุกรายการ (งานแก้ไข + ไม่ได้ตัด + ค่าปรับ NG)
     _scale_state["v"] = 1.0
+    SL = 1.3   # ใบหักเงิน/ใบเตือน ตัวหนังสือ + ความสูงแถว ใหญ่ขึ้น 30% (เจ้าของขอ 21 พ.ย. 69)
     ws = wb.create_sheet(safe_sheet_name(f'{m["member_code"]} {"ใบเตือน" if warn_only else "ใบหักเงิน"}', used_names))
     ws.sheet_view.showGridLines = False
-    for col, w in (("A", 20), ("B", 58), ("C", 18)):
+    SLIP_W = (16, 57, 17)   # รวมแล้วพิมพ์จริงกว้าง ~515pt พอดีหน้ากระดาษ A4 แนวตั้งโดยไม่ต้องย่อ
+    for col, w in zip("ABC", SLIP_W):
         ws.column_dimensions[col].width = w
     net = float(m["total_wage"])
     # ยอดเดียวกับ "ค่าแรงรอบนี้" ในใบเสร็จ = ค่าแรงเต็มตามตาราง (งานที่ไม่ใช่ late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท
@@ -767,118 +769,128 @@ def write_deduction_sheet(m):
     RED_BG, GREEN_BG, SOFT = "FEF2F2", "ECFDF5", "F8FAFC"
     AMB, AMB_BG, AMB_HEAD = "B45309", "FFFBEB", "F59E0B"
 
+    # ข้อความรายละเอียดแบบสั้น (หัวแถวบอกว่าเป็น NG อยู่แล้ว) — 1 รายการ = 1 บรรทัด อ่านง่าย ไม่กินที่
+    def short(t):
+        t = t.replace("NG สมาชิก ", "")
+        t = re.sub(r"\s*—\s*ปรับ\s*[\d,.]+\s*เส้น\s*×\s*([\d.]+)\s*บาท", r" (\1 บาท/เส้น)", t)
+        return t.strip(" ·")
+    ONE = lambda h: Alignment(horizontal=h, vertical="center", shrink_to_fit=True)
+
     def warn_block(row):
         # กล่องแจ้งเตือน (ไม่หักเงิน): หัวสีเหลือง + รายการ + ครั้งต่อไปปรับเท่าไร
-        for col, txt, al in (("A", "แจ้งเตือน", C), ("B", "รายละเอียด (ไม่หักเงิน)", L), ("C", "ถ้าเกิดอีกครั้ง", C)):
-            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=AMB_HEAD, align=al, border=box)
+        for col, txt, al in (("A", "แจ้งเตือน", "center"), ("B", "รายละเอียด (ไม่หักเงิน)", "left"), ("C", "ถ้าเกิดอีกครั้ง", "center")):
+            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11 * SL, bold=True, color="FFFFFF"), fill=AMB_HEAD, align=ONE(al), border=box)
         ws.row_dimensions[row].height = 22; row += 1
         for head, detail, nxt in warns:
-            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5, bold=True, color=AMB), fill=AMB_BG,
-                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
-            cell(ws, f"B{row}", detail, font=Font(name=FONT, size=11.5, color="111827"), fill=AMB_BG,
-                 align=Alignment(horizontal="left", vertical="center", wrap_text=True), border=box)
-            cell(ws, f"C{row}", nxt, font=Font(name=FONT, size=11.5, bold=True, color=RED), fill=AMB_BG,
-                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
-            lines = max(1, -(-len(detail) // 62))
-            ws.row_dimensions[row].height = 22 + 15 * (lines - 1); row += 1
+            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5 * SL, bold=True, color=AMB), fill=AMB_BG, align=ONE("center"), border=box)
+            cell(ws, f"B{row}", short(detail), font=Font(name=FONT, size=11.5 * SL, color="111827"), fill=AMB_BG, align=ONE("left"), border=box)
+            cell(ws, f"C{row}", nxt, font=Font(name=FONT, size=11.5 * SL, bold=True, color=RED), fill=AMB_BG, align=ONE("center"), border=box)
+            ws.row_dimensions[row].height = 22; row += 1
         return row
 
-    def part(row, who):
+    # ── แบ่งครึ่งหน้ากระดาษบน/ล่างเท่ากัน: แต่ละส่วนสูง = ครึ่งหนึ่งของพื้นที่พิมพ์ (หลังย่อให้พอดีความกว้าง)
+    #    ลายเซ็นอยู่ท้ายส่วนของตัวเองเสมอ (ช่องว่างยืดหยุ่นคั่นก่อนลายเซ็น) · รอยตัดอยู่กึ่งกลางหน้าพอดี
+    #    รายการเยอะจนเกินครึ่งหน้า -> ทั้งหน้าถูกย่อเท่ากัน (2 ส่วนยังเท่ากัน รอยตัดยังอยู่กลาง)
+    PAGE_PT = {"A4": (595.3, 841.9), "A5": (419.5, 595.3)}.get(paper_size, (595.3, 841.9))
+    MARGIN_LR, MARGIN_TB = 0.5 * 72, 0.4 * 72
+    col_pt = sum((w * 7 + 5) * 0.75 for w in SLIP_W) * 1.065   # ความกว้างที่พิมพ์ออกมาจริงกว้างกว่าสูตรประมาณ ~6.5% (วัดจาก PDF)
+    fit = min(1.0, (PAGE_PT[0] - 2 * MARGIN_LR) / col_pt)
+    HALF = (PAGE_PT[1] - 2 * MARGIN_TB) / fit / 2 * 0.985   # เผื่อ 1.5% กันล้นเป็น 2 หน้า
+
+    def sign_off(row, start, reserve):
+        used = sum((ws.row_dimensions[r].height or 15) for r in range(start, row))
+        sig_h = 28
+        ws.row_dimensions[row].height = max(10, HALF - used - sig_h - reserve); row += 1
+        ws.merge_cells(f"A{row}:C{row}")
+        cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
+             font=Font(name=FONT, size=12 * SL, color="111827"), align=ONE("center"))
+        ws.row_dimensions[row].height = sig_h; row += 1
+        return row
+
+    def part(row, who, reserve=0):
+        start = row
         # หัวเอกสาร + ป้ายสำเนา
         ws.merge_cells(f"A{row}:B{row}")
         cell(ws, f"A{row}", "ใบแจ้งเตือนงาน NG" if warn_only else "ใบแจ้งหักเงินค่าแรง",
-             font=Font(name=FONT, size=20, bold=True, color=AMB if warn_only else "111827"), align=L)
-        cell(ws, f"C{row}", who, font=Font(name=FONT, size=11, bold=True, color=AMB if warn_only else NAVY),
-             fill="FEF3C7" if warn_only else "E0E7FF", align=Alignment(horizontal="center", vertical="center"))
-        ws.row_dimensions[row].height = 32; row += 1
+             font=Font(name=FONT, size=20 * SL, bold=True, color=AMB if warn_only else "111827"), align=L)
+        cell(ws, f"C{row}", who, font=Font(name=FONT, size=11 * SL, bold=True, color=AMB if warn_only else NAVY),
+             fill="FEF3C7" if warn_only else "E0E7FF", align=ONE("center"))
+        ws.row_dimensions[row].height = 34; row += 1
         ws.merge_cells(f"A{row}:C{row}")
         cell(ws, f"A{row}", f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}",
-             font=Font(name=FONT, size=11, color=GREY), align=Alignment(horizontal="left", vertical="center", shrink_to_fit=True))
-        ws.row_dimensions[row].height = 20; row += 1
+             font=Font(name=FONT, size=10 * SL, color=GREY), align=ONE("left"))
+        ws.row_dimensions[row].height = 18; row += 1
         ws.merge_cells(f"A{row}:C{row}")
-        cell(ws, f"A{row}", name, font=Font(name=FONT, size=15, bold=True, color="111827"), align=L, border=line_box)
+        cell(ws, f"A{row}", name, font=Font(name=FONT, size=15 * SL, bold=True, color="111827"), align=ONE("left"), border=line_box)
         for c in ("B", "C"): ws[f"{c}{row}"].border = line_box
-        ws.row_dimensions[row].height = 26; row += 1
-        ws.row_dimensions[row].height = 8; row += 1
+        ws.row_dimensions[row].height = 27; row += 1
+        ws.row_dimensions[row].height = 5; row += 1
 
         if warn_only:
             ws.merge_cells(f"A{row}:C{row}")
-            cell(ws, f"A{row}", "รอบนี้ไม่หักเงิน — เป็นการแจ้งเตือนให้ระวัง ถ้าเกิดงาน NG อีกครั้งจะถูกปรับตามอัตราด้านล่าง",
-                 font=Font(name=FONT, size=13, bold=True, color=AMB), fill=AMB_BG,
-                 align=Alignment(horizontal="left", vertical="center", wrap_text=True))
-            ws.row_dimensions[row].height = 30; row += 1
-            ws.row_dimensions[row].height = 8; row += 1
+            cell(ws, f"A{row}", "รอบนี้ไม่หักเงิน — แจ้งเตือนให้ระวัง ถ้าเกิดงาน NG อีกครั้งจะถูกปรับตามอัตราด้านล่าง",
+                 font=Font(name=FONT, size=13 * SL, bold=True, color=AMB), fill=AMB_BG, align=ONE("left"))
+            ws.row_dimensions[row].height = 28; row += 1
+            ws.row_dimensions[row].height = 6; row += 1
             row = warn_block(row)
-            ws.row_dimensions[row].height = 26; row += 1
-            ws.merge_cells(f"A{row}:C{row}")
-            cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
-                 font=Font(name=FONT, size=12, color="111827"), align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
-            ws.row_dimensions[row].height = 24; row += 1
-            return row
+            return sign_off(row, start, reserve)
 
-        # สรุปยอด 3 บรรทัด: ค่าแรงตามใบเสร็จ − ค่าปรับ = ได้รับจริง
-        def money_row(label, val, *, color="111827", fill=None, bold=False, size=13, h=24):
+        # สรุปยอด 3 บรรทัด: ค่าแรงตามใบเสร็จ − หัก = ได้รับจริง
+        def money_row(label, val, *, color="111827", fill=None, bold=False, size=13 * SL, h=24):
             nonlocal row
             ws.merge_cells(f"A{row}:B{row}")
-            cell(ws, f"A{row}", label, font=Font(name=FONT, size=size, bold=bold, color=color), fill=fill, align=L)
+            cell(ws, f"A{row}", label, font=Font(name=FONT, size=size, bold=bold, color=color), fill=fill, align=ONE("left"))
             if fill: ws[f"B{row}"].fill = PatternFill("solid", fgColor=fill)
             cell(ws, f"C{row}", val, font=Font(name=FONT, size=size, bold=bold, color=color), fill=fill, align=R, fmt=MONEY)
             ws.row_dimensions[row].height = h; row += 1
         money_row("ค่าแรงรอบนี้ (ตามใบเสร็จรับเงิน)", gross_receipt, fill=SOFT)
         money_row("หัก รายการตามรายละเอียดด้านล่าง", -total_cut, color=RED, fill=RED_BG, bold=True)
-        money_row("ค่าแรงที่ได้รับจริง", net, color="FFFFFF", fill=GREEN, bold=True, size=15, h=30)
-        ws.row_dimensions[row].height = 10; row += 1
+        money_row("ค่าแรงที่ได้รับจริง", net, color="FFFFFF", fill=GREEN, bold=True, size=15 * SL, h=28)
+        ws.row_dimensions[row].height = 6; row += 1
 
-        # รายละเอียดค่าปรับ
-        for col, txt, al in (("A", "รายการ", C), ("B", "รายละเอียด", L), ("C", "หักเงิน (บาท)", R)):
-            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=NAVY, align=al, border=box)
+        # รายละเอียดรายการหัก — 1 รายการ = 1 บรรทัด
+        for col, txt, al in (("A", "รายการ", "center"), ("B", "รายละเอียด", "left"), ("C", "หักเงิน (บาท)", "right")):
+            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11 * SL, bold=True, color="FFFFFF"), fill=NAVY, align=ONE(al), border=box)
         ws.row_dimensions[row].height = 22; row += 1
         for head, detail, amt in items:
-            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5, bold=True, color=RED),
-                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
-            cell(ws, f"B{row}", detail, font=Font(name=FONT, size=11.5, color="111827"),
-                 align=Alignment(horizontal="left", vertical="center", wrap_text=True), border=box)
-            cell(ws, f"C{row}", -amt, font=Font(name=FONT, size=12, bold=True, color=RED), align=R, fmt=MONEY, border=box)
-            lines = max(1, -(-len(detail) // 62))
-            ws.row_dimensions[row].height = 20 + 15 * (lines - 1); row += 1
+            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5 * SL, bold=True, color=RED), align=ONE("center"), border=box)
+            cell(ws, f"B{row}", short(detail), font=Font(name=FONT, size=11.5 * SL, color="111827"), align=ONE("left"), border=box)
+            cell(ws, f"C{row}", -amt, font=Font(name=FONT, size=12 * SL, bold=True, color=RED), align=R, fmt=MONEY, border=box)
+            ws.row_dimensions[row].height = 22; row += 1
         if abs(rounding) >= 0.005:   # เศษสตางค์จากการปัดค่าแรงสุทธิเป็นบาทเต็ม (ตัวเล็กสีเทา)
-            cell(ws, f"A{row}", "ปัดเศษ", font=Font(name=FONT, size=10, color=GREY), align=C, border=box)
+            cell(ws, f"A{row}", "ปัดเศษ", font=Font(name=FONT, size=10 * SL, color=GREY), align=ONE("center"), border=box)
             cell(ws, f"B{row}", "ปัดยอดที่ได้รับขึ้นเป็นบาทเต็ม (คืนเศษสตางค์ให้)" if rounding < 0 else "ปัดยอดที่ได้รับเป็นบาทเต็ม",
-                 font=Font(name=FONT, size=10, color=GREY), align=L, border=box)
-            cell(ws, f"C{row}", -rounding, font=Font(name=FONT, size=10, color=GREY), align=R, fmt=MONEY, border=box)
-            ws.row_dimensions[row].height = 18; row += 1
+                 font=Font(name=FONT, size=10 * SL, color=GREY), align=ONE("left"), border=box)
+            cell(ws, f"C{row}", -rounding, font=Font(name=FONT, size=10 * SL, color=GREY), align=R, fmt=MONEY, border=box)
+            ws.row_dimensions[row].height = 19; row += 1
         ws.merge_cells(f"A{row}:B{row}")
-        cell(ws, f"A{row}", "รวมหักเงิน", font=Font(name=FONT, size=12, bold=True, color=RED), fill=RED_BG, align=R, border=box)
+        cell(ws, f"A{row}", "รวมหักเงิน", font=Font(name=FONT, size=12 * SL, bold=True, color=RED), fill=RED_BG, align=R, border=box)
         ws[f"B{row}"].border = box
-        cell(ws, f"C{row}", -total_cut, font=Font(name=FONT, size=12, bold=True, color=RED), fill=RED_BG, align=R, fmt=MONEY, border=box)
+        cell(ws, f"C{row}", -total_cut, font=Font(name=FONT, size=12 * SL, bold=True, color=RED), fill=RED_BG, align=R, fmt=MONEY, border=box)
         ws.row_dimensions[row].height = 24; row += 1
         if warns:
-            ws.row_dimensions[row].height = 10; row += 1
+            ws.row_dimensions[row].height = 6; row += 1
             row = warn_block(row)
 
-        # รับทราบ
-        ws.row_dimensions[row].height = 26; row += 1
-        ws.merge_cells(f"A{row}:C{row}")
-        cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
-             font=Font(name=FONT, size=12, color="111827"), align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
-        ws.row_dimensions[row].height = 24; row += 1
-        return row
+        # รับทราบ (ท้ายครึ่งหน้า)
+        return sign_off(row, start, reserve)
 
-    row = part(1, "สำหรับสมาชิก")
-    # รอยตัดระหว่าง 2 ส่วน
-    ws.row_dimensions[row].height = 16; row += 1
+    GAP_BEFORE_CUT, CUT_H, GAP_AFTER_CUT = 12, 16, 22
+    row = part(1, "สำหรับสมาชิก", reserve=GAP_BEFORE_CUT + CUT_H)
+    # รอยตัดระหว่าง 2 ส่วน (เส้นประอยู่ที่ขอบล่างของแถวนี้ = กึ่งกลางหน้าพอดี)
+    ws.row_dimensions[row].height = GAP_BEFORE_CUT; row += 1
     dash = Side(style="dashed", color="94A3B8")
     for c in ("A", "B", "C"):
         ws[f"{c}{row}"].border = Border(bottom=dash)
     ws.merge_cells(f"A{row}:C{row}")
-    cell(ws, f"A{row}", "✂  ตัดตามรอยประ", font=Font(name=FONT, size=9, color="94A3B8"), align=Alignment(horizontal="center", vertical="bottom"))
+    cell(ws, f"A{row}", "✂  ตัดตามรอยประ", font=Font(name=FONT, size=9 * SL, color="94A3B8"), align=Alignment(horizontal="center", vertical="bottom"))
     for c in ("A", "B", "C"):
         ws[f"{c}{row}"].border = Border(bottom=dash)
-    ws.row_dimensions[row].height = 16; row += 1
-    ws.row_dimensions[row].height = 22; row += 1
-    row = part(row, "สำหรับกลุ่ม (เก็บไว้)")
+    ws.row_dimensions[row].height = CUT_H; row += 1
+    ws.row_dimensions[row].height = GAP_AFTER_CUT; row += 1
+    row = part(row, "สำหรับกลุ่ม (เก็บไว้)", reserve=GAP_AFTER_CUT)
 
-    ws.print_area = f"A1:C{row}"
+    ws.print_area = f"A1:C{row - 1}"
     ws.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
     ws.page_setup.orientation = "portrait"
     ws.page_setup.fitToWidth = 1
@@ -886,7 +898,8 @@ def write_deduction_sheet(m):
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.print_options.horizontalCentered = True
     ws.page_margins.left = ws.page_margins.right = 0.5
-    ws.page_margins.top = ws.page_margins.bottom = 0.5
+    ws.page_margins.top = ws.page_margins.bottom = 0.4
+    ws.page_margins.header = ws.page_margins.footer = 0.2
 
 # ป้าย "ยกไป ต.ค." นอกตารางด้านซ้าย: เลื่อนทั้งชีตไปขวา 1 คอลัมน์ (เฉพาะคนที่มีงานยกไป) แล้วใส่ป้ายในคอลัมน์ A
 # insert_cols ไม่ขยับ merge/สูตร/ความกว้างคอลัมน์ให้ — ทำเองทั้งหมด
