@@ -285,9 +285,9 @@ export default function Dashboard() {
           sub2="(หลังหักงาน NG ที่โรงงานแจ้งแล้ว)"
           foot={data.pipeline_value > 0 ? (
             <a href="#revenue-forecast" className="mt-3 block rounded-xl bg-white/70 border border-emerald-200 px-3 py-2 hover:bg-white transition">
-              <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700"><TrendingUp size={12} /> คาดการณ์ ถ้าส่งออกงานในมือหมด</span>
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700"><TrendingUp size={12} /> คาดการณ์ ถ้าส่งออกล็อตล่าสุดหมด</span>
               <span className="block text-lg font-bold tabular-nums text-emerald-800 leading-tight">฿{thb2(isM ? data.predicted_revenue_month : data.predicted_revenue_all)}</span>
-              <span className="block text-[11px] text-slate-500 tabular-nums">+฿{thb2(data.pipeline_value)} จากงานที่ยังไม่ได้ส่งออก</span>
+              <span className="block text-[11px] text-slate-500 tabular-nums">+฿{thb2(data.pipeline_value)} จากล็อต {data.pipeline_last_receive ? new Date(data.pipeline_last_receive + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ล่าสุด'}</span>
             </a>
           ) : undefined} />
         <HeroCard theme="peach"  icon={Wallet} label="ค่าแรงจ่ายสมาชิก" value={thb2(wage)}
@@ -394,17 +394,17 @@ export default function Dashboard() {
         <MiniStat icon={AlertTriangle} label="เกินกำหนดคืน" value={data.overdue_count} unit="ใบ" chip="bg-rose-100 text-rose-600" alert={data.overdue_count > 0} />
       </div>
 
-      {/* คาดการณ์รายรับ ถ้างานที่อยู่ในมือทั้งหมด (รับจากโรงงานถึงล็อตล่าสุด ยังไม่ได้ส่งออก) ส่งออกครบ */}
+      {/* คาดการณ์รายรับ ถ้างานล็อตล่าสุดที่รับจากโรงงานส่งออกครบ */}
       {data.pipeline_products?.length > 0 && (
         <div id="revenue-forecast" className="rounded-2xl bg-white border border-emerald-100 shadow-sm overflow-hidden scroll-mt-4">
           <div className="px-5 py-4 border-b border-emerald-100 bg-emerald-50/50 flex items-center gap-2 flex-wrap">
             <span className="p-2 rounded-xl bg-emerald-100 text-emerald-600"><TrendingUp size={16} /></span>
             <div>
-              <h2 className="font-bold text-slate-800">คาดการณ์รายรับ ถ้าส่งออกงานในมือหมด</h2>
-              <p className="text-xs text-slate-500">งานที่รับจากโรงงานแล้ว{data.pipeline_last_receive ? ` (ล็อตล่าสุด ${new Date(data.pipeline_last_receive + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })})` : ''} แต่ยังไม่ได้ส่งออก × ราคาโรงงาน</p>
+              <h2 className="font-bold text-slate-800">คาดการณ์รายรับ ถ้าส่งออกล็อตล่าสุดหมด</h2>
+              <p className="text-xs text-slate-500">งานที่รับจากโรงงานล็อตล่าสุด{data.pipeline_last_receive ? ` (${new Date(data.pipeline_last_receive + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })})` : ''} × ราคาโรงงาน</p>
             </div>
             <div className="ml-auto text-right">
-              <p className="text-xs text-slate-500">รายรับ{isM ? `เดือน ${monthLabel(data.month)}` : 'สะสม'} ฿{thb2(revenue)} + งานในมือ ฿{thb2(data.pipeline_value)}</p>
+              <p className="text-xs text-slate-500">รายรับ{isM ? `เดือน ${monthLabel(data.month)}` : 'สะสม'} ฿{thb2(revenue)} + ล็อตล่าสุด ฿{thb2(data.pipeline_value)}</p>
               <p className="text-2xl font-bold tabular-nums text-emerald-700">฿{thb2(isM ? data.predicted_revenue_month : data.predicted_revenue_all)}</p>
             </div>
           </div>
@@ -413,10 +413,8 @@ export default function Dashboard() {
               <thead className="text-xs text-slate-500 border-b">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium">รุ่น</th>
-                  <th className="px-3 py-2.5 text-right font-medium">รอเบิกหน้างาน</th>
-                  <th className="px-3 py-2.5 text-right font-medium">อยู่กับสมาชิก</th>
-                  <th className="px-3 py-2.5 text-right font-medium">พร้อมส่ง</th>
-                  <th className="px-3 py-2.5 text-right font-medium">รวมในมือ</th>
+                  <th className="px-3 py-2.5 text-right font-medium">รับเข้าล็อตล่าสุด</th>
+                  <th className="px-3 py-2.5 text-right font-medium">ยังไม่ได้ส่งออก</th>
                   <th className="px-3 py-2.5 text-right font-medium">ราคา/เส้น</th>
                   <th className="px-4 py-2.5 text-right font-medium">รายรับที่จะได้</th>
                 </tr>
@@ -427,9 +425,7 @@ export default function Dashboard() {
                     <td className="px-4 py-2 whitespace-nowrap">
                       {p.color && <span className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300 mr-2 align-middle" style={{ background: p.color }} />}{p.name}
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-600">{p.waiting ? thb(p.waiting) : '–'}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{p.with_members ? thb(p.with_members) : '–'}</td>
-                    <td className="px-3 py-2 text-right text-slate-600">{p.ready ? thb(p.ready) : '–'}</td>
+                    <td className="px-3 py-2 text-right text-slate-600">{thb(p.lot_qty)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-slate-800">{thb(p.qty)}</td>
                     <td className="px-3 py-2 text-right text-slate-500">{Number(p.price).toFixed(3)}</td>
                     <td className="px-4 py-2 text-right font-semibold text-emerald-700">฿{thb2(p.value)}</td>
@@ -438,7 +434,8 @@ export default function Dashboard() {
               </tbody>
               <tfoot>
                 <tr className="bg-emerald-50/60 font-semibold">
-                  <td className="px-4 py-2.5" colSpan={4}>รวมงานในมือ</td>
+                  <td className="px-4 py-2.5">รวมล็อตล่าสุด</td>
+                  <td className="px-3 py-2.5 text-right">{thb((data.pipeline_products as any[]).reduce((t, p) => t + p.lot_qty, 0))}</td>
                   <td className="px-3 py-2.5 text-right">{thb((data.pipeline_products as any[]).reduce((t, p) => t + p.qty, 0))}</td>
                   <td></td>
                   <td className="px-4 py-2.5 text-right text-emerald-700">฿{thb2(data.pipeline_value)}</td>
@@ -446,7 +443,7 @@ export default function Dashboard() {
               </tfoot>
             </table>
           </div>
-          <p className="px-5 py-2.5 text-[11px] text-slate-500 border-t">คิดแบบส่งออกเป็นงานดีทั้งหมด — ถ้าโรงงานแจ้ง NG จะได้น้อยกว่านี้เล็กน้อย · ไม่รวมงานที่โรงงานยังไม่ได้ส่งมา</p>
+          <p className="px-5 py-2.5 text-[11px] text-slate-500 border-t">คิดแบบส่งออกเป็นงานดีทั้งหมด — ถ้าโรงงานแจ้ง NG จะได้น้อยกว่านี้เล็กน้อย · ยอดล็อต = ยอดนับจริงที่ใบรับ (ถ้ามี) ไม่งั้นตามใบส่งของ · ส่วนที่ส่งออกไปแล้วไม่นับซ้ำ</p>
         </div>
       )}
 
