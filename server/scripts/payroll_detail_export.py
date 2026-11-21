@@ -720,13 +720,37 @@ def deduction_items(m):
         out.append(("NG เกินเกณฑ์", f'{float(m["ng_excess_qty"]):g} เส้น × {rate:g} บาท', float(m["ng_deduction"])))
     return out
 
+def warning_items(m):
+    """NG ที่ตักเตือน (ไม่หักเงิน) -> [(หัวข้อ, รายละเอียด, ครั้งต่อไปปรับ)] — ครั้งต่อไป = อัตราของครั้งถัดไปจากหน้าตั้งค่า"""
+    rates = d.get("ng_rates") or {}
+    out = []
+    for ln in (m.get("deductions") or []):
+        if ln.get("note") != "warn":
+            continue
+        title = (ln.get("title") or "").strip()
+        detail = (ln.get("detail") or ln.get("label") or "").strip()
+        for junk in (" — ตักเตือน (ไม่หักเงิน)", "— ตักเตือน (ไม่หักเงิน)", " ตักเตือน (ไม่หักเงิน)"):
+            detail = detail.replace(junk, "")
+        if title and " · " in title:
+            head, rest = title.split(" · ", 1)
+            detail = f"{rest} · {detail}" if detail else rest
+        else:
+            head = title or "NG ตักเตือน"
+        late = "โรงงานแจ้ง" in title
+        strike = int(ln.get("strike") or 1)
+        nxt = float((rates.get("late2") if late else (rates.get("group2") if strike <= 1 else rates.get("group3"))) or 0)
+        out.append((head, detail.strip(" ·"), f"ปรับเส้นละ {nxt:g} บาท" if nxt > 0 else "ตักเตือนอีกครั้ง"))
+    return out
+
 def write_deduction_sheet(m):
     items = deduction_items(m)
-    if not items:
+    warns = warning_items(m)
+    if not items and not warns:
         return
+    warn_only = not items   # ตักเตือนอย่างเดียว -> "ใบแจ้งเตือนงาน NG" (ไม่มีกล่องเงิน)
     pen = sum(a for _, _, a in items)   # หักรวมทุกรายการ (งานแก้ไข + ไม่ได้ตัด + ค่าปรับ NG)
     _scale_state["v"] = 1.0
-    ws = wb.create_sheet(safe_sheet_name(f'{m["member_code"]} ใบหักเงิน', used_names))
+    ws = wb.create_sheet(safe_sheet_name(f'{m["member_code"]} {"ใบเตือน" if warn_only else "ใบหักเงิน"}', used_names))
     ws.sheet_view.showGridLines = False
     for col, w in (("A", 20), ("B", 58), ("C", 18)):
         ws.column_dimensions[col].width = w
@@ -741,13 +765,31 @@ def write_deduction_sheet(m):
     thin_b = Side(style="thin", color="CBD5E1")
     line_box = Border(bottom=thin_b)
     RED_BG, GREEN_BG, SOFT = "FEF2F2", "ECFDF5", "F8FAFC"
+    AMB, AMB_BG, AMB_HEAD = "B45309", "FFFBEB", "F59E0B"
+
+    def warn_block(row):
+        # กล่องแจ้งเตือน (ไม่หักเงิน): หัวสีเหลือง + รายการ + ครั้งต่อไปปรับเท่าไร
+        for col, txt, al in (("A", "แจ้งเตือน", C), ("B", "รายละเอียด (ไม่หักเงิน)", L), ("C", "ถ้าเกิดอีกครั้ง", C)):
+            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=AMB_HEAD, align=al, border=box)
+        ws.row_dimensions[row].height = 22; row += 1
+        for head, detail, nxt in warns:
+            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5, bold=True, color=AMB), fill=AMB_BG,
+                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
+            cell(ws, f"B{row}", detail, font=Font(name=FONT, size=11.5, color="111827"), fill=AMB_BG,
+                 align=Alignment(horizontal="left", vertical="center", wrap_text=True), border=box)
+            cell(ws, f"C{row}", nxt, font=Font(name=FONT, size=11.5, bold=True, color=RED), fill=AMB_BG,
+                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
+            lines = max(1, -(-len(detail) // 62))
+            ws.row_dimensions[row].height = 22 + 15 * (lines - 1); row += 1
+        return row
 
     def part(row, who):
         # หัวเอกสาร + ป้ายสำเนา
         ws.merge_cells(f"A{row}:B{row}")
-        cell(ws, f"A{row}", "ใบแจ้งหักเงินค่าแรง", font=Font(name=FONT, size=20, bold=True, color="111827"), align=L)
-        cell(ws, f"C{row}", who, font=Font(name=FONT, size=11, bold=True, color=NAVY), fill="E0E7FF",
-             align=Alignment(horizontal="center", vertical="center"))
+        cell(ws, f"A{row}", "ใบแจ้งเตือนงาน NG" if warn_only else "ใบแจ้งหักเงินค่าแรง",
+             font=Font(name=FONT, size=20, bold=True, color=AMB if warn_only else "111827"), align=L)
+        cell(ws, f"C{row}", who, font=Font(name=FONT, size=11, bold=True, color=AMB if warn_only else NAVY),
+             fill="FEF3C7" if warn_only else "E0E7FF", align=Alignment(horizontal="center", vertical="center"))
         ws.row_dimensions[row].height = 32; row += 1
         ws.merge_cells(f"A{row}:C{row}")
         cell(ws, f"A{row}", f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}",
@@ -758,6 +800,21 @@ def write_deduction_sheet(m):
         for c in ("B", "C"): ws[f"{c}{row}"].border = line_box
         ws.row_dimensions[row].height = 26; row += 1
         ws.row_dimensions[row].height = 8; row += 1
+
+        if warn_only:
+            ws.merge_cells(f"A{row}:C{row}")
+            cell(ws, f"A{row}", "รอบนี้ไม่หักเงิน — เป็นการแจ้งเตือนให้ระวัง ถ้าเกิดงาน NG อีกครั้งจะถูกปรับตามอัตราด้านล่าง",
+                 font=Font(name=FONT, size=13, bold=True, color=AMB), fill=AMB_BG,
+                 align=Alignment(horizontal="left", vertical="center", wrap_text=True))
+            ws.row_dimensions[row].height = 30; row += 1
+            ws.row_dimensions[row].height = 8; row += 1
+            row = warn_block(row)
+            ws.row_dimensions[row].height = 26; row += 1
+            ws.merge_cells(f"A{row}:C{row}")
+            cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
+                 font=Font(name=FONT, size=12, color="111827"), align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
+            ws.row_dimensions[row].height = 24; row += 1
+            return row
 
         # สรุปยอด 3 บรรทัด: ค่าแรงตามใบเสร็จ − ค่าปรับ = ได้รับจริง
         def money_row(label, val, *, color="111827", fill=None, bold=False, size=13, h=24):
@@ -795,6 +852,9 @@ def write_deduction_sheet(m):
         ws[f"B{row}"].border = box
         cell(ws, f"C{row}", -total_cut, font=Font(name=FONT, size=12, bold=True, color=RED), fill=RED_BG, align=R, fmt=MONEY, border=box)
         ws.row_dimensions[row].height = 24; row += 1
+        if warns:
+            ws.row_dimensions[row].height = 10; row += 1
+            row = warn_block(row)
 
         # รับทราบ
         ws.row_dimensions[row].height = 26; row += 1

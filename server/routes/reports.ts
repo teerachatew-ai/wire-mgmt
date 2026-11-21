@@ -1326,6 +1326,8 @@ function buildPayrollDetail(month: string) {
     month, cutoff, cutoff_start: cutoffStart, next_month: nextM,
     org_name: cfg.bill_vender_name || 'วิสาหกิจชุมชนกลุ่มพัฒนาคุณภาพชีวิต ตำบลโคกม่วง',
     ng_penalty_rate: pol.legacyRate,
+    // อัตราค่าปรับครั้งถัดไป — ใบแจ้งเตือนบอกสมาชิกว่าถ้าเกิดอีกจะโดนปรับเส้นละเท่าไร
+    ng_rates: { group2: pol.groupRate2, group3: pol.groupRate3, rope: pol.ropeRate, late2: pol.lateRate2 },
     rework_pct: pol.reworkPct,   // งานแก้ไข หักค่าแรงกี่ส่วน (0.5 = 50%) — ใบเสร็จแสดงเป็นบรรทัดหักแยก
     members,
     total_wage: members.reduce((s: number, m: any) => s + m.total_wage, 0),
