@@ -604,60 +604,11 @@ def write_member_sheet(m, label=None):
             net_formula_parts.append(ref)
             ws.row_dimensions[row].height = RH(H_NG)
             row += 1
-    # กติกาใหม่ (งานจากล็อตตั้งแต่ 28 ส.ค. 2569): 1 บรรทัดต่อ "NG ครั้งที่ X" (นับสะสม · 1 วันที่เบิก = 1 ครั้ง)
-    # เช่น "NG ครั้งที่ 2 · งานเบิก 12 ก.ย. · ตัดโดนสายไฟ 2 เส้น×5฿" ระบบส่งมาเป็นบรรทัดสำเร็จรูป (wagePolicy.deductionLines)
-    # ครั้งที่ 1 = ตักเตือน (ไม่มีตัวเงิน) · ปิดท้ายด้วยบรรทัด "รวมถูกหักค่าแรง" ซึ่งเป็นยอดเดียวที่เอาไปลบจากค่าแรง
-    # แต่ละครั้งแสดง 2 บรรทัดขนาดปกติ (ไม่ย่อจนอ่านไม่ออก) — ความสูงรวมยังพอดี 1 หน้าเพราะใบเสร็จตั้ง fitToHeight=1
-    # งานล็อตเก่า (กติกา "NG เกินเกณฑ์") ก็มาเป็นบรรทัดสำเร็จรูปในชุดเดียวกัน (มีเฉพาะเมื่ออัตราเดิม > 0)
-    # บล็อกเดิมด้านล่างใช้เฉพาะข้อมูลแบบเก่าที่ไม่มี "deductions" เท่านั้น
-    ng_lines = m.get("deductions") or []
-    has_strike = any(ln.get("strike") for ln in ng_lines)
-    if ng_lines:
-        # 1 ครั้ง = 1 บรรทัด (ผู้ใช้ขอ) · ย่อตัวอักษรอัตโนมัติเฉพาะกรณีข้อความยาวผิดปกติ (ตัดโดนสายไฟ+ดึงเชือก+ตักเตือนในครั้งเดียว)
-        RW2 = Alignment(horizontal="right", vertical="center", shrink_to_fit=True)
-        first_ng = row
-        for ln in ng_lines:
-            warn = ln.get("note") == "warn"
-            color = "B45309" if warn else RED
-            two = bool(ln.get("title"))
-            ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-            # 2 บรรทัด (ตั้งความสูงแถวเองตายตัว ไม่พึ่ง auto-height) — บรรทัดบน "NG ครั้งที่ X · งานเบิก วันที่" บรรทัดล่างรายละเอียด/ค่าปรับ
-            text = ln["label"]
-            fsz = FS(F_NGLINE) if two else FS(F_NG)
-            cell(ws, f"A{row}", text, font=Font(name=FONT, size=fsz, color=color), align=RW2 if two else R, border=box)
-            ref = f"{LAST_P_LETTER}{row}"
-            if warn:
-                cell(ws, ref, "-", font=Font(name=FONT, size=fsz, color=color), align=R, border=box)
-            else:
-                cell(ws, ref, -float(ln["amount"]), font=Font(name=FONT, size=fsz, color=color), align=R, fmt=MONEY, border=box)
-                if not has_strike:
-                    net_formula_parts.append(ref)
-            ws.row_dimensions[row].height = RH(H_NGLINE2 if two else H_NG)
-            row += 1
-        last_ng = row - 1
-    if ng_lines and has_strike:
-        ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-        cell(ws, f"A{row}", "รวมถูกหักค่าแรง (ค่าปรับ NG)", font=Font(name=FONT, size=FS(F_NGLINE), bold=True, color=RED), align=R, border=box)
-        total_ref = f"{LAST_P_LETTER}{row}"
-        cell(ws, total_ref, f"=SUM({LAST_P_LETTER}{first_ng}:{LAST_P_LETTER}{last_ng})",
-             font=Font(name=FONT, size=FS(F_NGLINE), bold=True, color=RED), align=R, fmt=MONEY, border=box)
-        ws.row_dimensions[row].height = RH(H_NET)
-        net_formula_parts.append(total_ref)
-        row += 1
-    if "deductions" not in m and m.get("ng_excess_qty") and m.get("ng_deduction"):
-        ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-        cell(ws, f"A{row}", f'หัก NG เกินเกณฑ์ ({m["ng_excess_qty"]:g} เส้น × {d.get("ng_penalty_rate", 20):g} บาท)',
-             font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, border=box)
-        # แสดงเป็นสูตรคูณตรงๆ (จำนวนเกิน x อัตราค่าปรับ) ให้เห็นที่มาของตัวเลข ไม่ใช่แค่ผลลัพธ์สำเร็จรูป
-        ng_ref = f"{LAST_P_LETTER}{row}"
-        cell(ws, ng_ref, f'=-({m["ng_excess_qty"]:g}*{d.get("ng_penalty_rate", 20):g})',
-             font=Font(name=FONT, size=FS(F_NG), color=RED), align=R, fmt=MONEY, border=box)
-        ws.row_dimensions[row].height = RH(H_NG)
-        net_formula_parts.append(ng_ref)
-        row += 1
+    # ค่าปรับ NG ไม่แสดงในใบเสร็จ (เจ้าของขอ 21 พ.ย. 69) — คนที่ถูกหักเงินมี "ใบแจ้งหักเงินค่าแรง" แยกอีกหน้า (write_deduction_sheet)
+    # ใบเสร็จจึงจบที่ "ค่าแรงรอบนี้" = ค่าแรงตัด (หักงานแก้/งานไม่ได้ตัดแล้ว) ปัดขึ้นเต็มบาท ก่อนหักค่าปรับ
 
     ws.merge_cells(f"A{row}:{LABEL_END_LETTER}{row}")
-    cell(ws, f"A{row}", "ค่าแรงสุทธิรอบนี้", font=Font(name=FONT, size=FS(F_NET), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
+    cell(ws, f"A{row}", "ค่าแรงรอบนี้", font=Font(name=FONT, size=FS(F_NET), bold=True, color="FFFFFF"), fill=GREEN, align=R, border=box)
     # ปัดขึ้นเต็มบาทเหมือนสูตรฝั่งระบบ (Math.ceil) — ใช้ ROUNDUP แทน (ค่าแรงเป็นบวกเสมอ ผลเหมือนกัน)
     net_formula = f"=ROUNDUP({'+'.join(net_formula_parts)},0)"
     cell(ws, f"{LAST_P_LETTER}{row}", net_formula, font=Font(name=FONT, size=FS(F_NUM), bold=True, color="FFFFFF"), fill=GREEN, align=R, fmt=MONEY, border=box)
@@ -766,6 +717,128 @@ def write_member_sheet(m, label=None):
     if carry_rows:
         add_left_label(ws, row, *carry_rows)
 
+def deduction_items(m):
+    """รายการค่าปรับที่หักเงินจริง (ไม่รวมตักเตือน) -> [(หัวข้อ, รายละเอียด, บาท)]"""
+    out = []
+    for ln in (m.get("deductions") or []):
+        amt = float(ln.get("amount") or 0)
+        if ln.get("note") == "warn" or amt <= 0:
+            continue
+        title = (ln.get("title") or "").strip()
+        detail = (ln.get("detail") or "").strip()
+        if title and " · " in title:
+            head, rest = title.split(" · ", 1)
+            detail = f"{rest} · {detail}" if detail else rest
+        elif title:
+            head = title
+        else:
+            head, detail = "ค่าปรับ NG", (ln.get("label") or "").strip()
+        out.append((head, detail, amt))
+    if not out and "deductions" not in m and m.get("ng_excess_qty") and m.get("ng_deduction"):
+        rate = float(d.get("ng_penalty_rate", 20) or 0)
+        out.append(("NG เกินเกณฑ์", f'{float(m["ng_excess_qty"]):g} เส้น × {rate:g} บาท', float(m["ng_deduction"])))
+    return out
+
+def write_deduction_sheet(m):
+    items = deduction_items(m)
+    pen = float(m.get("ng_deduction") or 0)
+    if pen <= 0 or not items:
+        return
+    _scale_state["v"] = 1.0
+    ws = wb.create_sheet(safe_sheet_name(f'{m["member_code"]} ใบหักเงิน', used_names))
+    ws.sheet_view.showGridLines = False
+    for col, w in (("A", 20), ("B", 58), ("C", 18)):
+        ws.column_dimensions[col].width = w
+    net = float(m["total_wage"])
+    gross_receipt = math.ceil(float(m.get("gross_wage") or 0) - 1e-9)   # ยอดเดียวกับ "ค่าแรงรอบนี้" ในใบเสร็จ
+    rounding = net - (gross_receipt - pen)                                # ปกติ 0 — มีเฉพาะค่าปรับมีเศษสตางค์
+    name = f'{m["member_code"]}   {m["member_name"]}' + (f'  ({m["member_nickname"]})' if m.get("member_nickname") else '')
+    thin_b = Side(style="thin", color="CBD5E1")
+    line_box = Border(bottom=thin_b)
+    RED_BG, GREEN_BG, SOFT = "FEF2F2", "ECFDF5", "F8FAFC"
+
+    def part(row, who):
+        # หัวเอกสาร + ป้ายสำเนา
+        ws.merge_cells(f"A{row}:B{row}")
+        cell(ws, f"A{row}", "ใบแจ้งหักเงินค่าแรง", font=Font(name=FONT, size=20, bold=True, color="111827"), align=L)
+        cell(ws, f"C{row}", who, font=Font(name=FONT, size=11, bold=True, color=NAVY), fill="E0E7FF",
+             align=Alignment(horizontal="center", vertical="center"))
+        ws.row_dimensions[row].height = 32; row += 1
+        ws.merge_cells(f"A{row}:C{row}")
+        cell(ws, f"A{row}", f"{d.get('org_name', '')} — รอบจ่ายค่าแรงเดือน {month_th(d['month'])}",
+             font=Font(name=FONT, size=11, color=GREY), align=Alignment(horizontal="left", vertical="center", shrink_to_fit=True))
+        ws.row_dimensions[row].height = 20; row += 1
+        ws.merge_cells(f"A{row}:C{row}")
+        cell(ws, f"A{row}", name, font=Font(name=FONT, size=15, bold=True, color="111827"), align=L, border=line_box)
+        for c in ("B", "C"): ws[f"{c}{row}"].border = line_box
+        ws.row_dimensions[row].height = 26; row += 1
+        ws.row_dimensions[row].height = 8; row += 1
+
+        # สรุปยอด 3 บรรทัด: ค่าแรงตามใบเสร็จ − ค่าปรับ = ได้รับจริง
+        def money_row(label, val, *, color="111827", fill=None, bold=False, size=13, h=24):
+            nonlocal row
+            ws.merge_cells(f"A{row}:B{row}")
+            cell(ws, f"A{row}", label, font=Font(name=FONT, size=size, bold=bold, color=color), fill=fill, align=L)
+            if fill: ws[f"B{row}"].fill = PatternFill("solid", fgColor=fill)
+            cell(ws, f"C{row}", val, font=Font(name=FONT, size=size, bold=bold, color=color), fill=fill, align=R, fmt=MONEY)
+            ws.row_dimensions[row].height = h; row += 1
+        money_row("ค่าแรงรอบนี้ (ตามใบเสร็จรับเงิน)", gross_receipt, fill=SOFT)
+        money_row("หัก ค่าปรับงาน NG (รายละเอียดด้านล่าง)", -pen, color=RED, fill=RED_BG, bold=True)
+        if abs(rounding) >= 0.005:
+            money_row("ปัดเศษเป็นบาทเต็ม", rounding, color=GREY, size=11, h=20)
+        money_row("ค่าแรงที่ได้รับจริง", net, color="FFFFFF", fill=GREEN, bold=True, size=15, h=30)
+        ws.row_dimensions[row].height = 10; row += 1
+
+        # รายละเอียดค่าปรับ
+        for col, txt, al in (("A", "ครั้งที่", C), ("B", "รายละเอียด", L), ("C", "หักเงิน (บาท)", R)):
+            cell(ws, f"{col}{row}", txt, font=Font(name=FONT, size=11, bold=True, color="FFFFFF"), fill=NAVY, align=al, border=box)
+        ws.row_dimensions[row].height = 22; row += 1
+        for head, detail, amt in items:
+            cell(ws, f"A{row}", head, font=Font(name=FONT, size=11.5, bold=True, color=RED),
+                 align=Alignment(horizontal="center", vertical="center", wrap_text=True), border=box)
+            cell(ws, f"B{row}", detail, font=Font(name=FONT, size=11.5, color="111827"),
+                 align=Alignment(horizontal="left", vertical="center", wrap_text=True), border=box)
+            cell(ws, f"C{row}", -amt, font=Font(name=FONT, size=12, bold=True, color=RED), align=R, fmt=MONEY, border=box)
+            lines = max(1, -(-len(detail) // 62))
+            ws.row_dimensions[row].height = 20 + 15 * (lines - 1); row += 1
+        ws.merge_cells(f"A{row}:B{row}")
+        cell(ws, f"A{row}", "รวมหักเงิน", font=Font(name=FONT, size=12, bold=True, color=RED), fill=RED_BG, align=R, border=box)
+        ws[f"B{row}"].border = box
+        cell(ws, f"C{row}", -pen, font=Font(name=FONT, size=12, bold=True, color=RED), fill=RED_BG, align=R, fmt=MONEY, border=box)
+        ws.row_dimensions[row].height = 24; row += 1
+
+        # รับทราบ
+        ws.row_dimensions[row].height = 26; row += 1
+        ws.merge_cells(f"A{row}:C{row}")
+        cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
+             font=Font(name=FONT, size=12, color="111827"), align=Alignment(horizontal="center", vertical="center", shrink_to_fit=True))
+        ws.row_dimensions[row].height = 24; row += 1
+        return row
+
+    row = part(1, "สำหรับสมาชิก")
+    # รอยตัดระหว่าง 2 ส่วน
+    ws.row_dimensions[row].height = 16; row += 1
+    dash = Side(style="dashed", color="94A3B8")
+    for c in ("A", "B", "C"):
+        ws[f"{c}{row}"].border = Border(bottom=dash)
+    ws.merge_cells(f"A{row}:C{row}")
+    cell(ws, f"A{row}", "✂  ตัดตามรอยประ", font=Font(name=FONT, size=9, color="94A3B8"), align=Alignment(horizontal="center", vertical="bottom"))
+    for c in ("A", "B", "C"):
+        ws[f"{c}{row}"].border = Border(bottom=dash)
+    ws.row_dimensions[row].height = 16; row += 1
+    ws.row_dimensions[row].height = 22; row += 1
+    row = part(row, "สำหรับกลุ่ม (เก็บไว้)")
+
+    ws.print_area = f"A1:C{row}"
+    ws.page_setup.paperSize = PAPER_SIZE_CODE[paper_size]
+    ws.page_setup.orientation = "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = 0.5
+    ws.page_margins.top = ws.page_margins.bottom = 0.5
+
 # ป้าย "ยกไป ต.ค." นอกตารางด้านซ้าย: เลื่อนทั้งชีตไปขวา 1 คอลัมน์ (เฉพาะคนที่มีงานยกไป) แล้วใส่ป้ายในคอลัมน์ A
 # insert_cols ไม่ขยับ merge/สูตร/ความกว้างคอลัมน์ให้ — ทำเองทั้งหมด
 def add_left_label(ws, last_row, r1, r2, text):
@@ -809,6 +882,7 @@ for m in d["members"]:
             write_member_sheet(m, label="คู่ฉบับ")
     else:
         write_member_sheet(m)
+    write_deduction_sheet(m)   # ใบแจ้งหักเงิน (เฉพาะคนที่ถูกหักค่าปรับ) ต่อท้ายใบเสร็จของคนนั้น
 
 if black_and_white:
     def to_gray6(argb):
