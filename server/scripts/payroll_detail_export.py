@@ -302,6 +302,11 @@ REWORK_PCT = float(d.get("rework_pct") or 0)
 def rework_deduct(r):  # ค่าแรงที่หักจากงานแก้ไขของรายการรับคืนนี้ (บาท)
     return float(r.get("rework_qty") or 0) * float(r.get("wage_per_unit") or 0) * REWORK_PCT
 
+def receipt_gross(m):
+    """ค่าแรงรอบนี้ตามใบเสร็จ = ค่าแรงเต็มของงานที่ตัด (ไม่รวมรายการหักคืน late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท"""
+    t = sum(float(r.get("wage") or 0) + rework_deduct(r) for r in m["rows"] if r.get("kind") != "late_ng")
+    return math.ceil(t - 1e-9)
+
 def write_pivot_table(ws, row, rows_list):
     headers = ["วันที่เบิก"] + [product_label[n] for n in product_order] + ["ค่าแรง (บาท)"]
     widths = [W_DATE_EFF] + [W_PROD] * n_prod + [W_WAGE]
@@ -421,7 +426,7 @@ ws0 = wb.create_sheet(safe_sheet_name("สรุปรวม", used_names))
 ws0.sheet_view.showGridLines = False
 n_prod = len(product_order)
 FIXED_COLS0 = 3  # รหัส, ชื่อ-สกุล, ชื่อเล่น
-MONEY_COLS0 = 3  # ค่าแรงก่อนหักค่าปรับ, ค่าปรับ NG, ค่าแรงสุทธิ (ขอ 23 ต.ค. 69)
+MONEY_COLS0 = 3  # ค่าแรงก่อนหัก, ยอดเงินหัก (ทุกประเภท), ค่าแรงสุทธิ
 last_col = FIXED_COLS0 + n_prod + MONEY_COLS0  # + สินค้าแต่ละชนิด + ช่องเงิน
 first_money_col = FIXED_COLS0 + n_prod + 1
 last_col_letter = get_column_letter(last_col)
@@ -438,7 +443,7 @@ ws0.row_dimensions[2].height = RH(30)
 ws0.row_dimensions[3].height = RH(10)
 
 hdr_row = 5
-headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงก่อนหักค่าปรับ (บาท)", "ค่าปรับ NG (บาท)", "ค่าแรงสุทธิรอบนี้ (บาท)"]
+headers0 = ["รหัส", "ชื่อ-สกุล", "ชื่อเล่น"] + [product_label[n] for n in product_order] + ["ค่าแรงก่อนหัก (บาท)", "ยอดเงินหัก (บาท)", "ค่าแรงสุทธิรอบนี้ (บาท)"]
 # ชื่อ/ชื่อเล่นบีบให้แคบลง (ย่อตัวอักษรอัตโนมัติด้วย shrink_to_fit) เพื่อเว้นที่ให้ช่องเงินเพิ่ม 2 ช่อง
 widths0 = [7, 27, 15] + [9.5] * n_prod + [13, 10.5, 13]
 for ci, (h, w) in enumerate(zip(headers0, widths0), start=1):
@@ -464,8 +469,10 @@ for m in d["members"]:
     pw_map = {pw["name"]: pw for pw in m.get("product_wages", [])}
     vals = [m["member_code"], m["member_name"], m.get("member_nickname") or "-"]
     vals += [pw_map.get(n, {}).get("qty", 0) for n in product_order]
-    # ค่าแรงก่อนหักค่าปรับ = สุทธิ + ค่าปรับ (รวมส่วนปัดเศษขึ้นเต็มบาทไว้แล้ว) → ลบกันได้สุทธิพอดี
-    vals += [float(m["total_wage"]) + float(m.get("ng_deduction") or 0), float(m.get("ng_deduction") or 0), m["total_wage"]]
+    # ค่าแรงก่อนหัก = "ค่าแรงรอบนี้" ในใบเสร็จ · ยอดเงินหัก = หักทุกประเภท (งานแก้ไข 50% + งานไม่ได้ตัด + ค่าปรับ NG)
+    # = ยอด "หัก" ในใบแจ้งหักเงิน · ก่อนหัก − หัก = สุทธิพอดี (ส่วนปัดเศษรวมอยู่ในยอดหักแล้ว)
+    g0 = receipt_gross(m)
+    vals += [g0, g0 - float(m["total_wage"]), m["total_wage"]]
     for ci, v in enumerate(vals, start=1):
         col = get_column_letter(ci)
         is_prod_col = FIXED_COLS0 + 1 <= ci <= FIXED_COLS0 + n_prod
@@ -760,8 +767,7 @@ def write_deduction_sheet(m):
         ws.column_dimensions[col].width = w
     net = float(m["total_wage"])
     # ยอดเดียวกับ "ค่าแรงรอบนี้" ในใบเสร็จ = ค่าแรงเต็มตามตาราง (งานที่ไม่ใช่ late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท
-    table_gross = sum(float(r.get("wage") or 0) + rework_deduct(r) for r in m["rows"] if r.get("kind") != "late_ng")
-    gross_receipt = math.ceil(table_gross - 1e-9)
+    gross_receipt = receipt_gross(m)
     # หักรวม = ค่าแรงตามใบเสร็จ − ค่าแรงที่ได้รับจริง (สรุปลบกันได้พอดี) · ส่วนต่างจากผลรวมรายการ = ปัดเศษเป็นบาทเต็ม (ปกติ 0)
     total_cut = gross_receipt - net
     rounding = total_cut - pen
