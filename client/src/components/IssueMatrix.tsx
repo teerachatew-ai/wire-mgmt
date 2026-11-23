@@ -99,10 +99,13 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
             qty: {} as Record<string, number>, items: {} as Record<string, any[]>,
             total: 0, returned: 0, lastReturnedAt: '',
           });
-          m.qty[i.product_name] = (m.qty[i.product_name] || 0) + (Number(i.quantity) || 0);
+          // งานที่คืนมาแบบยังไม่ได้ตัด: ระบบลดยอดใบเบิกลง (ของกลับไปรอเบิก) แต่ตารางนี้โชว์ยอดเบิกเต็มตามที่แจกจริง
+          // (ค่าแรงส่วนที่ไม่ได้ตัดไปหักในใบหักเงิน) — นับเป็น "คืนแล้ว" ด้วย สถานะครบ/ค้างจึงไม่เพี้ยน
+          const unc = parseReturnLog(i.return_log).filter(e => e.kind !== 'late_ng').reduce((t, e) => t + (e.uncut || 0), 0);
+          m.qty[i.product_name] = (m.qty[i.product_name] || 0) + (Number(i.quantity) || 0) + unc;
           (m.items[i.product_name] ??= []).push(i);
-          m.total += Number(i.quantity) || 0;
-          m.returned += (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0);
+          m.total += (Number(i.quantity) || 0) + unc;
+          m.returned += (Number(i.returned_good) || 0) + (Number(i.returned_defect) || 0) + (Number(i.returned_waste) || 0) + unc;
           // วันที่คืนงานล่าสุดของงานทุกชนิดที่เบิกวันนี้ — ใช้โชว์เป็น "วันที่คืนครบ" ตอนไม่มีค้างส่งแล้ว
           if (i.last_returned_at && i.last_returned_at > m.lastReturnedAt) m.lastReturnedAt = i.last_returned_at;
         }
@@ -247,9 +250,10 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                                 const ent = items.flatMap((i: any) => parseReturnLog(i.return_log));
                                 const ngf = ent.reduce((t, e) => t + (e.ngFactory || 0), 0);
                                 const ngm = ent.reduce((t, e) => t + (e.ngCut || 0) + (e.ngRope || 0), 0);
-                                const other = ent.reduce((t, e) => t + (e.lost || 0) + (e.uncut || 0), 0);
-                                if (!ngf && !ngm && !other) return null;
-                                const parts = [ngf ? `NG รง. ${fmt(ngf)}` : '', ngm ? `NG ${fmt(ngm)}` : '', other ? `หาย/ไม่ตัด ${fmt(other)}` : ''].filter(Boolean);
+                                const lost = ent.reduce((t, e) => t + (e.lost || 0), 0);
+                                const unc = ent.reduce((t, e) => t + (e.uncut || 0), 0);
+                                if (!ngf && !ngm && !lost && !unc) return null;
+                                const parts = [ngf ? `NG รง. ${fmt(ngf)}` : '', ngm ? `NG ${fmt(ngm)}` : '', lost ? `หาย ${fmt(lost)}` : '', unc ? `ไม่ได้ตัด ${fmt(unc)} (ไม่จ่าย)` : ''].filter(Boolean);
                                 return <div className="text-[10px] leading-tight text-rose-600 whitespace-nowrap" title="คลิก ดูการคืน ที่ช่องสถานะเพื่อดูรายละเอียด">{parts.join(' · ')}</div>;
                               })()}
                               {(lots.length > 0 || (onMoveLot && v > 0)) && (

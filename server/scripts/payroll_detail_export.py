@@ -302,9 +302,13 @@ REWORK_PCT = float(d.get("rework_pct") or 0)
 def rework_deduct(r):  # ค่าแรงที่หักจากงานแก้ไขของรายการรับคืนนี้ (บาท)
     return float(r.get("rework_qty") or 0) * float(r.get("wage_per_unit") or 0) * REWORK_PCT
 
+def uncut_wage(r):  # งานที่คืนมาแบบยังไม่ได้ตัด (รับคืนปกติ): ใบเสร็จนับเต็มยอดเบิก แล้วไปหักในใบหักเงิน (เจ้าของขอ 23 พ.ย. 69)
+    if r.get("kind") == "late_ng": return 0.0
+    return float(r.get("uncut_qty") or 0) * float(r.get("wage_per_unit") or 0)
+
 def receipt_gross(m):
-    """ค่าแรงรอบนี้ตามใบเสร็จ = ค่าแรงเต็มของงานที่ตัด (ไม่รวมรายการหักคืน late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท"""
-    t = sum(float(r.get("wage") or 0) + rework_deduct(r) for r in m["rows"] if r.get("kind") != "late_ng")
+    """ค่าแรงรอบนี้ตามใบเสร็จ = ค่าแรงเต็มตามยอดเบิก (รวมงานที่ไม่ได้ตัด · ไม่รวมรายการหักคืน late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท"""
+    t = sum(float(r.get("wage") or 0) + rework_deduct(r) + uncut_wage(r) for r in m["rows"] if r.get("kind") != "late_ng")
     return math.ceil(t - 1e-9)
 
 def write_pivot_table(ws, row, rows_list):
@@ -341,9 +345,9 @@ def write_pivot_table(ws, row, rows_list):
         pname = r["product_name"]
         e = date_agg.setdefault(dt, {"qty": {}, "wage": 0.0, "wage_by_prod": {}, "carried": False})
         e["carried"] = e["carried"] or bool(r.get("carried_in"))
-        e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"] + float(r.get("ng_paid_qty") or 0)   # ชิ้นที่ได้ค่าแรงเต็มนอกจากงานดี (NG โรงงาน/ของหาย/NG สมาชิก) นับรวมในจำนวน
+        e["qty"][pname] = e["qty"].get(pname, 0) + r["good_qty"] + float(r.get("ng_paid_qty") or 0) + float(r.get("uncut_qty") or 0)   # ชิ้นที่ได้ค่าแรงเต็มนอกจากงานดี (NG โรงงาน/ของหาย/NG สมาชิก) นับรวมในจำนวน
         # ตารางแสดงค่าแรงเต็ม (ก่อนหักงานแก้ไข) — ส่วนที่หักแสดงเป็นบรรทัดแยกใต้ตาราง ให้สมาชิกเห็นว่าโดนหักตรงไหน
-        gross = r["wage"] + rework_deduct(r)
+        gross = r["wage"] + rework_deduct(r) + uncut_wage(r)   # + งานไม่ได้ตัด (หักในใบหักเงิน)
         e["wage"] += gross
         e["wage_by_prod"][pname] = e["wage_by_prod"].get(pname, 0) + gross
         if pname not in rates:
@@ -700,6 +704,14 @@ def deduction_items(m):
         out.append((f"งานแก้ไข ({REWORK_PCT * 100:g}%)",
                     f"งานเบิก {_dm(dt)} · {lbl} {e['qty']:,.0f} เส้น (คืน {', '.join(_dm(x) for x in sorted(e['ret']))}) — {why}",
                     e["amt"], e["amt"] / e["qty"]))
+    # งานที่คืนมาแบบยังไม่ได้ตัด (รับคืนปกติ) — ใบเสร็จนับเต็มยอดเบิก จึงหักค่าแรงส่วนนี้ที่นี่ (ไม่จ่ายเงิน)
+    for r in sorted([x for x in m["rows"] if x.get("kind") != "late_ng" and float(x.get("uncut_qty") or 0) > 0],
+                    key=lambda x: (str(x["issued_at"]), x["product_name"])):
+        uq = float(r["uncut_qty"]); amt = uncut_wage(r)
+        if amt <= 0: continue
+        lbl = (product_label.get(r["product_name"]) or short_label(r["product_name"])).replace("\n", " ")
+        out.append(("งานไม่ได้ตัด", f"งานเบิก {_dm(r['issued_at'])} · {lbl} {uq:,.0f} เส้น (คืน {_dm(r['returned_at'])}) · ไม่จ่ายค่าแรง",
+                    amt, float(r.get("wage_per_unit") or 0)))
     # งานไม่ได้ตัดที่โรงงานแจ้งภายหลัง — หักค่าแรงที่จ่ายไปแล้วคืน
     for r in sorted([x for x in m["rows"] if x.get("kind") == "late_ng"], key=lambda x: (str(x["issued_at"]), x["product_name"])):
         uq = float(r.get("uncut_qty") or 0); amt = -float(r.get("wage") or 0)
@@ -766,7 +778,7 @@ def write_deduction_sheet(m):
     for col, w in zip("ABCD", SLIP_W):
         ws.column_dimensions[col].width = w
     net = float(m["total_wage"])
-    # ยอดเดียวกับ "ค่าแรงรอบนี้" ในใบเสร็จ = ค่าแรงเต็มตามตาราง (งานที่ไม่ใช่ late_ng · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท
+    # ยอดเดียวกับ "ค่าแรงรอบนี้" ในใบเสร็จ = ค่าแรงเต็มตามตาราง (งานที่ไม่ใช่ late_ng · รวมงานไม่ได้ตัด · ก่อนหักงานแก้ไข) ปัดขึ้นเต็มบาท
     gross_receipt = receipt_gross(m)
     # หักรวม = ค่าแรงตามใบเสร็จ − ค่าแรงที่ได้รับจริง (สรุปลบกันได้พอดี) · ส่วนต่างจากผลรวมรายการ = ปัดเศษเป็นบาทเต็ม (ปกติ 0)
     total_cut = gross_receipt - net
