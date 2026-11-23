@@ -261,6 +261,17 @@ router.post('/batch', (req, res) => {
   res.json({ created, failed, warnings, adjusted });
 });
 
+/** กรณีพิเศษรายรายการ: NG ของรายการรับคืนนี้ "ไม่จ่ายค่าแรง" แทนตักเตือน/ค่าปรับ — body { no_wage: boolean } */
+router.patch('/:id/ng-no-wage', (req, res) => {
+  const id = Number(req.params.id);
+  const r = prepare(`SELECT id, ng_cut, ng_rope, kind FROM returns WHERE id = ?`).get(id) as any;
+  if (!r) return res.status(404).json({ error: 'ไม่พบรายการรับคืน' });
+  if (r.kind === 'late_ng') return res.status(400).json({ error: 'ใช้กับ NG แจ้งภายหลังไม่ได้' });
+  if (!((Number(r.ng_cut) || 0) > 0 || (Number(r.ng_rope) || 0) > 0)) return res.status(400).json({ error: 'รายการนี้ไม่มี NG' });
+  prepare(`UPDATE returns SET ng_no_wage = ? WHERE id = ?`).run(req.body?.no_wage ? 1 : 0, id);
+  res.json({ ok: true, id, ng_no_wage: req.body?.no_wage ? 1 : 0 });
+});
+
 router.put('/:id', (req, res) => {
   const { returned_at, inspector, notes } = req.body;
   const ret = prepare(`SELECT * FROM returns WHERE id = ?`).get(req.params.id) as any;

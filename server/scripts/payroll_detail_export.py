@@ -721,7 +721,7 @@ def deduction_items(m):
             head = title
         else:
             head, detail = "ค่าปรับ NG", (ln.get("label") or "").strip()
-        mm = re.search(r"ปรับ\s*([\d,.]+)\s*เส้น\s*×\s*([\d,.]+)\s*บาท", detail)
+        mm = re.search(r"(?:ปรับ|ไม่จ่ายค่าแรง)\s*([\d,.]+)\s*เส้น\s*×\s*([\d,.]+)\s*บาท", detail)
         rate = float(mm.group(2).replace(",", "")) if mm else None
         out.append((head.replace("NG ที่โรงงานแจ้ง ", "NG โรงงานแจ้ง "), detail, amt, rate))
     if "deductions" not in m and m.get("ng_excess_qty") and m.get("ng_deduction"):
@@ -781,6 +781,7 @@ def write_deduction_sheet(m):
     def short(t):
         t = t.replace("NG สมาชิก ", "")
         t = re.sub(r"\s*—\s*ปรับ\s*[\d,.]+\s*เส้น\s*×\s*[\d,.]+\s*บาท", "", t)
+        t = re.sub(r"\s*—\s*ไม่จ่ายค่าแรง\s*[\d,.]+\s*เส้น\s*×\s*[\d,.]+\s*บาท", " · ไม่จ่ายค่าแรง", t)
         return t.strip(" ·")
     ONE = lambda h: Alignment(horizontal=h, vertical="center", shrink_to_fit=True)
 

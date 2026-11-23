@@ -572,6 +572,9 @@ CREATE TABLE IF NOT EXISTS managers (
   // kind = 'late_ng' → "NG แจ้งภายหลัง" (โรงงานเจองานเสียหลังรับคืน/จ่ายเงินไปแล้ว) — งานดีติดลบเท่าที่เสีย ดู routes/returns.ts /late-ng
   if (!returnCols.includes('kind')) db.exec(`ALTER TABLE returns ADD COLUMN kind TEXT`);
   if (!returnCols.includes('ng_note')) db.exec(`ALTER TABLE returns ADD COLUMN ng_note TEXT`);
+  // ng_no_wage = 1 → กรณีพิเศษรายรายการ: NG ของรายการนี้ "ไม่จ่ายค่าแรง" (หักค่าแรงเต็มต่อเส้น) แทนตักเตือน/ค่าปรับขั้นบันได
+  //   ยังนับเป็น 1 ครั้ง (ครั้งถัดไปไม่เลื่อน) — ดู computePenalties ใน wagePolicy.ts
+  if (!returnCols.includes('ng_no_wage')) db.exec(`ALTER TABLE returns ADD COLUMN ng_no_wage INTEGER NOT NULL DEFAULT 0`);
   // ค่าใช้จ่ายบริหารจัดการ: ระบุผู้รับเงินได้ (general/member/manager) — ถ้าจ่ายให้สมาชิก/ผู้บริหาร นับรวมค่าตอบแทนผู้บริหาร
   const expCols = db.exec(`PRAGMA table_info(expenses)`)[0]?.values.map(r => r[1]) ?? [];
   if (!expCols.includes('paid_to_type')) db.exec(`ALTER TABLE expenses ADD COLUMN paid_to_type TEXT`);       // 'general' | 'member' | 'manager'
