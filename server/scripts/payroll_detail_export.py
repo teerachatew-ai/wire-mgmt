@@ -804,13 +804,14 @@ def write_deduction_sheet(m):
     HALF = (PAGE_PT[1] - 2 * MARGIN_TB) / fit / 2 * 0.985   # เผื่อ 1.5% กันล้นเป็น 2 หน้า
 
     def sign_off(row, start, reserve):
-        used = sum((ws.row_dimensions[r].height or 15) for r in range(start, row))
-        sig_h = 28
-        ws.row_dimensions[row].height = max(10, HALF - used - sig_h - reserve); row += 1
+        # ลายเซ็นอยู่ใต้ตารางเลย (เว้นระยะคงที่) — ช่องว่างยืดหยุ่นย้ายไปอยู่หลังลายเซ็น ส่วนนี้ยังสูงครบครึ่งหน้า รอยตัดยังอยู่กลางหน้า
+        ws.row_dimensions[row].height = 34; row += 1
         ws.merge_cells(f"A{row}:D{row}")
         cell(ws, f"A{row}", "ลงชื่อ ....................................................... ผู้รับทราบ (สมาชิก)        วันที่ ......... / ......... / .........",
              font=Font(name=FONT, size=12 * SL, color="111827"), align=ONE("center"))
-        ws.row_dimensions[row].height = sig_h; row += 1
+        ws.row_dimensions[row].height = 28; row += 1
+        used = sum((ws.row_dimensions[r].height or 15) for r in range(start, row))
+        ws.row_dimensions[row].height = max(4, HALF - used - reserve); row += 1
         return row
 
     def part(row, who, reserve=0):
