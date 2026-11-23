@@ -349,7 +349,11 @@ export default function Dashboard() {
                 <span className="text-[11px] font-medium text-slate-500">฿{thb2(m.computed)}</span>
               </div>
               <div className="flex justify-between -mt-0.5">
-                <span className="text-[10px] text-slate-300 pl-6">{m.compensation_type === 'percent' ? `ค่าตอบแทน ${m.rate}% ของรายได้` : 'ค่าตอบแทนคงที่'}</span>
+                <span className={`text-[10px] pl-6 ${m.overridden ? 'text-amber-600' : 'text-slate-300'}`}>{m.overridden
+                  ? (m.compensation_type === 'percent'
+                    ? `ค่าตอบแทน ${m.override_value}% ของรายได้ — กำหนดเฉพาะเดือนนี้ (อัตราปกติ ${m.rate}%)`
+                    : `ค่าตอบแทนกำหนดเฉพาะเดือนนี้ (ปกติ ฿${thb2(m.rate)})`)
+                  : m.compensation_type === 'percent' ? `ค่าตอบแทน ${m.rate}% ของรายได้` : 'ค่าตอบแทนคงที่'}</span>
                 <span className="text-[10px] text-slate-300">฿{thb2(m.formula_amount)}</span>
               </div>
               {m.extra_amount > 0 && (

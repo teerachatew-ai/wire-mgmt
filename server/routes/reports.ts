@@ -265,6 +265,8 @@ router.get('/performance', (req, res) => {
     return {
       id: m.id, name: m.name, role: m.role || '',
       compensation_type: m.compensation_type, rate: m.amount,
+      // กำหนดเฉพาะเดือนนี้ (manager_month) มีผลเหนืออัตราปกติ — ส่งไปให้หน้าเว็บบอกให้ชัด
+      overridden: !!m.overridden, override_value: m.override_value,
       formula_amount, extra_amount, computed: formula_amount + extra_amount,
     };
   });
