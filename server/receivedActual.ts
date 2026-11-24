@@ -22,6 +22,8 @@ export function lotKey(productId: number | string, receivedAt: string): LotKey {
    เกินเกณฑ์นี้ระบบจะไม่แตะ ปล่อยให้เห็นเป็นยอดค้าง (สีส้มในตารางเทียบรับเข้า-เบิกออก) ให้คนตรวจเอง */
 export const AUTO_CLOSE_MIN = 10;
 export const AUTO_CLOSE_PCT = 0.01;
+/* เบิกเกินยอดรับจริงของล็อตไม่เกิน 10% ถือว่าคลาดนับ/แจ้งขาดเกิน (ไม่ใช่ป้ายล็อตผิด) → ยกยอดรับจริงตามเดิม ไม่ย้ายใบเบิกข้ามล็อต */
+export const SMALL_OVER_PCT = 0.10;
 export const autoCloseTolerance = (lotQty: number) => Math.max(AUTO_CLOSE_MIN, Math.round(lotQty * AUTO_CLOSE_PCT));
 
 export type LotRow = {
@@ -120,6 +122,12 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     //     กติกาใหม่: เรียงใบเบิกตามเวลา → หักล็อตที่ติดป้ายเท่าที่ล็อตนั้นเหลือก่อน
     //     ส่วนที่เกิน ไหลไปล็อตเก่าสุดที่ "มาถึงแล้ว ณ วันที่เบิก" และยังเหลือ (FIFO เหมือนใบเบิกไม่ระบุล็อต)
     //     ไม่มีที่ให้หักจริงๆ ค่อยปล่อยไว้ที่ล็อตตามป้าย (เห็นเป็นติดลบสีแดงให้คนตรวจ)
+    //     คลาดเล็กน้อย (ไม่เกิน max(เกณฑ์ autoCloseTolerance, 10% ของล็อต)) ยังใช้วิธีเดิม = ยกยอดรับจริงขึ้นเท่ายอดเบิก ไม่ย้ายใบเบิกข้ามล็อต
+    //     (ความคลาดไม่กี่เส้นคือโรงงานนับต่าง/สมาชิกแจ้ง ไม่ใช่ป้ายผิด — ย้ายแล้วล็อตอื่นเพี้ยนตามโดยไม่จำเป็น)
+    for (const l of lots) {
+      const over = l.tagged - (l.actual + l.adjusted);
+      if (!l.manual && over > 0 && over <= Math.max(autoCloseTolerance(l.actual), Math.round(l.actual * SMALL_OVER_PCT))) l.actual = l.tagged - l.adjusted;
+    }
     const tg = taggedIssuesOf.get(pid) || [];
     if (tg.length > 0) {
       const left = new Map<string, number>(lots.map(l => [l.lot_date, l.actual + l.adjusted]));
