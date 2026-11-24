@@ -32,7 +32,7 @@ export type LotRow = {
   counted: number;     // ยอดตามใบส่งของ แทนด้วยยอดนับเองในใบที่นับไว้
   reported: number;    // ส่วนต่างที่สมาชิกแจ้งหลังรับของ
   tagged: number;      // เบิกที่ระบุล็อตนี้ (รวมส่วนที่ยกมาจากล็อตก่อนหน้า ดู carried)
-  carried: number;     // ส่วนที่ใบเบิกระบุล็อตก่อนหน้าแต่เบิกเกินของในล็อตนั้น จึงยกมาหักล็อตนี้แทน
+  carried: number;     // ส่วนต่างจากการจัดสรรใบเบิกใหม่ (+ รับมาจากใบเบิกที่ติดป้ายล็อตอื่น / − ย้ายออกไปล็อตอื่น)
   untagged: number;    // เบิกที่ไม่ได้ระบุล็อต ซึ่งระบบจัดสรรมาให้ล็อตนี้
   auto: number;        // ระบบปรับอัตโนมัติ (+ ของเกินเล็กน้อย / − ปิดล็อตที่เหลือเศษ)
   actual: number;      // ยอดรับจริงสุดท้าย
@@ -69,6 +69,13 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     SELECT product_id, lot_date d, SUM(quantity) q, SUM(quantity - COALESCE(orig_quantity, quantity)) rep
     FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} GROUP BY product_id, lot_date`).all(STOCK_CUTOFF) as any[]) {
     tagged.set(lotKey(r.product_id, r.d), { qty: Number(r.q) || 0, reported: Number(r.rep) || 0 });
+  }
+  const taggedIssuesOf = new Map<number, { d: string; lot: string; q: number }[]>();
+  for (const r of prepare(`
+    SELECT id, product_id, substr(issued_at, 1, 10) d, substr(lot_date, 1, 10) lot, quantity q
+    FROM issues WHERE lot_date IS NOT NULL AND lot_date >= ?${where} ORDER BY issued_at, id`).all(STOCK_CUTOFF) as any[]) {
+    if (!taggedIssuesOf.has(r.product_id)) taggedIssuesOf.set(r.product_id, []);
+    taggedIssuesOf.get(r.product_id)!.push({ d: r.d, lot: r.lot, q: Number(r.q) || 0 });
   }
   const wadj = new Map<LotKey, number>();
   for (const r of prepare(`SELECT product_id, lot_date d, SUM(quantity) q FROM waiting_adjustments
@@ -107,17 +114,38 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
     lots.sort((a, b) => a.lot_date.localeCompare(b.lot_date));
     const unt = untaggedOf.get(pid) || [];
 
-    // 1b) ใบเบิกที่ระบุล็อตแต่เบิกเกินของในล็อตนั้น → ส่วนเกินยกไปหักล็อตถัดไป (ต่อเนื่องได้หลายล็อต)
-    //     ล็อตที่นับเอง (manual) ไม่ยก · ล็อตล่าสุดไม่มีล็อตถัดไป → ยกยอดรับจริงขึ้นเท่ายอดเบิก (พฤติกรรมเดิม)
-    for (let i = 0; i < lots.length; i++) {
-      const l = lots[i];
-      if (l.manual) continue;
-      const excess = l.tagged - l.actual;
-      if (excess <= 0) continue;
-      if (i < lots.length - 1) {
-        l.tagged -= excess; lots[i + 1].tagged += excess; lots[i + 1].carried += excess;
-      } else {
-        l.actual = l.tagged;
+    // 1b) จัดสรรใบเบิกที่ระบุล็อตใหม่ — ป้ายล็อตเป็นแค่ "คำใบ้" ไม่ใช่ความจริง
+    //     เจ้าหน้าที่ติดป้ายผิดบ่อย (เช่น เบิก 10,000 เส้นวันที่ 17 พ.ย. ติดป้ายล็อต 3 พ.ย. ที่รับมาแค่ 4,000)
+    //     เดิมระบบเชื่อป้าย แล้วดันยอดรับจริงของล็อตขึ้นให้พอ → ล็อต 3 พ.ย. ใบส่งของ 5,000 โชว์ 10,762
+    //     กติกาใหม่: เรียงใบเบิกตามเวลา → หักล็อตที่ติดป้ายเท่าที่ล็อตนั้นเหลือก่อน
+    //     ส่วนที่เกิน ไหลไปล็อตเก่าสุดที่ "มาถึงแล้ว ณ วันที่เบิก" และยังเหลือ (FIFO เหมือนใบเบิกไม่ระบุล็อต)
+    //     ไม่มีที่ให้หักจริงๆ ค่อยปล่อยไว้ที่ล็อตตามป้าย (เห็นเป็นติดลบสีแดงให้คนตรวจ)
+    const tg = taggedIssuesOf.get(pid) || [];
+    if (tg.length > 0) {
+      const left = new Map<string, number>(lots.map(l => [l.lot_date, l.actual + l.adjusted]));
+      const got = new Map<string, number>(lots.map(l => [l.lot_date, 0]));
+      const take = (d: string, q: number) => {
+        const t = Math.min(q, Math.max(0, left.get(d) || 0));
+        if (t > 0) { left.set(d, (left.get(d) || 0) - t); got.set(d, (got.get(d) || 0) + t); }
+        return q - t;
+      };
+      for (const u of tg) {
+        let rest = u.q;
+        if (left.has(u.lot)) rest = take(u.lot, rest);
+        for (const l of lots) { if (rest <= 0) break; if (l.lot_date <= u.d) rest = take(l.lot_date, rest); }
+        for (const l of lots) { if (rest <= 0) break; if (l.lot_date > u.d) rest = take(l.lot_date, rest); }
+        if (rest > 0) {
+          const home = got.has(u.lot) ? u.lot : lots[lots.length - 1].lot_date;
+          got.set(home, (got.get(home) || 0) + rest);
+        }
+      }
+      for (const l of lots) {
+        const g = got.get(l.lot_date) || 0;
+        l.carried = g - l.tagged;
+        l.tagged = g;
+        // เบิกเกินของที่รับทั้งหมดจริงๆ (ทุกล็อตหมดแล้ว) → ยกยอดรับจริงขึ้นเท่ายอดเบิกเหมือนเดิม (ใบรับอาจยังไม่ได้บันทึก)
+        // ล็อตที่คนนับเอง (manual) ไม่ยก — ให้เห็นเป็นติดลบสีแดง
+        if (!l.manual && l.tagged > l.actual + l.adjusted) l.actual = l.tagged - l.adjusted;
       }
     }
 
