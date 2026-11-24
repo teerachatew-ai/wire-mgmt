@@ -31,7 +31,8 @@ export type LotRow = {
   manual: boolean;     // มีใบรับในล็อตนี้ที่นับเองแล้ว (ระบบไม่ปรับอัตโนมัติทับ)
   counted: number;     // ยอดตามใบส่งของ แทนด้วยยอดนับเองในใบที่นับไว้
   reported: number;    // ส่วนต่างที่สมาชิกแจ้งหลังรับของ
-  tagged: number;      // เบิกที่ระบุล็อตนี้
+  tagged: number;      // เบิกที่ระบุล็อตนี้ (รวมส่วนที่ยกมาจากล็อตก่อนหน้า ดู carried)
+  carried: number;     // ส่วนที่ใบเบิกระบุล็อตก่อนหน้าแต่เบิกเกินของในล็อตนั้น จึงยกมาหักล็อตนี้แทน
   untagged: number;    // เบิกที่ไม่ได้ระบุล็อต ซึ่งระบบจัดสรรมาให้ล็อตนี้
   auto: number;        // ระบบปรับอัตโนมัติ (+ ของเกินเล็กน้อย / − ปิดล็อตที่เหลือเศษ)
   actual: number;      // ยอดรับจริงสุดท้าย
@@ -87,13 +88,14 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
   for (const r of recv) {
     const t = tagged.get(lotKey(r.product_id, r.d)) || { qty: 0, reported: 0 };
     const counted = Number(r.counted) || 0;
-    // ปกติยอดรับจริงไม่ต่ำกว่ายอดที่เบิกระบุล็อตนี้ (เบิกได้ = ของมีจริง) — แต่ล็อตที่คนกำหนด/นับยอดเองแล้ว
-    // ใช้ตามที่กรอกเป๊ะ แม้น้อยกว่าที่เบิก (ล็อตติดลบ = ใบเบิกระบุล็อตผิด/เบิกเกิน ให้เห็นเป็นสีแดง)
-    // เดิมยกขึ้นเท่ายอดเบิกเงียบๆ → กรอก 6,005 แล้วระบบโชว์ 6,046 เหมือนแก้ไม่ได้
-    const base = r.n_manual > 0 ? counted + t.reported : Math.max(counted + t.reported, t.qty);
+    // ยอดตั้งต้น = นับเอง/ใบส่งของ + ที่สมาชิกแจ้ง — ไม่ดันขึ้นตามยอดเบิกที่ระบุล็อตอีกต่อไป
+    // (ใบเบิกทั้งวันถูกผูกเข้าล็อตเดียวได้ → ดันยอดแล้วล็อต 3 พ.ย. ใบส่งของ 5,000 โชว์ 10,762)
+    // ส่วนที่เบิกเกินของในล็อต ยกไปหักล็อตถัดไปแทน (ขั้น 1b) · ล็อตล่าสุดที่ไม่มีล็อตถัดไปให้ยกยอดตามเดิม
+    // ล็อตที่คนนับเองแล้วใช้ตามที่กรอกเป๊ะ แม้น้อยกว่าที่เบิก (ติดลบ = เห็นเป็นสีแดง)
+    const base = counted + t.reported;
     const row: LotRow = {
       product_id: r.product_id, lot_date: r.d, note: Number(r.note) || 0, manual: Number(r.n_manual) > 0,
-      counted, reported: t.reported, tagged: t.qty, untagged: 0, auto: 0, actual: base,
+      counted, reported: t.reported, tagged: t.qty, carried: 0, untagged: 0, auto: 0, actual: base,
       adjusted: wadj.get(lotKey(r.product_id, r.d)) || 0, remaining: 0,
     };
     if (!byProduct.has(r.product_id)) byProduct.set(r.product_id, []);
@@ -104,6 +106,20 @@ export function computeLots(productId?: number, allocOut?: Map<number, Map<strin
   for (const [pid, lots] of byProduct) {
     lots.sort((a, b) => a.lot_date.localeCompare(b.lot_date));
     const unt = untaggedOf.get(pid) || [];
+
+    // 1b) ใบเบิกที่ระบุล็อตแต่เบิกเกินของในล็อตนั้น → ส่วนเกินยกไปหักล็อตถัดไป (ต่อเนื่องได้หลายล็อต)
+    //     ล็อตที่นับเอง (manual) ไม่ยก · ล็อตล่าสุดไม่มีล็อตถัดไป → ยกยอดรับจริงขึ้นเท่ายอดเบิก (พฤติกรรมเดิม)
+    for (let i = 0; i < lots.length; i++) {
+      const l = lots[i];
+      if (l.manual) continue;
+      const excess = l.tagged - l.actual;
+      if (excess <= 0) continue;
+      if (i < lots.length - 1) {
+        l.tagged -= excess; lots[i + 1].tagged += excess; lots[i + 1].carried += excess;
+      } else {
+        l.actual = l.tagged;
+      }
+    }
 
     // 2) ปิดกลุ่มล็อตเก่าทีละขั้น (กลุ่ม = ล็อตแรกถึงล็อต i เมื่อล็อต i+1 มาถึงแล้ว)
     for (let i = 0; i < lots.length - 1; i++) {
