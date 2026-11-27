@@ -3,6 +3,12 @@ import { prepare, nextCode, randomToken } from '../db';
 
 const router = Router();
 
+// เลขที่พนักงานถัดไป — ต่อจากเลขสูงสุด (รวมคนที่พักงานแล้ว เลขของเขาจะไม่ถูกแจกซ้ำ)
+function nextStaffNo(): number {
+  const r = prepare(`SELECT COALESCE(MAX(staff_no), 0) AS n FROM members`).get() as any;
+  return Number(r?.n || 0) + 1;
+}
+
 router.get('/', (req, res) => {
   const { q, status } = req.query;
   let sql = `SELECT m.*,
@@ -46,14 +52,14 @@ router.post('/', (req, res) => {
   const consent = pdpa_consent ? 1 : 0;
   const consentAt = consent ? new Date().toISOString().split('T')[0] : null;
   const result = prepare(
-    `INSERT INTO members (code, name, nickname, id_card, phone, address, bank_account, bank_name, registered_at, pdpa_consent, pdpa_consent_at, dob, id_card_photo, portal_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(code, name, nickname || null, id_card || null, phone || null, address || null, bank_account || null, bank_name || null, registered_at || new Date().toISOString().split('T')[0], consent, consentAt, dob || null, sanitizePhoto(id_card_photo), randomToken());
+    `INSERT INTO members (code, name, nickname, id_card, phone, address, bank_account, bank_name, registered_at, pdpa_consent, pdpa_consent_at, dob, id_card_photo, portal_token, staff_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(code, name, nickname || null, id_card || null, phone || null, address || null, bank_account || null, bank_name || null, registered_at || new Date().toISOString().split('T')[0], consent, consentAt, dob || null, sanitizePhoto(id_card_photo), randomToken(), nextStaffNo());
   res.json(prepare(`SELECT * FROM members WHERE id = ?`).get(result.lastInsertRowid));
 });
 
 router.put('/:id', (req, res) => {
   const { name, nickname, id_card, phone, address, bank_account, bank_name, status, pdpa_consent, dob, id_card_photo } = req.body;
-  const existing = prepare(`SELECT pdpa_consent, pdpa_consent_at, id_card_photo FROM members WHERE id = ?`).get(req.params.id) as any;
+  const existing = prepare(`SELECT pdpa_consent, pdpa_consent_at, id_card_photo, status, staff_no FROM members WHERE id = ?`).get(req.params.id) as any;
   const consent = pdpa_consent ? 1 : 0;
   // keep original consent date if already consented; set today when newly consenting
   const consentAt = consent ? (existing?.pdpa_consent_at || new Date().toISOString().split('T')[0]) : null;
@@ -61,7 +67,20 @@ router.put('/:id', (req, res) => {
   const photo = id_card_photo === undefined ? (existing?.id_card_photo ?? null) : sanitizePhoto(id_card_photo);
   prepare(`UPDATE members SET name=?, nickname=?, id_card=?, phone=?, address=?, bank_account=?, bank_name=?, status=?, pdpa_consent=?, pdpa_consent_at=?, dob=?, id_card_photo=? WHERE id=?`)
     .run(name, nickname || null, id_card || null, phone || null, address || null, bank_account || null, bank_name || null, status || 'active', consent, consentAt, dob || null, photo, req.params.id);
+  // กลับมาใช้งานจากพักงานและยังไม่เคยมีเลขที่พนักงาน → ให้เลขต่อท้าย (คนที่เคยมีเลขแล้วใช้เลขเดิม)
+  if (existing && existing.status !== 'active' && (status || 'active') === 'active' && existing.staff_no == null) {
+    prepare(`UPDATE members SET staff_no = ? WHERE id = ?`).run(nextStaffNo(), req.params.id);
+  }
   res.json(prepare(`SELECT * FROM members WHERE id = ?`).get(req.params.id));
+});
+
+// เพิ่มสมาชิกเดิมที่ยังไม่มีเลขที่เข้ารายชื่อพนักงาน (รันเลขต่อท้าย)
+router.post('/:id/staff-no', (req, res) => {
+  const m = prepare(`SELECT id, status, staff_no FROM members WHERE id = ?`).get(req.params.id) as any;
+  if (!m) return res.status(404).json({ error: 'ไม่พบสมาชิก' });
+  if (m.status !== 'active') return res.status(400).json({ error: 'สมาชิกคนนี้พักงานอยู่' });
+  if (m.staff_no == null) prepare(`UPDATE members SET staff_no = ? WHERE id = ?`).run(nextStaffNo(), req.params.id);
+  res.json(prepare(`SELECT id, code, name, nickname, staff_no FROM members WHERE id = ?`).get(req.params.id));
 });
 
 // แต่งตั้ง/ถอดตำแหน่งแอดมิน — 'lifter' (ช่วยยกงาน) · 'admin' (แอดมินทั่วไป) · null (สมาชิกทั่วไป)

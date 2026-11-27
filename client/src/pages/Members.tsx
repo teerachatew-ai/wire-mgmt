@@ -9,6 +9,7 @@ import { useBulkSelect, bulkDelete, bulkDeleteSummary } from '../utils/bulkSelec
 import { compressImageToDataUrl } from '../utils/compressImage';
 import QRCode from 'qrcode';
 import MemberSpeed from '../components/MemberSpeed';
+import StaffList from '../components/StaffList';
 import { AdminRolePicker } from '../components/AdminRole';
 
 // ลิงก์พอร์ทัลส่วนตัวของสมาชิก (ใช้ origin ของเว็บปัจจุบัน ใช้ได้ทั้ง local/deploy)
@@ -704,6 +705,7 @@ function HistoryModal({ member, onClose }: { member: any; onClose: () => void })
 export default function Members() {
   const qc = useQueryClient();
   const [q, setQ] = useState('');
+  const [tab, setTab] = useState<'all' | 'staff'>('all');
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editing, setEditing] = useState<any>(null);
   const [apiError, setApiError] = useState('');
@@ -816,6 +818,18 @@ export default function Members() {
         </div>
       </div>
 
+      <div className="flex gap-1 border-b">
+        {([['all', 'ทะเบียนทั้งหมด'], ['staff', 'พนักงานที่ใช้งาน']] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'staff' && <StaffList members={all} />}
+
+      {tab === 'all' && <>
       {/* Summary dashboard — grouped */}
       <div className="grid md:grid-cols-2 gap-3">
         {/* กลุ่ม 1: สถานะสมาชิก */}
@@ -1000,6 +1014,8 @@ export default function Members() {
           </tbody>
         </table>
       </div>
+
+      </>}
 
       {history && <HistoryModal member={history} onClose={() => setHistory(null)} />}
       {qrMember && <QrModal member={qrMember} onClose={() => setQrMember(null)} />}

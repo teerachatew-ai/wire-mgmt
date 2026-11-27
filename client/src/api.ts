@@ -17,6 +17,7 @@ export const memberApi = {
   create: (data: any) => api.post('/members', data).then(r => r.data),
   update: (id: number, data: any) => api.put(`/members/${id}`, data).then(r => r.data),
   delete: (id: number, force = false) => api.delete(`/members/${id}${force ? '?force=1' : ''}`).then(r => r.data),
+  assignStaffNo: (id: number) => api.post(`/members/${id}/staff-no`).then(r => r.data),
   setRole: (id: number, admin_role: 'lifter' | 'admin' | null) => api.patch(`/members/${id}/role`, { admin_role }).then(r => r.data),
 };
 

@@ -52,6 +52,7 @@ function createTriggers() {
 const SKIP = /-export|\/ng-preview|\/issue-lots|^\/(ocr|smartcard|line|export)\b|^\/audit(?!\/\d+\/revert)/;   // การย้อน (revert) ต้องถูกบันทึกด้วย
 
 const ACTIONS: [RegExp, string, string][] = [
+  [/^POST \/members\/\d+\/staff-no$/, 'ให้เลขที่พนักงาน', 'สมาชิก'],
   [/^POST \/issues$/, 'สร้างใบเบิก', 'เบิก'],
   [/^POST \/issues\/batch$/, 'สร้างใบเบิก (หลายรายการ)', 'เบิก'],
   [/^PATCH \/issues\/\d+\/quantity$/, 'แก้ยอดเบิก', 'เบิก'],

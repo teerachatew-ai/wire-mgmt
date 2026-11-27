@@ -343,6 +343,14 @@ CREATE TABLE IF NOT EXISTS managers (
     }
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_members_portal_token ON members(portal_token)`);
   }
+  if (!memberCols.includes('staff_no')) {
+    // เลขที่พนักงาน (โมดูลย่อย "พนักงานที่ใช้งาน") — แยกจากรหัสสมาชิก M0xx
+    // เติมค่าตั้งต้นครั้งเดียวตอนสร้างคอลัมน์ ตามลำดับในใบแจกงานของเจ้าของ (ไฟล์ 27-11.xlsx)
+    db.exec(`ALTER TABLE members ADD COLUMN staff_no INTEGER`);
+    const initialOrder = ['M034', 'M049', 'M039', 'M065', 'M085', 'M021', 'M018', 'M019', 'M074', 'M028',
+      'M029', 'M008', 'M072', 'M087', 'M088', 'M041', 'M078', 'M076', 'M054'];
+    initialOrder.forEach((code, i) => db.run(`UPDATE members SET staff_no = ? WHERE code = ?`, [i + 1, code]));
+  }
   const productCols = db.exec(`PRAGMA table_info(products)`)[0]?.values.map(r => r[1]) ?? [];
   if (!productCols.includes('factory_price')) {
     db.exec(`ALTER TABLE products ADD COLUMN factory_price REAL NOT NULL DEFAULT 0`);

@@ -2,6 +2,7 @@ import { memo } from 'react';
 import { Eye, Pencil, RotateCcw, Trash2, X, History } from 'lucide-react';
 import { parseProductLabel } from '../projectLabel';
 import { sortByColorGroup } from '../productOrder';
+import { compareStaff } from '../utils/staffOrder';
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
@@ -95,7 +96,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
         for (const i of rows) {
           const key = String(i.member_id ?? i.member_code ?? i.member_name);
           const m = (memMap[key] ??= {
-            key, code: i.member_code, name: i.member_name, nickname: i.member_nickname,
+            key, code: i.member_code, staffNo: i.member_staff_no, name: i.member_name, nickname: i.member_nickname,
             qty: {} as Record<string, number>, items: {} as Record<string, any[]>,
             total: 0, returned: 0, lastReturnedAt: '',
           });
@@ -109,8 +110,7 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
           // วันที่คืนงานล่าสุดของงานทุกชนิดที่เบิกวันนี้ — ใช้โชว์เป็น "วันที่คืนครบ" ตอนไม่มีค้างส่งแล้ว
           if (i.last_returned_at && i.last_returned_at > m.lastReturnedAt) m.lastReturnedAt = i.last_returned_at;
         }
-        const members = Object.values(memMap).sort((a: any, b: any) =>
-          String(a.code || '').localeCompare(String(b.code || ''), 'th'));
+        const members = Object.values(memMap).sort((a: any, b: any) => compareStaff(a.staffNo, a.code, b.staffNo, b.code));
 
         const colTotal = (p: string) => members.reduce((s: number, m: any) => s + (m.qty[p] || 0), 0);
         const grandTotal = members.reduce((s: number, m: any) => s + m.total, 0);
@@ -202,12 +202,14 @@ function IssueMatrix({ issues, onOpen, onEdit, onEditRow, onReturnRow, onDeleteR
                               onClick={() => onEditRow({ date, memberCode: m.code, memberName: m.name, items: Object.values(m.items).flat() })}
                               title="คลิกเพื่อแก้จำนวน/วันที่ของงานทุกชนิดที่คนนี้เบิกวันนี้"
                               className="text-left hover:underline decoration-dotted underline-offset-2 cursor-pointer">
+                              {m.staffNo != null && <span className="inline-block min-w-[1.5rem] mr-1 font-bold tabular-nums text-gray-800">{m.staffNo}.</span>}
                               <span className="font-mono text-[11px] text-gray-400 mr-1.5">{m.code}</span>
                               <span className="font-medium text-gray-800 hover:text-blue-700">{m.name}</span>
                               {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}
                             </button>
                           ) : (
                             <>
+                              {m.staffNo != null && <span className="inline-block min-w-[1.5rem] mr-1 font-bold tabular-nums text-gray-800">{m.staffNo}.</span>}
                               <span className="font-mono text-[11px] text-gray-400 mr-1.5">{m.code}</span>
                               <span className="font-medium text-gray-800">{m.name}</span>
                               {nickOf(m.name, m.nickname) && <span className="text-xs text-gray-400"> ({m.nickname})</span>}

@@ -6,6 +6,7 @@ import { issueApi, memberApi, productApi, receiveApi, ocrApi } from '../api';
 import { sortByColorGroup } from '../productOrder';
 import { parseProductLabel } from '../projectLabel';
 import { parseDailyWorkbook, DailySheet } from '../utils/dailySheetParser';
+import { compareStaff } from '../utils/staffOrder';
 
 /* ── นำเข้าใบเบิกจากรูป / PDF / Excel (ใบรายชื่อผู้รับสายไฟรายวัน) ──
    1) เลือกไฟล์ + วันที่เบิก → server อ่านใบด้วย AI แล้วจับคู่ชื่อ→สมาชิก, หัวคอลัมน์→ชนิดงาน
@@ -34,7 +35,8 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
   const [sheets, setSheets] = useState<DailySheet[] | null>(null);   // ชีตแบบฟอร์มที่อ่านได้จาก Excel
   const [sheetIdx, setSheetIdx] = useState(0);
 
-  const active = useMemo(() => (members as any[]).filter(m => m.status === 'active'), [members]);
+  const active = useMemo(() => (members as any[]).filter(m => m.status === 'active')
+    .sort((a, b) => compareStaff(a.staff_no, a.code, b.staff_no, b.code)), [members]);
   const prodById = useMemo(() => new Map((products as any[]).map(p => [p.id, p])), [products]);
   const orderedCols = useMemo(() => sortByColorGroup(cols.map(id => prodById.get(id)).filter(Boolean) as any[], (p: any) => p.name, (p: any) => p.color).map((p: any) => p.id), [cols, prodById]);
 
@@ -205,7 +207,7 @@ export default function ImportIssuesModal({ onClose }: { onClose: () => void }) 
                             <select className={`input !min-h-[34px] !py-0 text-sm w-full ${!r.member_id ? '!border-amber-400' : ''}`} value={r.member_id ?? ''} disabled={r.status === 'ok'}
                               onChange={e => upd(r.key, { member_id: e.target.value ? Number(e.target.value) : null, conf: 'high' })}>
                               <option value="">— เลือกสมาชิก —</option>
-                              {active.map((m: any) => <option key={m.id} value={m.id}>{m.code} {m.nickname || m.name}{m.nickname ? ` (${m.name})` : ''}</option>)}
+                              {active.map((m: any) => <option key={m.id} value={m.id}>{m.staff_no != null ? `${m.staff_no}. ` : ''}{m.code} {m.nickname || m.name}{m.nickname ? ` (${m.name})` : ''}</option>)}
                             </select>
                             {r.member_id && dupIds.has(r.member_id) && <div className="text-[11px] text-amber-700">ชื่อซ้ำกับแถวอื่น</div>}
                             {r.member_id && r.conf === 'low' && !dupIds.has(r.member_id) && <div className="text-[11px] text-amber-700">ไม่แน่ใจ ช่วยตรวจ</div>}

@@ -197,7 +197,7 @@ for day in d["days"]:
     # หน้า A4 ≈ 777pt ÷ อัตราย่อบนเซิร์ฟเวอร์ ~0.8 ≈ 970pt (เผื่อไว้ 950) · สมาชิก 1 คน = 22+24+24+20+20 = 110pt
     ROW_H = (22, 24, 24, 20, 20)
     PAGE_H, BLOCK_H, used_h = 1080, sum(ROW_H), 15 + 26 + 15 + 5 + 64
-    for gi, code in enumerate(sorted(by_member)):
+    for gi, code in enumerate(by_member):   # ลำดับตามที่ server ส่งมา (เลขที่พนักงาน)
         group = by_member[code]
         issued, rets, ngf, ngm = {}, {}, {}, {}    # rets: date -> {product: qty} · ngf/ngm: product -> NG รวมทุกงวด
         for l in group:

@@ -2168,7 +2168,8 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
   if (filters.from) { sql += ` AND i.issued_at >= ?`; params.push(filters.from); }
   if (filters.to) { sql += ` AND i.issued_at <= ?`; params.push(filters.to); }
   sql += pickSql('i.issued_at'); params.push(...pick);
-  sql += ` ORDER BY i.issued_at, m.code`;
+  // เรียงตามเลขที่พนักงาน (คนที่ยังไม่มีเลขต่อท้าย เรียงตามรหัส) — ลำดับนี้ใช้ทั้งไฟล์ Excel และ PDF ใบคุมเบิก-คืน
+  sql += ` ORDER BY i.issued_at, (m.staff_no IS NULL), m.staff_no, m.code`;
   const issueRows = prepare(sql).all(...params) as any[];
 
   let rsql = `SELECT r.received_at, r.quantity, p.name as product_name, p.color, p.unit
@@ -2227,7 +2228,8 @@ function buildIssueDaily(filters: { date?: string; from?: string; to?: string; s
   }
 
   const days = Object.keys(dayMap).sort().map(dt => {
-    const members = Object.values(dayMap[dt].memberMap).sort((a: any, b: any) => a.member_code.localeCompare(b.member_code));
+    // ลำดับคนตามที่ query เรียงมาแล้ว (memberMap คงลำดับที่ใส่)
+    const members = Object.values(dayMap[dt].memberMap);
     return { date: dt, members, member_count: members.length, receives: receiveByDay[dt] || {}, lines: linesByDay[dt] || [] };
   });
 

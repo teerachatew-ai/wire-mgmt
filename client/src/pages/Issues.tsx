@@ -294,7 +294,7 @@ function CreateIssueModal({ members, products, stockMap = {}, onClose, onCreated
         {/* ② สมาชิก */}
         <div>
           <label className="label">สมาชิก *</label>
-          <MemberSelect members={members} value={memberId} onChange={setMemberId} activeOnly autoOpenKey={memberOpenKey} />
+          <MemberSelect members={members} value={memberId} onChange={setMemberId} activeOnly autoOpenKey={memberOpenKey} byStaffNo />
         </div>
 
         {/* ③ จำนวน — ทุกชนิดโชว์พร้อมช่องกรอกเลย ไม่ต้องเลือกจาก dropdown */}
@@ -568,6 +568,7 @@ function EditIssueModal({ issue, members, products, onClose, onSaved }: any) {
         <div>
           <label className="label">สมาชิก *</label>
           <MemberSelect
+            byStaffNo
             members={members}
             value={memberId}
             onChange={(id) => setValue('member_id', id, { shouldValidate: true })}
@@ -668,7 +669,7 @@ function TransferDialog({ row, members, onClose, onDone }: { row: MatrixRow; mem
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
           <div>
             <label className="label">โอนให้</label>
-            <MemberSelect members={members.filter((m: any) => m.id !== fromMemberId)} value={to} onChange={setTo} activeOnly />
+            <MemberSelect members={members.filter((m: any) => m.id !== fromMemberId)} value={to} onChange={setTo} activeOnly byStaffNo />
           </div>
           <div>
             <label className="label" htmlFor="transfer-date">วันที่มีผล</label>

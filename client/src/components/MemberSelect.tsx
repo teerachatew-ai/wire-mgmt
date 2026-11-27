@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, X, Check, ChevronDown } from 'lucide-react';
+import { compareStaff } from '../utils/staffOrder';
 
 interface Member {
   id: number;
@@ -9,6 +10,7 @@ interface Member {
   status?: string;
   grade?: string;
   batch_count?: number;
+  staff_no?: number | null;
 }
 
 const gradeStyle: Record<string, string> = {
@@ -26,10 +28,12 @@ interface Props {
   activeOnly?: boolean;
   /** เปลี่ยนค่านี้เมื่อไหร่ = เปิดช่องค้นหาให้อัตโนมัติ (ใช้ตอนเบิกต่อเนื่องหลายคน ไม่ต้องกดเปิดเองทุกรอบ) */
   autoOpenKey?: number;
+  /** ใช้ในงานเบิก: เรียงตามเลขที่พนักงานแทนเกรด และโชว์เลขหน้าชื่อ */
+  byStaffNo?: boolean;
 }
 
 /* Searchable member picker — filter by name / nickname / code */
-export default function MemberSelect({ members, value, onChange, placeholder = 'ค้นหาชื่อ-สกุล หรือชื่อเล่น...', activeOnly = false, autoOpenKey }: Props) {
+export default function MemberSelect({ members, value, onChange, placeholder = 'ค้นหาชื่อ-สกุล หรือชื่อเล่น...', activeOnly = false, autoOpenKey, byStaffNo = false }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -66,12 +70,13 @@ export default function MemberSelect({ members, value, onChange, placeholder = '
       (m.nickname ?? '').toLowerCase().includes(q) ||
       m.code.toLowerCase().includes(q)
     );
+    if (byStaffNo) return [...list].sort((a, b) => compareStaff(a.staff_no, a.code, b.staff_no, b.code));
     // เรียงตามเกรด (A ก่อน) เพื่อให้แจกงานคนเกรดดีก่อน
     return [...list].sort((a, b) =>
       (gradeRank[a.grade ?? 'A'] ?? 0) - (gradeRank[b.grade ?? 'A'] ?? 0)
       || a.code.localeCompare(b.code)
     );
-  }, [pool, query]);
+  }, [pool, query, byStaffNo]);
 
   // close on outside click
   useEffect(() => {
@@ -104,6 +109,7 @@ export default function MemberSelect({ members, value, onChange, placeholder = '
       >
         {selected ? (
           <span className="truncate">
+            {byStaffNo && selected.staff_no != null && <span className="font-bold text-gray-800 mr-1.5">{selected.staff_no}.</span>}
             <span className="font-mono text-xs text-blue-600 mr-1.5">{selected.code}</span>
             {selected.name}
             {selected.nickname && <span className="text-gray-400 ml-1">({selected.nickname})</span>}
@@ -145,6 +151,7 @@ export default function MemberSelect({ members, value, onChange, placeholder = '
                 onClick={() => pick(m)}
                 className={`w-full text-left px-4 py-2.5 flex items-center gap-2 hover:bg-blue-50 transition-colors ${String(m.id) === String(value) ? 'bg-blue-50' : ''}`}
               >
+                {byStaffNo && <span className="w-6 shrink-0 text-right font-bold tabular-nums text-gray-800">{m.staff_no ?? '-'}</span>}
                 <span className="font-mono text-xs text-blue-600 w-12 shrink-0">{m.code}</span>
                 <span className="flex-1 truncate">
                   {m.name}

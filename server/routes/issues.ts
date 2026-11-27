@@ -23,7 +23,7 @@ function calcIssueStatus(issueId: number) {
 router.get('/', (req, res) => {
   const { status, member_id, from, to, date } = req.query;
   let sql = `SELECT i.*,
-    m.name as member_name, m.code as member_code, m.nickname as member_nickname,
+    m.name as member_name, m.code as member_code, m.nickname as member_nickname, m.staff_no as member_staff_no,
     p.name as product_name, p.unit, p.wage_per_unit, p.color, p.project,
     COALESCE((SELECT SUM(good_qty) FROM returns WHERE issue_id = i.id),0) as returned_good,
     COALESCE((SELECT SUM(defect_qty) FROM returns WHERE issue_id = i.id),0) as returned_defect,
